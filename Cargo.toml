@@ -1,0 +1,52 @@
+[package]
+name = "ferrograph"
+version = "0.1.0"
+edition = "2021"
+description = "Graph-powered Rust code intelligence"
+license = "MIT"
+repository = "https://github.com/GarthDB/ferrograph"
+readme = "README.md"
+rust-version = "1.74"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+cozo = "0.7"
+thiserror = "1"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tree-sitter = "0.24"
+tree-sitter-rust = "0.24"
+walkdir = "2"
+rmcp = { version = "0.16", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
+notify = "6"
+[dev-dependencies]
+insta = "1"
+tempfile = "3"
+
+[build-dependencies]
+cc = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+[features]
+default = []
+search = []  # reserved for vector embeddings when fastembed/ort are unyanked
+git = ["dep:gix"]  # Phase 10: git change coupling
+ra = ["dep:ra_ap_ide"]  # Phase 2: rust-analyzer for trait/ownership/unsafe/macro
+
+[dependencies.gix]
+optional = true
+version = "0.67"
+
+[dependencies.ra_ap_ide]
+optional = true
+version = "0.0.309"
+
+[patch.crates-io]
+graph_builder = { path = "patches/graph_builder" }  # git coupling analysis (Phase 10)
