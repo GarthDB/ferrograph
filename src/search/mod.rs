@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use cozo::DataValue;
 
-use crate::graph::Store;
+use crate::graph::{cozo_str, Store};
 
 /// Run a text search over node payloads (substring match).
 ///
@@ -27,24 +27,10 @@ pub fn text_search(store: &Store, query: &str) -> Result<Vec<(String, String, Op
         .rows
         .iter()
         .map(|row| {
-            let id = row
-                .first()
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default();
-            let id = id.trim_matches('"').to_string();
-            let type_val = row
-                .get(1)
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default();
-            let type_val = type_val.trim_matches('"').to_string();
-            let payload = row
-                .get(2)
-                .map(|v| v.to_string().trim_matches('"').to_string());
-            let payload = if payload.as_deref() == Some("null") {
-                None
-            } else {
-                payload
-            };
+            let id = row.first().map(cozo_str).unwrap_or_default();
+            let type_val = row.get(1).map(cozo_str).unwrap_or_default();
+            let payload = row.get(2).map(cozo_str);
+            let payload = payload.filter(|p| p != "null");
             (id, type_val, payload)
         })
         .collect();

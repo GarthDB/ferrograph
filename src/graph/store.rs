@@ -42,10 +42,10 @@ impl Store {
     }
 
     fn init_schema(&self) -> Result<()> {
-        // Nodes: id => type, payload
+        // Nodes: idempotent create (ignore error if relation already exists on reopen)
         self.db
             .run_script(
-                ":create nodes { id: String => type: String, payload: String? }",
+                "%ignore_error { :create nodes { id: String => type: String, payload: String? } }",
                 BTreeMap::new(),
                 ScriptMutability::Mutable,
             )
@@ -53,7 +53,15 @@ impl Store {
         // Edges: composite key (from_id, to_id, edge_type)
         self.db
             .run_script(
-                ":create edges { from_id: String, to_id: String, edge_type: String }",
+                "%ignore_error { :create edges { from_id: String, to_id: String, edge_type: String } }",
+                BTreeMap::new(),
+                ScriptMutability::Mutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
+        // Dead functions (populated by pipeline phase 9)
+        self.db
+            .run_script(
+                "%ignore_error { :create dead_functions { id: String } }",
                 BTreeMap::new(),
                 ScriptMutability::Mutable,
             )
@@ -102,6 +110,26 @@ impl Store {
         Ok(())
     }
 
+    /// Remove a single edge by key.
+    ///
+    /// # Errors
+    /// Fails if the Cozo script or serialization fails.
+    pub fn remove_edge(&self, from: &NodeId, to: &NodeId, edge_type: &EdgeType) -> Result<()> {
+        let type_str = serde_json::to_string(edge_type)?;
+        let mut params = BTreeMap::new();
+        params.insert("from_id".to_string(), DataValue::from(from.0.as_str()));
+        params.insert("to_id".to_string(), DataValue::from(to.0.as_str()));
+        params.insert("edge_type".to_string(), DataValue::from(type_str.as_str()));
+        self.db
+            .run_script(
+                "?[from_id, to_id, edge_type] <- [[$from_id, $to_id, $edge_type]] :rm edges { from_id, to_id, edge_type }",
+                params,
+                ScriptMutability::Mutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
+        Ok(())
+    }
+
     /// Run a Datalog script (read-only).
     ///
     /// # Errors
@@ -134,6 +162,39 @@ impl Store {
             .run_script(
                 "{ ?[from_id, to_id, edge_type] := *edges[from_id, to_id, edge_type]; :rm edges { from_id, to_id, edge_type } }",
                 BTreeMap::new(),
+                ScriptMutability::Mutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
+        self.clear_dead_functions()?;
+        Ok(())
+    }
+
+    /// Clear the `dead_functions` relation (called by `clear()` and before repopulating).
+    ///
+    /// # Errors
+    /// Fails if the Cozo script fails.
+    pub fn clear_dead_functions(&self) -> Result<()> {
+        self.db
+            .run_script(
+                "{ ?[id] := *dead_functions[id]; :rm dead_functions { id } }",
+                BTreeMap::new(),
+                ScriptMutability::Mutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
+        Ok(())
+    }
+
+    /// Insert a single id into the `dead_functions` relation.
+    ///
+    /// # Errors
+    /// Fails if the Cozo script fails.
+    pub fn put_dead_function(&self, id: &str) -> Result<()> {
+        let mut params = BTreeMap::new();
+        params.insert("id".to_string(), DataValue::from(id));
+        self.db
+            .run_script(
+                "?[id] <- [[$id]] :put dead_functions { id }",
+                params,
                 ScriptMutability::Mutable,
             )
             .map_err(|e| cozo_err(&e))?;
@@ -199,5 +260,26 @@ mod tests {
         store.clear().unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         assert!(rows.rows.is_empty());
+    }
+
+    #[test]
+    fn store_persistent_reopen_preserves_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("reopen_test");
+        {
+            let store = Store::new_persistent(&db_path).unwrap();
+            store
+                .put_node(
+                    &NodeId("persisted".to_string()),
+                    &NodeType::Function,
+                    Some("survives"),
+                )
+                .unwrap();
+        }
+        let store2 = Store::new_persistent(&db_path).unwrap();
+        let rows = Query::all_nodes(&store2).unwrap();
+        assert_eq!(rows.rows.len(), 1);
+        assert!(rows.rows[0][0].to_string().contains("persisted"));
+        assert!(rows.rows[0][2].to_string().contains("survives"));
     }
 }

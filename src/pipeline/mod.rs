@@ -5,11 +5,8 @@ mod calls;
 mod dead_code;
 mod discovery;
 mod git_coupling;
-mod macros;
 mod modules;
-mod ownership;
 mod traits;
-mod unsafe_map;
 
 pub use ast::extract_ast;
 pub use calls::build_call_graph;

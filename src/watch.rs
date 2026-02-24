@@ -56,8 +56,9 @@ pub fn watch_and_reindex(store: &Store, root: &Path, config: &PipelineConfig) ->
         std::thread::sleep(std::time::Duration::from_secs(DEBOUNCE_SECS));
         if dirty.load(Ordering::Relaxed) {
             dirty.store(false, Ordering::Relaxed);
-            if store.clear().is_ok() && run_pipeline(store, &root_path, config).is_ok() {
-                println!("Re-indexed {}", root_path.display());
+            match store.clear().and_then(|()| run_pipeline(store, &root_path, config)) {
+                Ok(()) => println!("Re-indexed {}", root_path.display()),
+                Err(e) => eprintln!("Re-index failed: {e:#}"),
             }
         }
     }

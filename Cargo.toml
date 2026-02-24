@@ -48,5 +48,7 @@ version = "0.67"
 optional = true
 version = "0.0.309"
 
+# Override transitive graph_builder (cozo -> graph -> graph_builder) with local patch
+# if needed for build or compatibility; remove patch and patches/ if not required.
 [patch.crates-io]
-graph_builder = { path = "patches/graph_builder" }  # git coupling analysis (Phase 10)
+graph_builder = { path = "patches/graph_builder" }

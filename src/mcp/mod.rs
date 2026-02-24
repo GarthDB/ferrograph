@@ -12,6 +12,22 @@ use rmcp::service::serve_server;
 use rmcp::transport::stdio;
 use rmcp::{handler::server::ServerHandler, service::RequestContext, RoleServer};
 
+fn blast_radius_input_schema() -> serde_json::Map<String, serde_json::Value> {
+    let mut schema = serde_json::Map::new();
+    schema.insert("type".to_string(), serde_json::json!("object"));
+    let mut props = serde_json::Map::new();
+    props.insert(
+        "node_id".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "The node ID to compute blast radius for"
+        }),
+    );
+    schema.insert("properties".to_string(), serde_json::Value::Object(props));
+    schema.insert("required".to_string(), serde_json::json!(["node_id"]));
+    schema
+}
+
 fn resolve_store_path() -> Option<PathBuf> {
     std::env::var("FERROGRAPH_DB")
         .ok()
@@ -61,7 +77,7 @@ impl ServerHandler for FerrographMcp {
                 description: Some(Cow::Borrowed(
                     "List nodes reachable from a given node (what breaks if this changes).",
                 )),
-                input_schema: Arc::new(serde_json::Map::new()),
+                input_schema: Arc::new(blast_radius_input_schema()),
                 output_schema: None,
                 annotations: None,
                 execution: None,
@@ -94,7 +110,7 @@ impl ServerHandler for FerrographMcp {
         })?;
         let result = match name {
             "dead_code" => {
-                let ids = crate::graph::Query::dead_function_ids(&store).map_err(|e| {
+                let ids = crate::graph::Query::dead_functions(&store).map_err(|e| {
                     rmcp::ErrorData::internal_error(format!("Dead code query failed: {e}"), None)
                 })?;
                 CallToolResult::structured(serde_json::json!({
