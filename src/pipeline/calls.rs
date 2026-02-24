@@ -7,13 +7,8 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use crate::graph::schema::{EdgeType, NodeId};
-use crate::graph::Store;
-use crate::graph::query::Query;
-
-fn trim_cozo(s: &str) -> String {
-    s.trim_matches('"').to_string()
-}
+use crate::graph::schema::{EdgeType, NodeId, NodeType};
+use crate::graph::{cozo_str, query::Query, Store};
 
 /// Build or enrich call graph by resolving AST placeholder call targets to real function nodes.
 ///
@@ -24,26 +19,20 @@ fn trim_cozo(s: &str) -> String {
 /// # Errors
 /// Fails if the graph query or update fails.
 pub fn build_call_graph(store: &Store) -> Result<()> {
+    let function_type = NodeType::Function.to_string();
+    let calls_type = EdgeType::Calls;
+    let calls_type_str = calls_type.to_string();
+
     let nodes = Query::all_nodes(store)?;
     // (file_path, function_name) -> NodeId
     let mut name_to_id: HashMap<(String, String), NodeId> = HashMap::new();
     for row in &nodes.rows {
-        let type_val = row
-            .get(1)
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default();
-        if !type_val.contains("function") {
+        let type_val = row.get(1).map(cozo_str).unwrap_or_default();
+        if type_val != function_type {
             continue;
         }
-        let id_str = row
-            .first()
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default();
-        let id_trim = trim_cozo(&id_str);
-        let payload = row
-            .get(2)
-            .map(|v| trim_cozo(&v.to_string()))
-            .unwrap_or_default();
+        let id_trim = row.first().map(cozo_str).unwrap_or_default();
+        let payload = row.get(2).map(cozo_str).unwrap_or_default();
         if payload.is_empty() {
             continue;
         }
@@ -52,25 +41,13 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     }
 
     let edges = Query::all_edges(store)?;
-    let calls_type = EdgeType::Calls;
     for row in &edges.rows {
-        let edge_type = row
-            .get(2)
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default();
-        if !edge_type.contains("calls") {
+        let edge_type = row.get(2).map(cozo_str).unwrap_or_default();
+        if edge_type != calls_type_str {
             continue;
         }
-        let from_str = trim_cozo(
-            &row.first()
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default(),
-        );
-        let to_str = trim_cozo(
-            &row.get(1)
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default(),
-        );
+        let from_str = row.first().map(cozo_str).unwrap_or_default();
+        let to_str = row.get(1).map(cozo_str).unwrap_or_default();
         if !to_str.contains("::") {
             continue;
         }

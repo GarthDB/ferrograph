@@ -21,6 +21,7 @@ walkdir = "2"
 rmcp = { version = "0.16", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
 notify = "6"
+ctrlc = "3"
 [dev-dependencies]
 insta = "1"
 tempfile = "3"

@@ -3,8 +3,10 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
+use cozo::DataValue;
 use cozo::NamedRows;
 
+use crate::graph::schema::{EdgeType, NodeType};
 use crate::graph::{cozo_str, Store};
 
 /// Predefined and Datalog query execution.
@@ -38,10 +40,7 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn dead_functions(store: &Store) -> Result<Vec<String>> {
-        let rows = store.run_query(
-            "?[id] := *dead_functions[id]",
-            BTreeMap::new(),
-        )?;
+        let rows = store.run_query("?[id] := *dead_functions[id]", BTreeMap::new())?;
         let ids: Vec<String> = rows
             .rows
             .iter()
@@ -53,88 +52,53 @@ impl Query {
 
     /// Return function node ids that are not reachable from any entry point.
     /// Entry points are functions with no incoming `calls` edge. Reachability is
-    /// computed by following call edges forward.
+    /// computed by following call edges forward (Datalog fixed-point).
     ///
     /// # Errors
     /// Fails if the store query fails.
     pub fn dead_function_ids(store: &Store) -> Result<Vec<String>> {
-        let edges = Self::all_edges(store)?;
-        let mut call_to: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
-        let mut called: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for row in &edges.rows {
-            let edge_type = row
-                .get(2)
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default();
-            if edge_type.contains("calls") {
-                let from_trim = row.first().map(cozo_str).unwrap_or_default();
-                let to_trim = row.get(1).map(cozo_str).unwrap_or_default();
-                call_to.entry(from_trim.clone()).or_default().push(to_trim.clone());
-                called.insert(to_trim);
-            }
-        }
-        let nodes = Self::all_nodes(store)?;
-        let mut function_ids: Vec<String> = Vec::new();
-        for row in &nodes.rows {
-            let type_val = row
-                .get(1)
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default();
-            if type_val.contains("function") {
-                let id = row.first().map(cozo_str).unwrap_or_default();
-                function_ids.push(id);
-            }
-        }
-        let entry_points: Vec<String> = function_ids
+        let type_function = NodeType::Function.to_string();
+        let edge_calls = EdgeType::Calls.to_string();
+        let script = format!(
+            r#"
+            called[to] := *edges[_, to, "{edge_calls}"]
+            entry[id] := *nodes[id, type, _], type = "{type_function}", not called[id]
+            reachable[id] := entry[id]
+            reachable[to] := reachable[from], *edges[from, to, "{edge_calls}"]
+            ?[id] := *nodes[id, type, _], type = "{type_function}", not reachable[id]
+            "#
+        );
+        let rows = store.run_query(script.trim(), BTreeMap::new())?;
+        let ids: Vec<String> = rows
+            .rows
             .iter()
-            .filter(|id| !called.contains(*id))
-            .cloned()
+            .filter_map(|row| row.first())
+            .map(cozo_str)
             .collect();
-        let mut reachable: std::collections::HashSet<String> =
-            entry_points.iter().cloned().collect();
-        let mut stack: Vec<String> = entry_points;
-        while let Some(from) = stack.pop() {
-            if let Some(callees) = call_to.get(&from) {
-                for to in callees {
-                    if reachable.insert(to.clone()) {
-                        stack.push(to.clone());
-                    }
-                }
-            }
-        }
-        let dead: Vec<String> = function_ids
-            .into_iter()
-            .filter(|id| !reachable.contains(id))
-            .collect();
-        Ok(dead)
+        Ok(ids)
     }
 
     /// Return node ids reachable from the given node by following any outgoing edges.
-    /// Used for "blast radius": what could break if this node changes.
+    /// Used for "blast radius": what could break if this node changes (Datalog fixed-point).
     ///
     /// # Errors
     /// Fails if the store query fails.
     pub fn blast_radius(store: &Store, from_id: &str) -> Result<Vec<String>> {
-        let edges = Self::all_edges(store)?;
-        let mut out_edges: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
-        for row in &edges.rows {
-            let from_trim = row.first().map(cozo_str).unwrap_or_default();
-            let to_trim = row.get(1).map(cozo_str).unwrap_or_default();
-            out_edges.entry(from_trim).or_default().push(to_trim);
-        }
         let from_trim = from_id.trim_matches('"');
-        let mut reachable: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut stack = vec![from_trim.to_string()];
-        while let Some(id) = stack.pop() {
-            if reachable.insert(id.clone()) {
-                if let Some(neighbors) = out_edges.get(&id) {
-                    stack.extend(neighbors.iter().cloned());
-                }
-            }
-        }
-        reachable.remove(from_trim);
-        Ok(reachable.into_iter().collect())
+        let mut params = BTreeMap::new();
+        params.insert("from".to_string(), DataValue::from(from_trim));
+        let script = r"
+            reachable[to] := *edges[from, to, _], from = $from
+            reachable[to] := reachable[from], *edges[from, to, _]
+            ?[id] := reachable[id], id != $from
+        ";
+        let rows = store.run_query(script.trim(), params)?;
+        let ids: Vec<String> = rows
+            .rows
+            .iter()
+            .filter_map(|row| row.first())
+            .map(cozo_str)
+            .collect();
+        Ok(ids)
     }
 }

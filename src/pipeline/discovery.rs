@@ -19,12 +19,23 @@ pub fn discover_files(root: &Path) -> Result<BTreeMap<std::path::PathBuf, String
             let n = e.file_name().to_string_lossy();
             !n.starts_with('.') && n != "target" && n != "node_modules"
         })
-        .filter_map(std::result::Result::ok)
+        .filter_map(|e| match e {
+            Ok(entry) => Some(entry),
+            Err(e) => {
+                eprintln!("warning: {e}");
+                None
+            }
+        })
     {
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "rs") {
-            if let Ok(s) = std::fs::read_to_string(path) {
-                out.insert(path.to_path_buf(), s);
+            match std::fs::read_to_string(path) {
+                Ok(s) => {
+                    out.insert(path.to_path_buf(), s);
+                }
+                Err(e) => {
+                    eprintln!("warning: could not read {}: {e}", path.display());
+                }
             }
         }
     }

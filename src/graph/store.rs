@@ -8,7 +8,7 @@ use cozo::{DataValue, DbInstance, NamedRows, ScriptMutability};
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 
 fn cozo_err(e: &cozo::Error) -> anyhow::Error {
-    anyhow::anyhow!("{e}")
+    anyhow::anyhow!("{e:#}")
 }
 
 /// In-memory graph store using `CozoDB`.
@@ -74,7 +74,7 @@ impl Store {
     /// # Errors
     /// Fails if the Cozo script or serialization fails.
     pub fn put_node(&self, id: &NodeId, node_type: &NodeType, payload: Option<&str>) -> Result<()> {
-        let type_str = serde_json::to_string(node_type)?;
+        let type_str = node_type.to_string();
         let payload_val = payload.map_or(DataValue::Null, DataValue::from);
         let mut params = BTreeMap::new();
         params.insert("id".to_string(), DataValue::from(id.0.as_str()));
@@ -95,7 +95,7 @@ impl Store {
     /// # Errors
     /// Fails if the Cozo script or serialization fails.
     pub fn put_edge(&self, from: &NodeId, to: &NodeId, edge_type: &EdgeType) -> Result<()> {
-        let type_str = serde_json::to_string(edge_type)?;
+        let type_str = edge_type.to_string();
         let mut params = BTreeMap::new();
         params.insert("from_id".to_string(), DataValue::from(from.0.as_str()));
         params.insert("to_id".to_string(), DataValue::from(to.0.as_str()));
@@ -115,7 +115,7 @@ impl Store {
     /// # Errors
     /// Fails if the Cozo script or serialization fails.
     pub fn remove_edge(&self, from: &NodeId, to: &NodeId, edge_type: &EdgeType) -> Result<()> {
-        let type_str = serde_json::to_string(edge_type)?;
+        let type_str = edge_type.to_string();
         let mut params = BTreeMap::new();
         params.insert("from_id".to_string(), DataValue::from(from.0.as_str()));
         params.insert("to_id".to_string(), DataValue::from(to.0.as_str()));

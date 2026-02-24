@@ -20,10 +20,8 @@ fn pipeline_indexes_single_crate() {
     }
     let store = Store::new_memory().unwrap();
     let config = PipelineConfig::default();
-    if run_pipeline(&store, &root, &config).is_err() {
-        // May fail on tree-sitter language version mismatch in some environments
-        return;
-    }
+    let result = run_pipeline(&store, &root, &config);
+    assert!(result.is_ok(), "pipeline failed: {result:?}");
     let rows = ferrograph::graph::Query::all_nodes(&store).unwrap();
     assert!(
         !rows.rows.is_empty(),

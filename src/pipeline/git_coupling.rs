@@ -83,7 +83,8 @@ fn analyze_git_coupling_impl(store: &Store, root: &Path) -> Result<()> {
         for change in &diff {
             let loc = change.location();
             if loc.ends_with(b".rs") {
-                let path = std::path::Path::new(std::str::from_utf8(loc.as_ref()).unwrap_or(""));
+                let path_str = String::from_utf8_lossy(loc.as_ref());
+                let path = std::path::Path::new(path_str.as_ref());
                 let full = root.join(path);
                 rs_files.insert(full.to_string_lossy().to_string());
             }

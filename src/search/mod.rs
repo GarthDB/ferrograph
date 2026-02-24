@@ -10,6 +10,16 @@ use cozo::DataValue;
 
 use crate::graph::{cozo_str, Store};
 
+fn payload_from_row(row: &[DataValue], idx: usize) -> Option<String> {
+    row.get(idx).and_then(|v| {
+        if matches!(v, DataValue::Null) {
+            None
+        } else {
+            Some(cozo_str(v))
+        }
+    })
+}
+
 /// Run a text search over node payloads (substring match).
 ///
 /// # Errors
@@ -29,8 +39,7 @@ pub fn text_search(store: &Store, query: &str) -> Result<Vec<(String, String, Op
         .map(|row| {
             let id = row.first().map(cozo_str).unwrap_or_default();
             let type_val = row.get(1).map(cozo_str).unwrap_or_default();
-            let payload = row.get(2).map(cozo_str);
-            let payload = payload.filter(|p| p != "null");
+            let payload = payload_from_row(row, 2);
             (id, type_val, payload)
         })
         .collect();

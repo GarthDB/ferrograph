@@ -24,7 +24,6 @@ pub fn extract_ast(path: &Path, content: &str) -> Result<AstResult> {
     let tree = parser
         .parse(content, None)
         .ok_or_else(|| anyhow::anyhow!("parse failed"))?;
-    let _root = tree.root_node();
     let file_id = NodeId(path.to_string_lossy().to_string());
     let mut nodes = vec![(file_id.clone(), NodeType::File, None)];
     let mut edges = Vec::new();

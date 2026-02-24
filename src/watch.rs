@@ -15,16 +15,23 @@ use crate::pipeline::{run_pipeline, PipelineConfig};
 const DEBOUNCE_SECS: u64 = 2;
 
 /// Run the pipeline once, then watch for filesystem changes and re-run (with debounce).
+/// Exits gracefully on Ctrl+C.
 ///
 /// # Errors
 /// Fails if the store cannot be opened, the initial pipeline run fails, or the watcher cannot be created.
 pub fn watch_and_reindex(store: &Store, root: &Path, config: &PipelineConfig) -> Result<()> {
     run_pipeline(store, root, config)?;
     println!(
-        "Watching {} (re-index in {}s after changes)",
+        "Watching {} (re-index in {}s after changes). Ctrl+C to stop.",
         root.display(),
         DEBOUNCE_SECS
     );
+
+    let running = std::sync::Arc::new(AtomicBool::new(true));
+    let running_clone = std::sync::Arc::clone(&running);
+    ctrlc::set_handler(move || {
+        running_clone.store(false, Ordering::Relaxed);
+    })?;
 
     let dirty = std::sync::Arc::new(AtomicBool::new(false));
     let dirty_clone = std::sync::Arc::clone(&dirty);
@@ -52,14 +59,22 @@ pub fn watch_and_reindex(store: &Store, root: &Path, config: &PipelineConfig) ->
 
     watcher.watch(root, RecursiveMode::Recursive)?;
 
-    loop {
+    while running.load(Ordering::Relaxed) {
         std::thread::sleep(std::time::Duration::from_secs(DEBOUNCE_SECS));
+        if !running.load(Ordering::Relaxed) {
+            break;
+        }
         if dirty.load(Ordering::Relaxed) {
             dirty.store(false, Ordering::Relaxed);
-            match store.clear().and_then(|()| run_pipeline(store, &root_path, config)) {
+            match store
+                .clear()
+                .and_then(|()| run_pipeline(store, &root_path, config))
+            {
                 Ok(()) => println!("Re-indexed {}", root_path.display()),
                 Err(e) => eprintln!("Re-index failed: {e:#}"),
             }
         }
     }
+    println!("Stopped watching.");
+    Ok(())
 }

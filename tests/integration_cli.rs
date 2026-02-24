@@ -43,10 +43,11 @@ fn cli_index_and_status_and_query() {
         ])
         .output()
         .unwrap();
-    if !out.status.success() {
-        eprintln!("index failed (e.g. tree-sitter version): {}", String::from_utf8_lossy(&out.stderr));
-        return;
-    }
+    assert!(
+        out.status.success(),
+        "index failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let out = ferrograph_cmd()
         .args(["status", dir.path().to_str().unwrap()])
@@ -69,9 +70,16 @@ fn cli_index_and_status_and_query() {
     let node_count = stdout
         .lines()
         .find(|l| l.contains("nodes:"))
-        .and_then(|l| l.split(':').nth(1).and_then(|s| s.trim().parse::<u32>().ok()))
+        .and_then(|l| {
+            l.split(':')
+                .nth(1)
+                .and_then(|s| s.trim().parse::<u32>().ok())
+        })
         .unwrap_or(0);
-    assert!(node_count > 0, "expected node count > 0, got {node_count}; stdout: {stdout}");
+    assert!(
+        node_count > 0,
+        "expected node count > 0, got {node_count}; stdout: {stdout}"
+    );
 
     let out = ferrograph_cmd()
         .args([
@@ -112,10 +120,11 @@ fn cli_persistent_reopen() {
         ])
         .output()
         .unwrap();
-    if !out.status.success() {
-        eprintln!("index failed (e.g. tree-sitter version): {}", String::from_utf8_lossy(&out.stderr));
-        return;
-    }
+    assert!(
+        out.status.success(),
+        "index failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let out1 = ferrograph_cmd()
         .args(["status", db_path.to_str().unwrap()])
@@ -126,7 +135,11 @@ fn cli_persistent_reopen() {
     let count1 = stdout1
         .lines()
         .find(|l| l.contains("nodes:"))
-        .and_then(|l| l.split(':').nth(1).and_then(|s| s.trim().parse::<u32>().ok()))
+        .and_then(|l| {
+            l.split(':')
+                .nth(1)
+                .and_then(|s| s.trim().parse::<u32>().ok())
+        })
         .unwrap_or(0);
 
     let out2 = ferrograph_cmd()
@@ -138,9 +151,16 @@ fn cli_persistent_reopen() {
     let count2 = stdout2
         .lines()
         .find(|l| l.contains("nodes:"))
-        .and_then(|l| l.split(':').nth(1).and_then(|s| s.trim().parse::<u32>().ok()))
+        .and_then(|l| {
+            l.split(':')
+                .nth(1)
+                .and_then(|s| s.trim().parse::<u32>().ok())
+        })
         .unwrap_or(0);
 
-    assert_eq!(count1, count2, "node count should be unchanged after reopen");
+    assert_eq!(
+        count1, count2,
+        "node count should be unchanged after reopen"
+    );
     assert!(count1 > 0, "expected nodes after index");
 }

@@ -124,12 +124,14 @@ impl ServerHandler for FerrographMcp {
                     .as_ref()
                     .and_then(|m| m.get("node_id"))
                     .and_then(serde_json::Value::as_str)
-                    .map_or_else(|| "main".to_string(), std::string::ToString::to_string);
-                let ids = crate::graph::Query::blast_radius(&store, &node_id).map_err(|e| {
+                    .ok_or_else(|| {
+                        rmcp::ErrorData::invalid_params("missing required parameter: node_id", None)
+                    })?;
+                let ids = crate::graph::Query::blast_radius(&store, node_id).map_err(|e| {
                     rmcp::ErrorData::internal_error(format!("Blast radius query failed: {e}"), None)
                 })?;
                 CallToolResult::structured(serde_json::json!({
-                    "from_node_id": node_id,
+                    "from_node_id": node_id.to_string(),
                     "reachable_node_ids": ids,
                     "count": ids.len()
                 }))
