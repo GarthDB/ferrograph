@@ -26,5 +26,10 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Test
+      - name: Test (default features)
+        run: cargo test
+        # Fast path: verify default build and tests without optional deps (gix, ra_ap_ide).
+
+      - name: Test (all features)
         run: cargo test --all-features
+        # Ensures optional features (git, ra) build and test together without hidden incompatibilities.

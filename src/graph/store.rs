@@ -171,8 +171,8 @@ mod tests {
         store.put_edge(&from, &to, &EdgeType::Calls).unwrap();
         let rows = Query::all_edges(&store).unwrap();
         assert_eq!(rows.rows.len(), 1);
-        assert!(rows.rows[0][0].to_string().contains("a"));
-        assert!(rows.rows[0][1].to_string().contains("b"));
+        assert!(rows.rows[0][0].to_string().contains('a'));
+        assert!(rows.rows[0][1].to_string().contains('b'));
     }
 
     #[test]

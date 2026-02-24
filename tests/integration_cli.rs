@@ -60,13 +60,11 @@ fn cli_index_and_status_and_query() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         stdout.contains("nodes:"),
-        "status should report nodes: {}",
-        stdout
+        "status should report nodes: {stdout}"
     );
     assert!(
         stdout.contains("edges:"),
-        "status should report edges: {}",
-        stdout
+        "status should report edges: {stdout}"
     );
 
     let out = ferrograph_cmd()
@@ -86,7 +84,6 @@ fn cli_index_and_status_and_query() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         !stdout.trim().is_empty(),
-        "query should return rows: {}",
-        stdout
+        "query should return rows: {stdout}"
     );
 }
