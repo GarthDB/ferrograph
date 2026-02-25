@@ -12,7 +12,7 @@ use crate::graph::Store;
 /// # Errors
 /// Fails if reachability analysis or graph update fails.
 pub fn detect_dead_code(store: &Store) -> Result<()> {
-    let dead = Query::dead_function_ids(store)?;
+    let dead = Query::compute_dead_functions(store)?;
     store.clear_dead_functions()?;
     for id in &dead {
         store.put_dead_function(id)?;

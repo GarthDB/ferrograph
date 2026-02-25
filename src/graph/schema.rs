@@ -13,6 +13,11 @@ impl NodeId {
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
     }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Type of a graph node.
@@ -53,24 +58,24 @@ impl fmt::Display for NodeType {
 }
 
 impl FromStr for NodeType {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "file" => Self::File,
-            "module" => Self::Module,
-            "function" => Self::Function,
-            "struct" => Self::Struct,
-            "enum" => Self::Enum,
-            "trait" => Self::Trait,
-            "impl" => Self::Impl,
-            "type_alias" => Self::TypeAlias,
-            "const" => Self::Const,
-            "static" => Self::Static,
-            "macro" => Self::Macro,
-            "crate_root" => Self::CrateRoot,
-            _ => return Err(()),
-        })
+        match s {
+            "file" => Ok(Self::File),
+            "module" => Ok(Self::Module),
+            "function" => Ok(Self::Function),
+            "struct" => Ok(Self::Struct),
+            "enum" => Ok(Self::Enum),
+            "trait" => Ok(Self::Trait),
+            "impl" => Ok(Self::Impl),
+            "type_alias" => Ok(Self::TypeAlias),
+            "const" => Ok(Self::Const),
+            "static" => Ok(Self::Static),
+            "macro" => Ok(Self::Macro),
+            "crate_root" => Ok(Self::CrateRoot),
+            _ => Err(format!("unknown node type: {s:?}")),
+        }
     }
 }
 
@@ -111,22 +116,74 @@ impl fmt::Display for EdgeType {
 }
 
 impl FromStr for EdgeType {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "contains" => Self::Contains,
-            "imports" => Self::Imports,
-            "calls" => Self::Calls,
-            "references" => Self::References,
-            "implements_trait" => Self::ImplementsTrait,
-            "owns" => Self::Owns,
-            "borrows" => Self::Borrows,
-            "expands_to" => Self::ExpandsTo,
-            "uses_unsafe" => Self::UsesUnsafe,
-            "lifetime_scope" => Self::LifetimeScope,
-            "changes_with" => Self::ChangesWith,
-            _ => return Err(()),
-        })
+        match s {
+            "contains" => Ok(Self::Contains),
+            "imports" => Ok(Self::Imports),
+            "calls" => Ok(Self::Calls),
+            "references" => Ok(Self::References),
+            "implements_trait" => Ok(Self::ImplementsTrait),
+            "owns" => Ok(Self::Owns),
+            "borrows" => Ok(Self::Borrows),
+            "expands_to" => Ok(Self::ExpandsTo),
+            "uses_unsafe" => Ok(Self::UsesUnsafe),
+            "lifetime_scope" => Ok(Self::LifetimeScope),
+            "changes_with" => Ok(Self::ChangesWith),
+            _ => Err(format!("unknown edge type: {s:?}")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::{EdgeType, NodeType};
+
+    #[test]
+    fn node_type_display_from_str_roundtrip() {
+        let variants = [
+            NodeType::File,
+            NodeType::Module,
+            NodeType::Function,
+            NodeType::Struct,
+            NodeType::Enum,
+            NodeType::Trait,
+            NodeType::Impl,
+            NodeType::TypeAlias,
+            NodeType::Const,
+            NodeType::Static,
+            NodeType::Macro,
+            NodeType::CrateRoot,
+        ];
+        for v in &variants {
+            let s = v.to_string();
+            let parsed = NodeType::from_str(&s).expect("parse node type");
+            assert_eq!(format!("{v:?}"), format!("{parsed:?}"), "roundtrip {s}");
+        }
+    }
+
+    #[test]
+    fn edge_type_display_from_str_roundtrip() {
+        let variants = [
+            EdgeType::Contains,
+            EdgeType::Imports,
+            EdgeType::Calls,
+            EdgeType::References,
+            EdgeType::ImplementsTrait,
+            EdgeType::Owns,
+            EdgeType::Borrows,
+            EdgeType::ExpandsTo,
+            EdgeType::UsesUnsafe,
+            EdgeType::LifetimeScope,
+            EdgeType::ChangesWith,
+        ];
+        for v in &variants {
+            let s = v.to_string();
+            let parsed = EdgeType::from_str(&s).expect("parse edge type");
+            assert_eq!(format!("{v:?}"), format!("{parsed:?}"), "roundtrip {s}");
+        }
     }
 }

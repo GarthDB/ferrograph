@@ -39,7 +39,7 @@ pub fn run_pipeline(store: &Store, root: &Path, config: &PipelineConfig) -> Resu
     for (path, content) in &files {
         extract_ast(store, path, content)?;
     }
-    resolve_modules(store, root)?;
+    resolve_modules(store, root)?; // Imports edges must exist before call resolution
     build_call_graph(store)?;
     if config.enable_trait_mapping {
         map_traits(store, root)?;

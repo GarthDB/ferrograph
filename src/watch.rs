@@ -44,10 +44,10 @@ pub fn watch_and_reindex(store: &Store, root: &Path, config: &PipelineConfig) ->
                     ev.kind,
                     EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
                 ) {
-                    let has_rs = ev
-                        .paths
-                        .iter()
-                        .any(|p| p.extension().is_some_and(|e| e == "rs"));
+                    let has_rs = ev.paths.iter().any(|p| {
+                        !p.as_os_str().to_string_lossy().contains("target")
+                            && p.extension().is_some_and(|e| e == "rs")
+                    });
                     if has_rs {
                         dirty_clone.store(true, Ordering::Relaxed);
                     }
@@ -65,15 +65,15 @@ pub fn watch_and_reindex(store: &Store, root: &Path, config: &PipelineConfig) ->
             break;
         }
         if dirty.swap(false, Ordering::SeqCst) {
-            // TODO: incremental re-index of only changed files instead of full clear + pipeline
-            if let Err(e) = store
-                .clear()
-                .and_then(|()| run_pipeline(store, &root_path, config))
-            {
-                eprintln!("Re-index failed: {e:#}");
-                eprintln!("Warning: the graph database was cleared before the failure; it is now empty. Run 'ferrograph index --output <path>' to repopulate.");
-            } else {
-                println!("Re-indexed {}", root_path.display());
+            // Run pipeline into a temp store first; only replace on success to avoid data loss.
+            match Store::new_memory().and_then(|temp_store| {
+                run_pipeline(&temp_store, &root_path, config)?;
+                store.clear()?;
+                store.copy_from(&temp_store)?;
+                Ok(())
+            }) {
+                Ok(()) => println!("Re-indexed {}", root_path.display()),
+                Err(e) => eprintln!("Re-index failed: {e:#}"),
             }
         }
     }

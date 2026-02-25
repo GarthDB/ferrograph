@@ -18,9 +18,12 @@ pub fn extract_ast(store: &Store, path: &Path, content: &str) -> Result<()> {
     parser.set_language(&LANGUAGE.into())?;
     let tree = parser
         .parse(content, None)
-        .ok_or_else(|| anyhow::anyhow!("parse failed"))?;
+        .ok_or_else(|| anyhow::anyhow!("parse failed: no tree returned for {}", path.display()))?;
     if tree.root_node().has_error() {
-        anyhow::bail!("parse failed");
+        eprintln!(
+            "warning: parse errors in {} (continuing with partial AST)",
+            path.display()
+        );
     }
     let file_id = NodeId::new(path.to_string_lossy().to_string());
     let mut nodes = vec![(file_id.clone(), NodeType::File, None)];
@@ -63,17 +66,26 @@ fn traverse(
     let parent = stack.last().cloned();
 
     let (node_type, name_opt) = match kind {
-        "function_item" => (Some(NodeType::Function), name_of_node(&node, source)),
+        "function_item" => (Some(NodeType::Function), function_payload(&node, source)),
         "struct_item" => (Some(NodeType::Struct), name_of_node(&node, source)),
         "enum_item" => (Some(NodeType::Enum), name_of_node(&node, source)),
         "trait_item" => (Some(NodeType::Trait), name_of_node(&node, source)),
-        "impl_item" => (Some(NodeType::Impl), None),
+        "impl_item" => (Some(NodeType::Impl), impl_type_name(&node, source)),
         "type_item" => (Some(NodeType::TypeAlias), name_of_node(&node, source)),
         "const_item" => (Some(NodeType::Const), name_of_node(&node, source)),
         "static_item" => (Some(NodeType::Static), name_of_node(&node, source)),
         "macro_definition" => (Some(NodeType::Macro), name_of_node(&node, source)),
+        "mod_declaration" | "mod_item" => (Some(NodeType::Module), name_of_node(&node, source)),
         "call_expression" => {
             if let Some(callee_id) = resolve_call_target(&node, source, file_id) {
+                if let Some(ref from) = parent {
+                    edges.push((from.clone(), callee_id, EdgeType::Calls));
+                }
+            }
+            (None, None)
+        }
+        "method_call_expression" => {
+            if let Some(callee_id) = resolve_method_call_target(&node, source, file_id) {
                 if let Some(ref from) = parent {
                     edges.push((from.clone(), callee_id, EdgeType::Calls));
                 }
@@ -86,7 +98,7 @@ fn traverse(
     let added = if let (Some(nt), no) = (node_type, name_opt) {
         let id = NodeId::new(format!(
             "{}#{}:{}",
-            file_id.0,
+            file_id.as_str(),
             node.start_position().row + 1,
             node.start_position().column + 1
         ));
@@ -132,6 +144,64 @@ fn name_of_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
     None
 }
 
+/// Returns true if the node has a `#[test]` or `#[cfg(test)]` attribute (for dead-code entry points).
+fn has_test_attribute(node: &tree_sitter::Node, source: &str) -> bool {
+    let mut cursor = node.walk();
+    if !cursor.goto_first_child() {
+        return false;
+    }
+    loop {
+        let n = cursor.node();
+        if n.kind() == "attribute_item" {
+            let r = n.byte_range();
+            if let Some(attr_text) = source.get(r.start..r.end) {
+                if attr_text.contains("#[test]") || attr_text.contains("#[cfg(test)]") {
+                    return true;
+                }
+            }
+        }
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    false
+}
+
+/// Payload for a function node: "`pub::name`" if public, "`test::name`" if test, else "name". Used for dead-code entry point detection.
+fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
+    let name = name_of_node(node, source)?;
+    let is_pub = node
+        .child(0)
+        .is_some_and(|c| c.kind() == "visibility_modifier");
+    let is_test = has_test_attribute(node, source);
+    let prefix = match (is_pub, is_test) {
+        (true, true) => "pub::test::",
+        (true, false) => "pub::",
+        (false, true) => "test::",
+        (false, false) => "",
+    };
+    Some(format!("{prefix}{name}"))
+}
+
+/// Payload for an impl block: type name (e.g. "Point" for `impl Point`, or "Draw" for `impl Draw for Point`).
+fn impl_type_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    if !cursor.goto_first_child() {
+        return None;
+    }
+    loop {
+        let n = cursor.node();
+        if n.kind() == "type_identifier" {
+            let r = n.byte_range();
+            return source.get(r.start..r.end).map(String::from);
+        }
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    None
+}
+
 /// Resolve a call expression to a placeholder node id (`file_path::fn_name`).
 ///
 /// **Limitation**: Only bare identifier calls like `foo()` are handled. Method calls
@@ -145,7 +215,31 @@ fn resolve_call_target(node: &tree_sitter::Node, source: &str, file_id: &NodeId)
     } else {
         None
     };
-    name.map(|n| NodeId::new(format!("{}::{}", file_id.0, n)))
+    name.map(|n| NodeId::new(format!("{}::{}", file_id.as_str(), n)))
+}
+
+/// Resolve a method call (e.g. `x.foo()`) to a placeholder node id (`file_path::foo`).
+fn resolve_method_call_target(
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+) -> Option<NodeId> {
+    let mut cursor = node.walk();
+    if !cursor.goto_first_child() {
+        return None;
+    }
+    loop {
+        let n = cursor.node();
+        if n.kind() == "field_identifier" {
+            let r = n.byte_range();
+            let name = source.get(r.start..r.end).map(String::from)?;
+            return Some(NodeId::new(format!("{}::{}", file_id.as_str(), name)));
+        }
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -176,11 +270,14 @@ mod tests {
     }
 
     #[test]
-    fn extract_ast_empty_file_fails_parse() {
+    fn extract_ast_invalid_rust_partial_ast() {
         let store = Store::new_memory().unwrap();
         let path = Path::new("/test.rs");
         let content = "not valid rust {{{";
+        // We tolerate parse errors and continue with partial AST instead of bailing.
         let result = extract_ast(&store, path, content);
-        assert!(result.is_err());
+        assert!(result.is_ok(), "partial AST should be accepted: {result:?}");
+        let rows = Query::all_nodes(&store).unwrap();
+        assert!(!rows.rows.is_empty(), "expected at least file node");
     }
 }

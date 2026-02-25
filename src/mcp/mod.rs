@@ -2,7 +2,9 @@
 
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Implementation, ListToolsResult, ServerCapabilities,
@@ -126,23 +128,27 @@ impl ServerHandler for FerrographMcp {
                 "hint": "Run 'ferrograph index --output .ferrograph' in the project root, or set FERROGRAPH_DB to the graph path."
             })));
         }
-        let store = self.get_or_open_store(&store_path)?;
+        let store = self.get_or_open_store(&store_path).await?;
         let result = match name {
             "dead_code" => {
-                let mut ids = crate::graph::Query::dead_functions(&store).map_err(|e| {
+                let mut ids = crate::graph::Query::stored_dead_functions(&store).map_err(|e| {
                     rmcp::ErrorData::internal_error(format!("Dead code query failed: {e}"), None)
                 })?;
-                if ids.is_empty() {
-                    ids = crate::graph::Query::dead_function_ids(&store).map_err(|e| {
+                let source = if ids.is_empty() {
+                    ids = crate::graph::Query::compute_dead_functions(&store).map_err(|e| {
                         rmcp::ErrorData::internal_error(
                             format!("Dead code (live) query failed: {e}"),
                             None,
                         )
                     })?;
-                }
+                    "computed"
+                } else {
+                    "stored"
+                };
                 CallToolResult::structured(serde_json::json!({
                     "dead_function_ids": ids,
-                    "count": ids.len()
+                    "count": ids.len(),
+                    "source": source
                 }))
             }
             "blast_radius" => {
@@ -164,10 +170,10 @@ impl ServerHandler for FerrographMcp {
                 }))
             }
             _ => {
-                return Ok(CallToolResult::structured_error(serde_json::json!({
-                    "error": "Unknown tool",
-                    "name": name
-                })));
+                return Err(rmcp::ErrorData::invalid_params(
+                    format!("Unknown tool: {name}"),
+                    None,
+                ));
             }
         };
         Ok(result)
@@ -175,15 +181,13 @@ impl ServerHandler for FerrographMcp {
 }
 
 impl FerrographMcp {
-    fn get_or_open_store(
+    async fn get_or_open_store(
         &self,
         store_path: &std::path::Path,
     ) -> Result<Arc<crate::graph::Store>, rmcp::ErrorData> {
         let path_buf = store_path.to_path_buf();
         {
-            let mut guard = self.cached.lock().map_err(|e| {
-                rmcp::ErrorData::internal_error(format!("Cache lock poisoned: {e}"), None)
-            })?;
+            let mut guard = self.cached.lock().await;
             if let Some((ref cached_path, ref store)) = *guard {
                 if *cached_path == path_buf {
                     return Ok(Arc::clone(store));

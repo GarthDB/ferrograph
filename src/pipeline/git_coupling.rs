@@ -34,7 +34,10 @@ fn analyze_git_coupling_impl(store: &Store, root: &Path) -> Result<()> {
 
     use crate::graph::schema::{EdgeType, NodeId};
 
-    let repo = gix::open(root).map_err(|e| anyhow::anyhow!("open repo: {e}"))?;
+    let root = root
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("canonicalize root: {e}"))?;
+    let repo = gix::open(&root).map_err(|e| anyhow::anyhow!("open repo: {e}"))?;
     let head = repo
         .head_id()
         .map_err(|e| anyhow::anyhow!("head_id: {e}"))?;
@@ -86,7 +89,11 @@ fn analyze_git_coupling_impl(store: &Store, root: &Path) -> Result<()> {
                 let path_str = String::from_utf8_lossy(loc.as_ref());
                 let path = std::path::Path::new(path_str.as_ref());
                 let full = root.join(path);
-                rs_files.insert(full.to_string_lossy().to_string());
+                if let Ok(canon) = full.canonicalize() {
+                    rs_files.insert(canon.to_string_lossy().to_string());
+                } else {
+                    rs_files.insert(full.to_string_lossy().to_string());
+                }
             }
         }
         let files: Vec<String> = rs_files.into_iter().collect();

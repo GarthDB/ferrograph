@@ -49,13 +49,13 @@ pub enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
-    /// Watch for file changes and re-index (requires --output).
+    /// Watch for file changes and re-index.
     Watch {
         /// Root path of the Rust project.
         #[arg(default_value = ".")]
         path: PathBuf,
-        /// Output path for the graph database (required for watch).
-        #[arg(short, long)]
+        /// Output path for the graph database.
+        #[arg(short, long, required = true)]
         output: Option<PathBuf>,
     },
     /// Run the MCP server over stdio (for AI agents and IDEs).

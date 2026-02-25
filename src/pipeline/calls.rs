@@ -1,11 +1,9 @@
 //! Phase 4: call graph construction (enrichment from AST edges).
 //!
 //! Resolves placeholder call targets (`file_path::fn_name`) to real function node IDs
-//! (`file_path#line:col`) so call edges connect to actual definition nodes.
+//! (`file_path#line:col`). Tries same-file first, then global `fn_name` lookup for cross-file calls.
 //!
-//! **Known limitation**: Only bare `foo()`-style calls are resolved. Method calls,
-//! qualified paths (`mod::fn`), and UFCS are not resolved; those edges are removed
-//! when the target cannot be matched to a function in the same file.
+//! **Known limitation**: Method calls, qualified paths (`mod::fn`), and UFCS are not resolved.
 
 use std::collections::HashMap;
 
@@ -14,11 +12,83 @@ use anyhow::Result;
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::{query::Query, unquote_datavalue, Store};
 
+/// Strip "`pub::`" prefix from payload for canonical function name.
+fn canonical_name(payload: &str) -> &str {
+    payload.strip_prefix("pub::").unwrap_or(payload)
+}
+
+/// Resolve a single placeholder (`path_part::fn_name`) to a `NodeId`, or None if ambiguous/unresolved.
+fn resolve_placeholder(
+    path_part: &str,
+    fn_name: &str,
+    from_file: &str,
+    local: &HashMap<(String, String), Vec<NodeId>>,
+    imports_map: &HashMap<String, Vec<String>>,
+    node_id_to_payload: &HashMap<String, String>,
+    global_by_name: &HashMap<String, Vec<NodeId>>,
+) -> Option<NodeId> {
+    let key = (path_part.to_string(), fn_name.to_string());
+    if let Some(candidates) = local.get(&key) {
+        if let [one] = candidates.as_slice() {
+            return Some(one.clone());
+        }
+        if candidates.len() > 1 {
+            eprintln!(
+                "warning: duplicate function name in same file '{fn_name}', dropping call edge (ambiguous)"
+            );
+        }
+        return None;
+    }
+    if let Some(imported) = imports_map.get(from_file) {
+        let mut candidate: Option<NodeId> = None;
+        for to_id in imported {
+            if to_id.contains('#') {
+                if let Some(payload) = node_id_to_payload.get(to_id) {
+                    if canonical_name(payload) == fn_name {
+                        if candidate.is_some() {
+                            return None;
+                        }
+                        candidate = Some(NodeId(to_id.clone()));
+                    }
+                }
+            } else {
+                let in_file: Vec<_> = global_by_name
+                    .get(fn_name)
+                    .map(|v| {
+                        v.iter()
+                            .filter(|n| n.as_str().starts_with(&format!("{to_id}#")))
+                            .cloned()
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                if in_file.len() == 1 {
+                    if candidate.is_some() {
+                        return None;
+                    }
+                    candidate = in_file.into_iter().next();
+                }
+            }
+        }
+        return candidate;
+    }
+    match global_by_name.get(fn_name).map(Vec::as_slice) {
+        Some([one]) => Some(one.clone()),
+        Some([]) | None => None,
+        Some(candidates) => {
+            eprintln!(
+                "warning: cross-file call to '{}' is ambiguous ({} candidates), dropping edge",
+                fn_name,
+                candidates.len()
+            );
+            None
+        }
+    }
+}
+
 /// Build or enrich call graph by resolving AST placeholder call targets to real function nodes.
 ///
-/// AST extraction emits call edges with `to_id` of the form `file_path::function_name`.
-/// This pass rewrites those edges to point at real node IDs. Unresolvable edges
-/// (e.g. cross-file or method calls) are removed.
+/// Same-file placeholders are resolved first; then Imports edges (from `resolve_modules`) are used
+/// to prefer imported targets; then a global `fn_name` -> candidates map for cross-file resolution.
 ///
 /// # Errors
 /// Fails if the graph query or update fails.
@@ -26,10 +96,13 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     let function_type = NodeType::Function.to_string();
     let calls_type = EdgeType::Calls;
     let calls_type_str = calls_type.to_string();
+    let imports_type_str = EdgeType::Imports.to_string();
 
     let nodes = Query::all_nodes(store)?;
-    // (file_path, function_name) -> NodeId
-    let mut name_to_id: HashMap<(String, String), NodeId> = HashMap::new();
+    let mut local: HashMap<(String, String), Vec<NodeId>> = HashMap::new();
+    let mut global_by_name: HashMap<String, Vec<NodeId>> = HashMap::new();
+    let mut node_id_to_payload: HashMap<String, String> = HashMap::new();
+
     for row in &nodes.rows {
         let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
         if type_val != function_type {
@@ -40,19 +113,30 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         if payload.is_empty() {
             continue;
         }
+        node_id_to_payload.insert(id_trim.clone(), payload.clone());
         let file_path = id_trim.split('#').next().unwrap_or(&id_trim).to_string();
-        let node_id = NodeId(id_trim);
-        if let Some(prev) = name_to_id.insert((file_path, payload), node_id.clone()) {
-            if prev.0 != node_id.0 {
-                eprintln!(
-                    "warning: duplicate function name in same file, later overwrites: {} vs {}",
-                    prev.0, node_id.0
-                );
-            }
-        }
+        let node_id = NodeId(id_trim.clone());
+        local
+            .entry((file_path.clone(), payload.clone()))
+            .or_default()
+            .push(node_id.clone());
+        let name = canonical_name(&payload).to_string();
+        global_by_name.entry(name).or_default().push(node_id);
     }
 
+    let mut imports_map: HashMap<String, Vec<String>> = HashMap::new();
     let edges = Query::all_edges(store)?;
+    for row in &edges.rows {
+        let edge_type = row.get(2).map(unquote_datavalue).unwrap_or_default();
+        if edge_type != imports_type_str {
+            continue;
+        }
+        let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
+        let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        let from_file = from_str.split('#').next().unwrap_or(&from_str).to_string();
+        imports_map.entry(from_file).or_default().push(to_str);
+    }
+
     for row in &edges.rows {
         let edge_type = row.get(2).map(unquote_datavalue).unwrap_or_default();
         if edge_type != calls_type_str {
@@ -63,17 +147,24 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         if !to_str.contains("::") {
             continue;
         }
-        let from_id = NodeId(from_str);
-        let placeholder_to_id = NodeId(to_str.clone());
-        let Some((file_path, fn_name)) = to_str.split_once("::") else {
+        let Some((path_part, fn_name)) = to_str.split_once("::") else {
             continue;
         };
-        let key = (file_path.to_string(), fn_name.to_string());
-        if let Some(resolved_id) = name_to_id.get(&key) {
-            store.remove_edge(&from_id, &placeholder_to_id, &calls_type)?;
-            store.put_edge(&from_id, resolved_id, &calls_type)?;
-        } else {
-            store.remove_edge(&from_id, &placeholder_to_id, &calls_type)?;
+        let from_file = from_str.split('#').next().unwrap_or(&from_str);
+        let resolved_id = resolve_placeholder(
+            path_part,
+            fn_name,
+            from_file,
+            &local,
+            &imports_map,
+            &node_id_to_payload,
+            &global_by_name,
+        );
+        let from_id = NodeId(from_str.clone());
+        let placeholder_to_id = NodeId(to_str.clone());
+        store.remove_edge(&from_id, &placeholder_to_id, &calls_type)?;
+        if let Some(id) = resolved_id {
+            store.put_edge(&from_id, &id, &calls_type)?;
         }
     }
     Ok(())

@@ -1,35 +1,28 @@
 //! Phase 1: file discovery (walk Rust source files).
+//!
+//! Uses the `ignore` crate to respect `.gitignore` and limit depth.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::Result;
-use walkdir::WalkDir;
+use ignore::WalkBuilder;
 
 /// Discover all Rust source files under `root`, returning path -> contents.
+/// Respects `.gitignore` and limits depth to 50.
 ///
 /// # Errors
 /// Fails if directory traversal or reading a file fails.
 pub fn discover_files(root: &Path) -> Result<BTreeMap<std::path::PathBuf, String>> {
     let mut out = BTreeMap::new();
-    for entry in WalkDir::new(root)
+    for result in WalkBuilder::new(root)
+        .max_depth(Some(50))
         .follow_links(true)
-        .max_depth(256)
-        .into_iter()
-        .filter_entry(|e| {
-            let n = e.file_name().to_string_lossy();
-            !n.starts_with('.') && n != "target" && n != "node_modules"
-        })
-        .filter_map(|e| match e {
-            Ok(entry) => Some(entry),
-            Err(e) => {
-                eprintln!("warning: {e}");
-                None
-            }
-        })
+        .build()
     {
+        let entry = result.map_err(|e| anyhow::anyhow!("walk: {e}"))?;
         let path = entry.path();
-        if path.extension().is_some_and(|e| e == "rs") {
+        if path.extension().is_some_and(|e| e == "rs") && path.is_file() {
             match std::fs::read_to_string(path) {
                 Ok(s) => {
                     out.insert(path.to_path_buf(), s);

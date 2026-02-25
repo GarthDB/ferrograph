@@ -1,11 +1,14 @@
 //! CozoDB-backed graph storage.
 
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
 use anyhow::Result;
 use cozo::{DataValue, DbInstance, NamedRows, ScriptMutability};
 
+use crate::graph::query::Query;
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
+use crate::graph::unquote_datavalue;
 
 fn cozo_err(e: &cozo::Error) -> anyhow::Error {
     anyhow::anyhow!("{e:#}")
@@ -77,7 +80,7 @@ impl Store {
         let type_str = node_type.to_string();
         let payload_val = payload.map_or(DataValue::Null, DataValue::from);
         let mut params = BTreeMap::new();
-        params.insert("id".to_string(), DataValue::from(id.0.as_str()));
+        params.insert("id".to_string(), DataValue::from(id.as_str()));
         params.insert("type".to_string(), DataValue::from(type_str.as_str()));
         params.insert("payload".to_string(), payload_val);
         self.db
@@ -97,8 +100,8 @@ impl Store {
     pub fn put_edge(&self, from: &NodeId, to: &NodeId, edge_type: &EdgeType) -> Result<()> {
         let type_str = edge_type.to_string();
         let mut params = BTreeMap::new();
-        params.insert("from_id".to_string(), DataValue::from(from.0.as_str()));
-        params.insert("to_id".to_string(), DataValue::from(to.0.as_str()));
+        params.insert("from_id".to_string(), DataValue::from(from.as_str()));
+        params.insert("to_id".to_string(), DataValue::from(to.as_str()));
         params.insert("edge_type".to_string(), DataValue::from(type_str.as_str()));
         self.db
             .run_script(
@@ -122,7 +125,7 @@ impl Store {
             for (i, (id, node_type, payload)) in chunk.iter().enumerate() {
                 let type_str = node_type.to_string();
                 let payload_val = payload.map_or(DataValue::Null, DataValue::from);
-                params.insert(format!("id{i}"), DataValue::from(id.0.as_str()));
+                params.insert(format!("id{i}"), DataValue::from(id.as_str()));
                 params.insert(format!("type{i}"), DataValue::from(type_str.as_str()));
                 params.insert(format!("payload{i}"), payload_val);
                 rows.push(format!("[$id{i}, $type{i}, $payload{i}]"));
@@ -149,8 +152,8 @@ impl Store {
             let mut params = BTreeMap::new();
             for (i, (from, to, edge_type)) in chunk.iter().enumerate() {
                 let type_str = edge_type.to_string();
-                params.insert(format!("from_id{i}"), DataValue::from(from.0.as_str()));
-                params.insert(format!("to_id{i}"), DataValue::from(to.0.as_str()));
+                params.insert(format!("from_id{i}"), DataValue::from(from.as_str()));
+                params.insert(format!("to_id{i}"), DataValue::from(to.as_str()));
                 params.insert(format!("edge_type{i}"), DataValue::from(type_str.as_str()));
                 rows.push(format!("[$from_id{i}, $to_id{i}, $edge_type{i}]"));
             }
@@ -216,8 +219,8 @@ impl Store {
     pub fn remove_edge(&self, from: &NodeId, to: &NodeId, edge_type: &EdgeType) -> Result<()> {
         let type_str = edge_type.to_string();
         let mut params = BTreeMap::new();
-        params.insert("from_id".to_string(), DataValue::from(from.0.as_str()));
-        params.insert("to_id".to_string(), DataValue::from(to.0.as_str()));
+        params.insert("from_id".to_string(), DataValue::from(from.as_str()));
+        params.insert("to_id".to_string(), DataValue::from(to.as_str()));
         params.insert("edge_type".to_string(), DataValue::from(type_str.as_str()));
         self.db
             .run_script(
@@ -245,26 +248,22 @@ impl Store {
         Ok(result)
     }
 
-    /// Remove all nodes and edges (for full re-index).
+    /// Remove all nodes, edges, and `dead_functions` in one script (atomic for Cozo).
     ///
     /// # Errors
     /// Fails if the Cozo script fails.
     pub fn clear(&self) -> Result<()> {
         self.db
             .run_script(
-                "{ ?[id] := *nodes[id, type, payload]; :rm nodes { id } }",
+                r"
+                { ?[id] := *nodes[id, type, payload]; :rm nodes { id } }
+                { ?[from_id, to_id, edge_type] := *edges[from_id, to_id, edge_type]; :rm edges { from_id, to_id, edge_type } }
+                { ?[id] := *dead_functions[id]; :rm dead_functions { id } }
+                ",
                 BTreeMap::new(),
                 ScriptMutability::Mutable,
             )
             .map_err(|e| cozo_err(&e))?;
-        self.db
-            .run_script(
-                "{ ?[from_id, to_id, edge_type] := *edges[from_id, to_id, edge_type]; :rm edges { from_id, to_id, edge_type } }",
-                BTreeMap::new(),
-                ScriptMutability::Mutable,
-            )
-            .map_err(|e| cozo_err(&e))?;
-        self.clear_dead_functions()?;
         Ok(())
     }
 
@@ -297,6 +296,60 @@ impl Store {
                 ScriptMutability::Mutable,
             )
             .map_err(|e| cozo_err(&e))?;
+        Ok(())
+    }
+
+    /// Copy all nodes, edges, and `dead_functions` from another store into this one.
+    /// Caller should typically call `clear()` first. Used by watch to replace
+    /// contents after a successful pipeline run into a temp store.
+    ///
+    /// # Errors
+    /// Fails if queries or writes fail.
+    pub fn copy_from(&self, other: &Store) -> Result<()> {
+        let nodes = Query::all_nodes(other)?;
+        let batch: Vec<(NodeId, NodeType, Option<String>)> = nodes
+            .rows
+            .iter()
+            .filter_map(|row| {
+                let id = row.first().map(unquote_datavalue)?;
+                let type_str = row.get(1).map(unquote_datavalue)?;
+                let payload = row.get(2).and_then(|v| {
+                    if matches!(v, DataValue::Null) {
+                        None
+                    } else {
+                        Some(unquote_datavalue(v))
+                    }
+                });
+                let node_type = NodeType::from_str(&type_str).ok()?;
+                Some((NodeId(id), node_type, payload))
+            })
+            .collect();
+        if !batch.is_empty() {
+            let batch_refs: Vec<(NodeId, NodeType, Option<&str>)> = batch
+                .iter()
+                .map(|(id, ty, p)| (id.clone(), ty.clone(), p.as_deref()))
+                .collect();
+            self.put_nodes_batch(&batch_refs)?;
+        }
+        let edges = Query::all_edges(other)?;
+        let edge_batch: Vec<_> = edges
+            .rows
+            .iter()
+            .filter_map(|row| {
+                let from_str = row.first().map(unquote_datavalue)?;
+                let to_str = row.get(1).map(unquote_datavalue)?;
+                let type_str = row.get(2).map(unquote_datavalue)?;
+                let edge_type = EdgeType::from_str(&type_str).ok()?;
+                Some((NodeId(from_str), NodeId(to_str), edge_type))
+            })
+            .collect();
+        if !edge_batch.is_empty() {
+            self.put_edges_batch(&edge_batch)?;
+        }
+        let dead = Query::stored_dead_functions(other)?;
+        for id in &dead {
+            self.put_dead_function(id)?;
+        }
         Ok(())
     }
 }

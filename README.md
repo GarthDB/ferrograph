@@ -33,12 +33,16 @@ cargo run -- search --db .ferrograph "main"
 # Show graph stats
 cargo run -- status .
 
-# Watch for changes and re-index (requires --output)
+# Watch for changes and re-index (--output required)
 cargo run -- watch . --output .ferrograph
 
-# Run MCP server over stdio (for AI agents / IDEs)
+# Run MCP server over stdio (for AI agents / IDEs).
+# The server looks for a graph at FERROGRAPH_DB or .ferrograph in the current directory.
+# Set FERROGRAPH_DB to the path of your index to use a specific graph.
 cargo run -- mcp
 ```
+
+**MCP configuration:** Point the MCP server at your graph by either running it from the project root (after `ferrograph index --output .ferrograph`) or setting the `FERROGRAPH_DB` environment variable to the path of your `.ferrograph` (or other) database file.
 
 ## License
 

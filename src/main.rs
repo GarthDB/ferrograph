@@ -11,7 +11,7 @@ fn main() -> ExitCode {
     match ferrograph::config::run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e:?}");
+            eprintln!("error: {e:#}");
             ExitCode::FAILURE
         }
     }
