@@ -78,7 +78,7 @@ impl Query {
     }
 
     /// Return node ids reachable from the given node by following edges in both directions.
-    /// Only follows Calls, Contains, References, and ChangesWith (not all edge types).
+    /// Only follows Calls, Contains, References, and `ChangesWith` (not all edge types).
     /// Used for "blast radius": what could break if this node changes (Datalog fixed-point).
     ///
     /// # Errors

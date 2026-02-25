@@ -1,6 +1,6 @@
 //! Phase 5: trait and impl mapping (requires rust-analyzer / full tier).
 //!
-//! Stub: with `ra` feature only creates an AnalysisHost; trait/impl extraction is TODO.
+//! Stub: with `ra` feature only creates an `AnalysisHost`; trait/impl extraction is TODO.
 
 use std::path::Path;
 
@@ -11,7 +11,7 @@ use crate::graph::Store;
 /// Map trait implementations to traits (full tier only).
 ///
 /// When the `ra` feature is enabled, uses rust-analyzer's semantic model to discover
-/// impl–trait relationships. Currently a stub: no ImplementsTrait edges are written.
+/// impl–trait relationships. Currently a stub: no `ImplementsTrait` edges are written.
 ///
 /// # Errors
 /// Fails if rust-analyzer or graph update fails.
