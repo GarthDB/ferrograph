@@ -6,7 +6,7 @@ description = "Graph-powered Rust code intelligence"
 license = "MIT"
 repository = "https://github.com/GarthDB/ferrograph"
 readme = "README.md"
-rust-version = "1.76"
+rust-version = "1.88"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -38,7 +38,7 @@ ra = ["dep:ra_ap_ide"]  # Phase 2: rust-analyzer for trait/ownership/unsafe/macr
 
 [dependencies.gix]
 optional = true
-version = "0.67"
+version = "0.79"
 
 [dependencies.ra_ap_ide]
 optional = true
