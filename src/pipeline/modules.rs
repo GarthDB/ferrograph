@@ -398,17 +398,11 @@ mod tests {
         let imports_count = edges
             .rows
             .iter()
-            .filter(|r| {
-                r.get(2)
-                    .map(|v| crate::graph::unquote_datavalue(v))
-                    .as_deref()
-                    == Some("imports")
-            })
+            .filter(|r| r.get(2).map(crate::graph::unquote_datavalue).as_deref() == Some("imports"))
             .count();
         assert!(
             imports_count >= 1,
-            "expected at least one Imports edge, got {}",
-            imports_count
+            "expected at least one Imports edge, got {imports_count}"
         );
     }
 }

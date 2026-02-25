@@ -12,9 +12,8 @@ fn fixture_path(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-#[test]
-fn pipeline_indexes_single_crate() {
-    let root = fixture_path("single_crate");
+fn run_fixture(name: &str) -> Store {
+    let root = fixture_path(name);
     assert!(
         root.exists(),
         "fixture missing: {} (run from repo root)",
@@ -23,57 +22,32 @@ fn pipeline_indexes_single_crate() {
     let store = Store::new_memory().unwrap();
     let config = PipelineConfig::default();
     run_pipeline(&store, &root, &config).expect("pipeline failed");
-    let rows = ferrograph::graph::Query::all_nodes(&store).unwrap();
-    assert!(
-        !rows.rows.is_empty(),
-        "expected at least one node from single_crate fixture"
-    );
-    let types: Vec<String> = rows
+    store
+}
+
+fn node_types(store: &Store) -> Vec<String> {
+    ferrograph::graph::Query::all_nodes(store)
+        .unwrap()
         .rows
         .iter()
         .filter_map(|r| r.get(1))
         .map(|v| v.to_string().trim_matches('"').to_string())
-        .collect();
-    assert!(
-        types.contains(&"function".to_string()),
-        "expected at least one function node, got: {types:?}"
-    );
-    assert!(
-        types.contains(&"file".to_string()),
-        "expected file node, got: {types:?}"
-    );
-    for want in ["struct", "enum", "trait", "impl"] {
-        assert!(
-            types.contains(&want.to_string()),
-            "expected {want} node from fixture, got: {types:?}"
-        );
-    }
-    let edge_rows = ferrograph::graph::Query::all_edges(&store).unwrap();
-    assert!(
-        !edge_rows.rows.is_empty(),
-        "expected at least one edge (Contains or Calls)"
-    );
-    let edge_types: Vec<String> = edge_rows
+        .collect()
+}
+
+fn edge_types(store: &Store) -> Vec<String> {
+    ferrograph::graph::Query::all_edges(store)
+        .unwrap()
         .rows
         .iter()
         .filter_map(|r| r.get(2))
         .map(|v| v.to_string().trim_matches('"').to_string())
-        .collect();
-    assert!(
-        edge_types.contains(&"contains".to_string()),
-        "expected Contains edges, got: {edge_types:?}"
-    );
-    assert!(
-        edge_types.contains(&"calls".to_string()),
-        "expected Calls edges (e.g. main -> bar), got: {edge_types:?}"
-    );
-    let dead = ferrograph::graph::Query::stored_dead_functions(&store).unwrap();
-    assert!(
-        !dead.is_empty(),
-        "fixture has unused() which should be detected as dead, got: {dead:?}"
-    );
-    // Test functions are entry points and must not be reported dead.
-    let nodes = ferrograph::graph::Query::all_nodes(&store).unwrap();
+        .collect()
+}
+
+fn assert_test_fns_not_dead(store: &Store) {
+    let dead = ferrograph::graph::Query::stored_dead_functions(store).unwrap();
+    let nodes = ferrograph::graph::Query::all_nodes(store).unwrap();
     let test_fn_ids: Vec<String> = nodes
         .rows
         .iter()
@@ -95,12 +69,14 @@ fn pipeline_indexes_single_crate() {
             "test function {id} must not be in dead list, dead: {dead:?}"
         );
     }
-    // Mod/use resolution: main.rs has "use crate::greet" and calls greet(); expect a Calls edge to greet (in lib).
-    let edges = ferrograph::graph::Query::all_edges(&store).unwrap();
-    let nodes = ferrograph::graph::Query::all_nodes(&store).unwrap();
+}
+
+fn assert_call_to_greet(store: &Store) {
+    let edges = ferrograph::graph::Query::all_edges(store).unwrap();
+    let nodes = ferrograph::graph::Query::all_nodes(store).unwrap();
     let greet_id = nodes.rows.iter().find_map(|r| {
         let id = r
-            .get(0)
+            .first()
             .map(|v| v.to_string().trim_matches('"').to_string())?;
         let payload = r
             .get(2)
@@ -111,7 +87,7 @@ fn pipeline_indexes_single_crate() {
             None
         }
     });
-    let has_call_to_greet = greet_id.map_or(false, |gid| {
+    let has_call = greet_id.is_some_and(|gid| {
         edges.rows.iter().any(|r| {
             r.get(2)
                 .map(|v| v.to_string().trim_matches('"').to_string())
@@ -124,23 +100,50 @@ fn pipeline_indexes_single_crate() {
         })
     });
     assert!(
-        has_call_to_greet,
-        "expected a Calls edge to greet (from main.rs use crate::greet; greet();), edges: {:?}",
-        edges.rows.len()
+        has_call,
+        "expected a Calls edge to greet (from main.rs use crate::greet; greet();)"
     );
 }
 
 #[test]
-fn pipeline_indexes_workspace() {
-    let root = fixture_path("workspace");
+fn pipeline_indexes_single_crate() {
+    let store = run_fixture("single_crate");
+    let types = node_types(&store);
     assert!(
-        root.exists(),
-        "fixture missing: {} (run from repo root)",
-        root.display()
+        types.contains(&"function".to_string()),
+        "expected at least one function node, got: {types:?}"
     );
-    let store = Store::new_memory().unwrap();
-    let config = PipelineConfig::default();
-    run_pipeline(&store, &root, &config).expect("pipeline failed");
+    assert!(
+        types.contains(&"file".to_string()),
+        "expected file node, got: {types:?}"
+    );
+    for want in ["struct", "enum", "trait", "impl"] {
+        assert!(
+            types.contains(&want.to_string()),
+            "expected {want} node from fixture, got: {types:?}"
+        );
+    }
+    let etypes = edge_types(&store);
+    assert!(
+        etypes.contains(&"contains".to_string()),
+        "expected Contains edges, got: {etypes:?}"
+    );
+    assert!(
+        etypes.contains(&"calls".to_string()),
+        "expected Calls edges (e.g. main -> bar), got: {etypes:?}"
+    );
+    let dead = ferrograph::graph::Query::stored_dead_functions(&store).unwrap();
+    assert!(
+        !dead.is_empty(),
+        "fixture has unused() which should be detected as dead, got: {dead:?}"
+    );
+    assert_test_fns_not_dead(&store);
+    assert_call_to_greet(&store);
+}
+
+#[test]
+fn pipeline_indexes_workspace() {
+    let store = run_fixture("workspace");
     let rows = ferrograph::graph::Query::all_nodes(&store).unwrap();
     assert!(
         rows.rows.len() >= 4,
