@@ -39,6 +39,9 @@ pub enum Command {
         db: Option<PathBuf>,
         /// Search query.
         query: String,
+        /// Match case-insensitively.
+        #[arg(short, long)]
+        case_insensitive: bool,
     },
     /// Show index status and stats.
     Status {
@@ -67,7 +70,11 @@ pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Index { path, output } => run_index(&path, output.as_ref()),
         Command::Query { db, query } => run_query(db.as_ref(), &query),
-        Command::Search { db, query } => run_search(db.as_ref(), &query),
+        Command::Search {
+            db,
+            query,
+            case_insensitive,
+        } => run_search(db.as_ref(), &query, case_insensitive),
         Command::Status { path } => run_status(&path),
         Command::Watch { path, output } => run_watch(&path, output.as_ref()),
         Command::Mcp => run_mcp(),
@@ -100,12 +107,15 @@ fn run_index(path: &Path, output: Option<&PathBuf>) -> Result<()> {
     };
     let config = crate::pipeline::PipelineConfig::default();
     crate::pipeline::run_pipeline(&store, path, &config)?;
-    match output {
-        Some(out) => println!("Indexed {} into {}", path.display(), out.display()),
-        None => println!(
-            "Indexed {} (in-memory; use --output to persist)",
+    if let Some(out) = output {
+        println!("Indexed {} into {}", path.display(), out.display());
+    } else {
+        let nodes = store.node_count()?;
+        let edges = store.edge_count()?;
+        println!(
+            "Indexed {} (in-memory: {nodes} nodes, {edges} edges; use --output to persist)",
             path.display()
-        ),
+        );
     }
     Ok(())
 }
@@ -122,8 +132,13 @@ fn run_query(db: Option<&PathBuf>, query: &str) -> Result<()> {
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
     let params = std::collections::BTreeMap::new();
+    let script = if query.contains(":limit") {
+        query.trim().to_string()
+    } else {
+        format!("{}\n:limit 10000", query.trim())
+    };
     let rows = store
-        .run_query(query.trim(), params)
+        .run_query(&script, params)
         .context("Query execution failed")?;
     for row in &rows.rows {
         let line: Vec<String> = row.iter().map(std::string::ToString::to_string).collect();
@@ -132,7 +147,7 @@ fn run_query(db: Option<&PathBuf>, query: &str) -> Result<()> {
     Ok(())
 }
 
-fn run_search(db: Option<&PathBuf>, query: &str) -> Result<()> {
+fn run_search(db: Option<&PathBuf>, query: &str, case_insensitive: bool) -> Result<()> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -143,7 +158,7 @@ fn run_search(db: Option<&PathBuf>, query: &str) -> Result<()> {
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let rows = crate::search::text_search(&store, query)?;
+    let rows = crate::search::text_search(&store, query, case_insensitive)?;
     for (id, node_type, payload) in rows {
         let payload_display = payload.as_deref().unwrap_or("—");
         println!("{id}\t{node_type}\t{payload_display}");
@@ -176,10 +191,10 @@ fn run_status(path: &Path) -> Result<()> {
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let nodes = crate::graph::Query::all_nodes(&store)?;
-    let edges = crate::graph::Query::all_edges(&store)?;
+    let node_count = store.node_count()?;
+    let edge_count = store.edge_count()?;
     println!("Graph: {}", db_path.display());
-    println!("  nodes: {}", nodes.rows.len());
-    println!("  edges: {}", edges.rows.len());
+    println!("  nodes: {node_count}");
+    println!("  edges: {edge_count}");
     Ok(())
 }

@@ -13,16 +13,17 @@ fn fixture_path(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-/// True if index failure is due to tree-sitter language version mismatch (CI environment).
-fn is_tree_sitter_skip(stderr: &[u8]) -> bool {
-    let s = String::from_utf8_lossy(stderr);
-    s.contains("Incompatible language version") || s.contains("parse failed")
-}
-
 #[test]
 fn cli_help() {
     let out = ferrograph_cmd().arg("--help").output().unwrap();
     assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for sub in ["index", "query", "status", "search", "watch", "mcp"] {
+        assert!(
+            stdout.contains(sub),
+            "help should list subcommand '{sub}', got: {stdout}"
+        );
+    }
 }
 
 #[test]
@@ -34,9 +35,11 @@ fn cli_index_help() {
 #[test]
 fn cli_index_and_status_and_query() {
     let fixture = fixture_path("single_crate");
-    if !fixture.exists() {
-        return;
-    }
+    assert!(
+        fixture.exists(),
+        "fixture missing: {} (run from repo root)",
+        fixture.display()
+    );
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join(".ferrograph");
 
@@ -49,13 +52,11 @@ fn cli_index_and_status_and_query() {
         ])
         .output()
         .unwrap();
-    if !out.status.success() {
-        if is_tree_sitter_skip(&out.stderr) {
-            eprintln!("Skipping: tree-sitter version mismatch");
-            return;
-        }
-        panic!("index failed: {}", String::from_utf8_lossy(&out.stderr));
-    }
+    assert!(
+        out.status.success(),
+        "index failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let out = ferrograph_cmd()
         .args(["status", dir.path().to_str().unwrap()])
@@ -113,9 +114,11 @@ fn cli_index_and_status_and_query() {
 #[test]
 fn cli_persistent_reopen() {
     let fixture = fixture_path("single_crate");
-    if !fixture.exists() {
-        return;
-    }
+    assert!(
+        fixture.exists(),
+        "fixture missing: {} (run from repo root)",
+        fixture.display()
+    );
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join(".ferrograph");
 
@@ -128,13 +131,11 @@ fn cli_persistent_reopen() {
         ])
         .output()
         .unwrap();
-    if !out.status.success() {
-        if is_tree_sitter_skip(&out.stderr) {
-            eprintln!("Skipping: tree-sitter version mismatch");
-            return;
-        }
-        panic!("index failed: {}", String::from_utf8_lossy(&out.stderr));
-    }
+    assert!(
+        out.status.success(),
+        "index failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let out1 = ferrograph_cmd()
         .args(["status", db_path.to_str().unwrap()])

@@ -7,24 +7,22 @@ use tree_sitter::Parser;
 use tree_sitter_rust::LANGUAGE;
 
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
+use crate::graph::Store;
 
-/// Result of AST extraction: nodes and edges to add to the graph.
-pub struct AstResult {
-    pub nodes: Vec<(NodeId, NodeType, Option<String>)>,
-    pub edges: Vec<(NodeId, NodeId, EdgeType)>,
-}
-
-/// Extract graph nodes and edges from Rust source.
+/// Extract graph nodes and edges from Rust source and write them to the store.
 ///
 /// # Errors
-/// Fails if parsing fails or the language cannot be loaded.
-pub fn extract_ast(path: &Path, content: &str) -> Result<AstResult> {
+/// Fails if parsing fails, the language cannot be loaded, or store writes fail.
+pub fn extract_ast(store: &Store, path: &Path, content: &str) -> Result<()> {
     let mut parser = Parser::new();
     parser.set_language(&LANGUAGE.into())?;
     let tree = parser
         .parse(content, None)
         .ok_or_else(|| anyhow::anyhow!("parse failed"))?;
-    let file_id = NodeId(path.to_string_lossy().to_string());
+    if tree.root_node().has_error() {
+        anyhow::bail!("parse failed");
+    }
+    let file_id = NodeId::new(path.to_string_lossy().to_string());
     let mut nodes = vec![(file_id.clone(), NodeType::File, None)];
     let mut edges = Vec::new();
 
@@ -39,7 +37,17 @@ pub fn extract_ast(path: &Path, content: &str) -> Result<AstResult> {
         &mut edges,
     );
 
-    Ok(AstResult { nodes, edges })
+    if !nodes.is_empty() {
+        let batch: Vec<_> = nodes
+            .iter()
+            .map(|(id, typ, payload)| (id.clone(), typ.clone(), payload.as_deref()))
+            .collect();
+        store.put_nodes_batch(&batch)?;
+    }
+    if !edges.is_empty() {
+        store.put_edges_batch(&edges)?;
+    }
+    Ok(())
 }
 
 fn traverse(
@@ -76,7 +84,7 @@ fn traverse(
     };
 
     let added = if let (Some(nt), no) = (node_type, name_opt) {
-        let id = NodeId(format!(
+        let id = NodeId::new(format!(
             "{}#{}:{}",
             file_id.0,
             node.start_position().row + 1,
@@ -114,7 +122,7 @@ fn name_of_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
             let n = cursor.node();
             if n.kind() == "identifier" {
                 let r = n.byte_range();
-                return Some(source[r.start..r.end].to_string());
+                return source.get(r.start..r.end).map(String::from);
             }
             if !cursor.goto_next_sibling() {
                 break;
@@ -124,9 +132,12 @@ fn name_of_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
     None
 }
 
+/// Resolve a call expression to a placeholder node id (`file_path::fn_name`).
+///
+/// **Limitation**: Only bare identifier calls like `foo()` are handled. Method calls
+/// (`self.foo()`, `x.bar()`), qualified paths (`mod::foo()`), and UFCS (`Type::method()`)
+/// are not resolved and do not produce call edges.
 fn resolve_call_target(node: &tree_sitter::Node, source: &str, file_id: &NodeId) -> Option<NodeId> {
-    // Simplified: we don't resolve names to definitions here; we use a placeholder.
-    // Full resolution would require module/type context.
     let child = node.child(0)?;
     let name = if child.kind() == "identifier" {
         let r = child.byte_range();
@@ -134,5 +145,42 @@ fn resolve_call_target(node: &tree_sitter::Node, source: &str, file_id: &NodeId)
     } else {
         None
     };
-    name.map(|n| NodeId(format!("{}::{}", file_id.0, n)))
+    name.map(|n| NodeId::new(format!("{}::{}", file_id.0, n)))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::graph::query::Query;
+    use crate::graph::Store;
+
+    use super::extract_ast;
+
+    #[test]
+    fn extract_ast_single_function() {
+        let store = Store::new_memory().unwrap();
+        let path = Path::new("/test.rs");
+        let content = "fn foo() {}";
+        extract_ast(&store, path, content).unwrap();
+        let rows = Query::all_nodes(&store).unwrap();
+        assert!(rows.rows.len() >= 2, "expected file + function nodes");
+        let types: Vec<String> = rows
+            .rows
+            .iter()
+            .filter_map(|r| r.get(1))
+            .map(|v| v.to_string().trim_matches('"').to_string())
+            .collect();
+        assert!(types.contains(&"file".to_string()));
+        assert!(types.contains(&"function".to_string()));
+    }
+
+    #[test]
+    fn extract_ast_empty_file_fails_parse() {
+        let store = Store::new_memory().unwrap();
+        let path = Path::new("/test.rs");
+        let content = "not valid rust {{{";
+        let result = extract_ast(&store, path, content);
+        assert!(result.is_err());
+    }
 }

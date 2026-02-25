@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Implementation, ListToolsResult, ServerCapabilities,
@@ -12,20 +12,28 @@ use rmcp::service::serve_server;
 use rmcp::transport::stdio;
 use rmcp::{handler::server::ServerHandler, service::RequestContext, RoleServer};
 
+/// Valid JSON Schema for tools with no parameters.
+fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
+    serde_json::json!({ "type": "object" })
+        .as_object()
+        .unwrap()
+        .clone()
+}
+
 fn blast_radius_input_schema() -> serde_json::Map<String, serde_json::Value> {
-    let mut schema = serde_json::Map::new();
-    schema.insert("type".to_string(), serde_json::json!("object"));
-    let mut props = serde_json::Map::new();
-    props.insert(
-        "node_id".to_string(),
-        serde_json::json!({
-            "type": "string",
-            "description": "The node ID to compute blast radius for"
-        }),
-    );
-    schema.insert("properties".to_string(), serde_json::Value::Object(props));
-    schema.insert("required".to_string(), serde_json::json!(["node_id"]));
-    schema
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "node_id": {
+                "type": "string",
+                "description": "The node ID to compute blast radius for"
+            }
+        },
+        "required": ["node_id"]
+    })
+    .as_object()
+    .unwrap()
+    .clone()
 }
 
 fn resolve_store_path() -> Option<PathBuf> {
@@ -35,9 +43,22 @@ fn resolve_store_path() -> Option<PathBuf> {
         .or_else(|| std::env::current_dir().ok().map(|p| p.join(".ferrograph")))
 }
 
+/// Cache: path and store handle so we do not reopen the database on every tool call.
+type StoreCache = Arc<Mutex<Option<(PathBuf, Arc<crate::graph::Store>)>>>;
+
 /// MCP server handler exposing Ferrograph tools.
 #[derive(Clone)]
-pub struct FerrographMcp;
+pub struct FerrographMcp {
+    cached: StoreCache,
+}
+
+impl Default for FerrographMcp {
+    fn default() -> Self {
+        Self {
+            cached: Arc::new(Mutex::new(None)),
+        }
+    }
+}
 
 impl ServerHandler for FerrographMcp {
     fn get_info(&self) -> ServerInfo {
@@ -64,7 +85,7 @@ impl ServerHandler for FerrographMcp {
                 description: Some(Cow::Borrowed(
                     "List function node ids that are not reachable from any entry point.",
                 )),
-                input_schema: Arc::new(serde_json::Map::new()),
+                input_schema: Arc::new(dead_code_input_schema()),
                 output_schema: None,
                 annotations: None,
                 execution: None,
@@ -105,14 +126,20 @@ impl ServerHandler for FerrographMcp {
                 "hint": "Run 'ferrograph index --output .ferrograph' in the project root, or set FERROGRAPH_DB to the graph path."
             })));
         }
-        let store = crate::graph::Store::new_persistent(&store_path).map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("Failed to open graph: {e}"), None)
-        })?;
+        let store = self.get_or_open_store(&store_path)?;
         let result = match name {
             "dead_code" => {
-                let ids = crate::graph::Query::dead_functions(&store).map_err(|e| {
+                let mut ids = crate::graph::Query::dead_functions(&store).map_err(|e| {
                     rmcp::ErrorData::internal_error(format!("Dead code query failed: {e}"), None)
                 })?;
+                if ids.is_empty() {
+                    ids = crate::graph::Query::dead_function_ids(&store).map_err(|e| {
+                        rmcp::ErrorData::internal_error(
+                            format!("Dead code (live) query failed: {e}"),
+                            None,
+                        )
+                    })?;
+                }
                 CallToolResult::structured(serde_json::json!({
                     "dead_function_ids": ids,
                     "count": ids.len()
@@ -147,14 +174,63 @@ impl ServerHandler for FerrographMcp {
     }
 }
 
+impl FerrographMcp {
+    fn get_or_open_store(
+        &self,
+        store_path: &std::path::Path,
+    ) -> Result<Arc<crate::graph::Store>, rmcp::ErrorData> {
+        let path_buf = store_path.to_path_buf();
+        {
+            let mut guard = self.cached.lock().map_err(|e| {
+                rmcp::ErrorData::internal_error(format!("Cache lock poisoned: {e}"), None)
+            })?;
+            if let Some((ref cached_path, ref store)) = *guard {
+                if *cached_path == path_buf {
+                    return Ok(Arc::clone(store));
+                }
+            }
+            let store = crate::graph::Store::new_persistent(&path_buf).map_err(|e| {
+                rmcp::ErrorData::internal_error(format!("Failed to open graph: {e}"), None)
+            })?;
+            let store = Arc::new(store);
+            *guard = Some((path_buf, Arc::clone(&store)));
+            Ok(store)
+        }
+    }
+}
+
 /// Run the MCP server over stdio (for use by IDEs and AI agents).
 ///
 /// # Errors
 /// Fails if transport or server initialization fails.
 pub async fn run_stdio() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let handler = FerrographMcp;
+    let handler = FerrographMcp::default();
     let transport = stdio();
     let service = serve_server(handler, transport).await?;
     service.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{blast_radius_input_schema, dead_code_input_schema, FerrographMcp};
+
+    #[test]
+    fn mcp_default_constructs() {
+        let _ = FerrographMcp::default();
+    }
+
+    #[test]
+    fn dead_code_schema_has_type_object() {
+        let schema = dead_code_input_schema();
+        assert_eq!(schema.get("type").and_then(|v| v.as_str()), Some("object"));
+    }
+
+    #[test]
+    fn blast_radius_schema_has_required_node_id() {
+        let schema = blast_radius_input_schema();
+        assert_eq!(schema.get("type").and_then(|v| v.as_str()), Some("object"));
+        let required = schema.get("required").and_then(|v| v.as_array()).unwrap();
+        assert!(required.iter().any(|v| v.as_str() == Some("node_id")));
+    }
 }

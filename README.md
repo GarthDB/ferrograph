@@ -4,7 +4,7 @@ Graph-powered Rust code intelligence. Indexes Rust codebases into a queryable kn
 
 ## Status
 
-Early stage: file discovery, tree-sitter AST extraction, CozoDB graph storage, and CLI scaffold. Dead code detection, MCP server, and rust-analyzer integration are planned.
+Implements file discovery, tree-sitter AST extraction, CozoDB graph storage, CLI (index, query, search, status, watch), dead code detection, MCP server (dead_code and blast_radius tools), and optional git coupling and rust-analyzer stubs.
 
 ## Build
 
@@ -20,9 +20,24 @@ cargo clippy -- -D warnings
 # Index current directory (in-memory)
 cargo run -- index .
 
-# Query and search (not yet implemented)
-cargo run -- query "?[id, type] := *nodes[id, type, payload]"
+# Index to a persistent database
+cargo run -- index . --output .ferrograph
+
+# Run Datalog queries
+cargo run -- query "?[id, type, payload] := *nodes[id, type, payload]"
+cargo run -- query --db .ferrograph "?[id] := *dead_functions[id]"
+
+# Text search over node payloads
+cargo run -- search --db .ferrograph "main"
+
+# Show graph stats
 cargo run -- status .
+
+# Watch for changes and re-index (requires --output)
+cargo run -- watch . --output .ferrograph
+
+# Run MCP server over stdio (for AI agents / IDEs)
+cargo run -- mcp
 ```
 
 ## License

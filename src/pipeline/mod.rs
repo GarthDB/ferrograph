@@ -24,8 +24,10 @@ use crate::graph::Store;
 /// Pipeline configuration (tier: fast, balanced, full).
 #[derive(Clone, Debug, Default)]
 pub struct PipelineConfig {
-    /// If true, run rust-analyzer-based phases (full tier).
-    pub full_semantic: bool,
+    /// If true, run trait/impl mapping (rust-analyzer, requires `ra` feature).
+    pub enable_trait_mapping: bool,
+    /// If true, run git change coupling (requires `git` feature).
+    pub enable_git_coupling: bool,
 }
 
 /// Run the full indexing pipeline on a project root.
@@ -35,21 +37,15 @@ pub struct PipelineConfig {
 pub fn run_pipeline(store: &Store, root: &Path, config: &PipelineConfig) -> Result<()> {
     let files = discover_files(root)?;
     for (path, content) in &files {
-        let nodes_edges = extract_ast(path, content)?;
-        for (id, typ, payload) in nodes_edges.nodes {
-            store.put_node(&id, &typ, payload.as_deref())?;
-        }
-        for (from, to, edge_type) in nodes_edges.edges {
-            store.put_edge(&from, &to, &edge_type)?;
-        }
+        extract_ast(store, path, content)?;
     }
     resolve_modules(store, root)?;
     build_call_graph(store)?;
-    if config.full_semantic {
+    if config.enable_trait_mapping {
         map_traits(store, root)?;
     }
     detect_dead_code(store)?;
-    if config.full_semantic {
+    if config.enable_git_coupling {
         analyze_git_coupling(store, root)?;
     }
     Ok(())

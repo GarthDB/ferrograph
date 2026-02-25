@@ -14,6 +14,7 @@ pub fn discover_files(root: &Path) -> Result<BTreeMap<std::path::PathBuf, String
     let mut out = BTreeMap::new();
     for entry in WalkDir::new(root)
         .follow_links(true)
+        .max_depth(256)
         .into_iter()
         .filter_entry(|e| {
             let n = e.file_name().to_string_lossy();
@@ -50,9 +51,7 @@ mod tests {
     fn discovers_rust_files_only() {
         // Run discovery on this crate's src/ so we know .rs files exist
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        if !root.exists() {
-            return;
-        }
+        assert!(root.exists(), "src/ missing (run from repo root)");
         let files = discover_files(&root).unwrap();
         assert!(
             files

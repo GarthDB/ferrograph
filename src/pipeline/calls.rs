@@ -2,13 +2,17 @@
 //!
 //! Resolves placeholder call targets (`file_path::fn_name`) to real function node IDs
 //! (`file_path#line:col`) so call edges connect to actual definition nodes.
+//!
+//! **Known limitation**: Only bare `foo()`-style calls are resolved. Method calls,
+//! qualified paths (`mod::fn`), and UFCS are not resolved; those edges are removed
+//! when the target cannot be matched to a function in the same file.
 
 use std::collections::HashMap;
 
 use anyhow::Result;
 
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
-use crate::graph::{cozo_str, query::Query, Store};
+use crate::graph::{query::Query, unquote_datavalue, Store};
 
 /// Build or enrich call graph by resolving AST placeholder call targets to real function nodes.
 ///
@@ -27,27 +31,35 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     // (file_path, function_name) -> NodeId
     let mut name_to_id: HashMap<(String, String), NodeId> = HashMap::new();
     for row in &nodes.rows {
-        let type_val = row.get(1).map(cozo_str).unwrap_or_default();
+        let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
         if type_val != function_type {
             continue;
         }
-        let id_trim = row.first().map(cozo_str).unwrap_or_default();
-        let payload = row.get(2).map(cozo_str).unwrap_or_default();
+        let id_trim = row.first().map(unquote_datavalue).unwrap_or_default();
+        let payload = row.get(2).map(unquote_datavalue).unwrap_or_default();
         if payload.is_empty() {
             continue;
         }
         let file_path = id_trim.split('#').next().unwrap_or(&id_trim).to_string();
-        name_to_id.insert((file_path, payload), NodeId(id_trim));
+        let node_id = NodeId(id_trim);
+        if let Some(prev) = name_to_id.insert((file_path, payload), node_id.clone()) {
+            if prev.0 != node_id.0 {
+                eprintln!(
+                    "warning: duplicate function name in same file, later overwrites: {} vs {}",
+                    prev.0, node_id.0
+                );
+            }
+        }
     }
 
     let edges = Query::all_edges(store)?;
     for row in &edges.rows {
-        let edge_type = row.get(2).map(cozo_str).unwrap_or_default();
+        let edge_type = row.get(2).map(unquote_datavalue).unwrap_or_default();
         if edge_type != calls_type_str {
             continue;
         }
-        let from_str = row.first().map(cozo_str).unwrap_or_default();
-        let to_str = row.get(1).map(cozo_str).unwrap_or_default();
+        let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
+        let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
         if !to_str.contains("::") {
             continue;
         }
@@ -65,4 +77,39 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::graph::query::Query;
+    use crate::graph::schema::{EdgeType, NodeId, NodeType};
+    use crate::graph::Store;
+
+    use super::build_call_graph;
+
+    #[test]
+    fn build_call_graph_resolves_placeholder() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let real_id = NodeId::new(format!("{path}#10:1"));
+        store
+            .put_node(&real_id, &NodeType::Function, Some("foo"))
+            .unwrap();
+        let caller_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&caller_id, &NodeType::Function, Some("main"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::foo"));
+        store
+            .put_edge(&caller_id, &placeholder, &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert!(
+            to_str.contains('#'),
+            "edge should point to real id (path#line:col), got {to_str}"
+        );
+    }
 }

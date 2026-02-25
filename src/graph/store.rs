@@ -110,6 +110,105 @@ impl Store {
         Ok(())
     }
 
+    /// Insert multiple nodes in one script (more efficient than repeated `put_node`).
+    ///
+    /// # Errors
+    /// Fails if the Cozo script or serialization fails.
+    pub fn put_nodes_batch(&self, nodes: &[(NodeId, NodeType, Option<&str>)]) -> Result<()> {
+        const CHUNK: usize = 100;
+        for chunk in nodes.chunks(CHUNK) {
+            let mut rows = Vec::with_capacity(chunk.len());
+            let mut params = BTreeMap::new();
+            for (i, (id, node_type, payload)) in chunk.iter().enumerate() {
+                let type_str = node_type.to_string();
+                let payload_val = payload.map_or(DataValue::Null, DataValue::from);
+                params.insert(format!("id{i}"), DataValue::from(id.0.as_str()));
+                params.insert(format!("type{i}"), DataValue::from(type_str.as_str()));
+                params.insert(format!("payload{i}"), payload_val);
+                rows.push(format!("[$id{i}, $type{i}, $payload{i}]"));
+            }
+            let script = format!(
+                "?[id, type, payload] <- [{}] :put nodes {{ id => type, payload }}",
+                rows.join(", ")
+            );
+            self.db
+                .run_script(&script, params, ScriptMutability::Mutable)
+                .map_err(|e| cozo_err(&e))?;
+        }
+        Ok(())
+    }
+
+    /// Insert multiple edges in one script (more efficient than repeated `put_edge`).
+    ///
+    /// # Errors
+    /// Fails if the Cozo script or serialization fails.
+    pub fn put_edges_batch(&self, edges: &[(NodeId, NodeId, EdgeType)]) -> Result<()> {
+        const CHUNK: usize = 100;
+        for chunk in edges.chunks(CHUNK) {
+            let mut rows = Vec::with_capacity(chunk.len());
+            let mut params = BTreeMap::new();
+            for (i, (from, to, edge_type)) in chunk.iter().enumerate() {
+                let type_str = edge_type.to_string();
+                params.insert(format!("from_id{i}"), DataValue::from(from.0.as_str()));
+                params.insert(format!("to_id{i}"), DataValue::from(to.0.as_str()));
+                params.insert(format!("edge_type{i}"), DataValue::from(type_str.as_str()));
+                rows.push(format!("[$from_id{i}, $to_id{i}, $edge_type{i}]"));
+            }
+            let script = format!(
+                "?[from_id, to_id, edge_type] <- [{}] :put edges {{ from_id, to_id, edge_type }}",
+                rows.join(", ")
+            );
+            self.db
+                .run_script(&script, params, ScriptMutability::Mutable)
+                .map_err(|e| cozo_err(&e))?;
+        }
+        Ok(())
+    }
+
+    /// Return the number of nodes (without loading all rows).
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn node_count(&self) -> Result<usize> {
+        let result = self
+            .db
+            .run_script(
+                "?[count(id)] := *nodes[id, type, payload]",
+                BTreeMap::new(),
+                ScriptMutability::Immutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
+        let n: i64 = result
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(DataValue::get_int)
+            .unwrap_or(0);
+        Ok(usize::try_from(n).unwrap_or(0))
+    }
+
+    /// Return the number of edges (without loading all rows).
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn edge_count(&self) -> Result<usize> {
+        let result = self
+            .db
+            .run_script(
+                "?[count(from_id)] := *edges[from_id, to_id, edge_type]",
+                BTreeMap::new(),
+                ScriptMutability::Immutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
+        let n: i64 = result
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(DataValue::get_int)
+            .unwrap_or(0);
+        Ok(usize::try_from(n).unwrap_or(0))
+    }
+
     /// Remove a single edge by key.
     ///
     /// # Errors
@@ -219,7 +318,7 @@ mod tests {
             .unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         assert_eq!(rows.rows.len(), 1);
-        assert!(rows.rows[0][0].to_string().contains("n1"));
+        assert_eq!(rows.rows[0][0].to_string().trim_matches('"'), "n1");
     }
 
     #[test]
@@ -232,8 +331,8 @@ mod tests {
         store.put_edge(&from, &to, &EdgeType::Calls).unwrap();
         let rows = Query::all_edges(&store).unwrap();
         assert_eq!(rows.rows.len(), 1);
-        assert!(rows.rows[0][0].to_string().contains('a'));
-        assert!(rows.rows[0][1].to_string().contains('b'));
+        assert_eq!(rows.rows[0][0].to_string().trim_matches('"'), "a");
+        assert_eq!(rows.rows[0][1].to_string().trim_matches('"'), "b");
     }
 
     #[test]

@@ -64,14 +64,16 @@ pub fn watch_and_reindex(store: &Store, root: &Path, config: &PipelineConfig) ->
         if !running.load(Ordering::Relaxed) {
             break;
         }
-        if dirty.load(Ordering::Relaxed) {
-            dirty.store(false, Ordering::Relaxed);
-            match store
+        if dirty.swap(false, Ordering::SeqCst) {
+            // TODO: incremental re-index of only changed files instead of full clear + pipeline
+            if let Err(e) = store
                 .clear()
                 .and_then(|()| run_pipeline(store, &root_path, config))
             {
-                Ok(()) => println!("Re-indexed {}", root_path.display()),
-                Err(e) => eprintln!("Re-index failed: {e:#}"),
+                eprintln!("Re-index failed: {e:#}");
+                eprintln!("Warning: the graph database was cleared before the failure; it is now empty. Run 'ferrograph index --output <path>' to repopulate.");
+            } else {
+                println!("Re-indexed {}", root_path.display());
             }
         }
     }

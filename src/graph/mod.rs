@@ -10,7 +10,11 @@ pub use query::Query;
 pub use schema::{EdgeType, NodeId, NodeType};
 pub use store::Store;
 
-/// Cozo string values are often quoted in output; strip surrounding quotes.
-pub(crate) fn cozo_str(v: &DataValue) -> String {
-    v.to_string().trim_matches('"').to_string()
+/// Extract string from a Cozo DataValue without mangling embedded quotes.
+/// For `Str` variant returns the inner string; for other variants falls back to Display.
+pub(crate) fn unquote_datavalue(v: &DataValue) -> String {
+    match v {
+        DataValue::Str(s) => s.to_string(),
+        _ => v.to_string(),
+    }
 }

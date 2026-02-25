@@ -1,12 +1,19 @@
 //! Node and edge type definitions for the code graph.
 
 use std::fmt;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-/// Unique identifier for a graph node.
+/// Unique identifier for a graph node (e.g. `path#line:col` or `path::name` placeholder).
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-pub struct NodeId(pub String);
+pub struct NodeId(pub(crate) String);
+
+impl NodeId {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+}
 
 /// Type of a graph node.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -45,6 +52,28 @@ impl fmt::Display for NodeType {
     }
 }
 
+impl FromStr for NodeType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "file" => Self::File,
+            "module" => Self::Module,
+            "function" => Self::Function,
+            "struct" => Self::Struct,
+            "enum" => Self::Enum,
+            "trait" => Self::Trait,
+            "impl" => Self::Impl,
+            "type_alias" => Self::TypeAlias,
+            "const" => Self::Const,
+            "static" => Self::Static,
+            "macro" => Self::Macro,
+            "crate_root" => Self::CrateRoot,
+            _ => return Err(()),
+        })
+    }
+}
+
 /// Type of a directed edge between nodes.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -78,5 +107,26 @@ impl fmt::Display for EdgeType {
             Self::LifetimeScope => write!(f, "lifetime_scope"),
             Self::ChangesWith => write!(f, "changes_with"),
         }
+    }
+}
+
+impl FromStr for EdgeType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "contains" => Self::Contains,
+            "imports" => Self::Imports,
+            "calls" => Self::Calls,
+            "references" => Self::References,
+            "implements_trait" => Self::ImplementsTrait,
+            "owns" => Self::Owns,
+            "borrows" => Self::Borrows,
+            "expands_to" => Self::ExpandsTo,
+            "uses_unsafe" => Self::UsesUnsafe,
+            "lifetime_scope" => Self::LifetimeScope,
+            "changes_with" => Self::ChangesWith,
+            _ => return Err(()),
+        })
     }
 }

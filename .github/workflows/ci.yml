@@ -8,7 +8,11 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,8 +35,36 @@ jobs:
 
       - name: Test (default features)
         run: cargo test
-        # Fast path: verify default build and tests without optional deps (gix, ra_ap_ide).
 
       - name: Test (all features)
         run: cargo test --all-features
-        # Ensures optional features (git, ra) build and test together without hidden incompatibilities.
+
+      - name: Doc
+        run: cargo doc --no-deps
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (MSRV 1.76)
+        uses: dtolnay/rust-toolchain@1.76
+        with:
+          components: clippy, rustfmt
+
+      - name: Build and test
+        run: cargo build --release && cargo test --release
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Audit
+        run: cargo audit

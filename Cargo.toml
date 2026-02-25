@@ -6,16 +6,15 @@ description = "Graph-powered Rust code intelligence"
 license = "MIT"
 repository = "https://github.com/GarthDB/ferrograph"
 readme = "README.md"
-rust-version = "1.74"
+rust-version = "1.76"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 cozo = "0.7"
-thiserror = "1"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tree-sitter = "0.24"
+tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
 walkdir = "2"
 rmcp = { version = "0.16", features = ["server", "transport-io"] }
@@ -26,9 +25,6 @@ ctrlc = "3"
 insta = "1"
 tempfile = "3"
 
-[build-dependencies]
-cc = "1"
-
 [lints.rust]
 unsafe_code = "forbid"
 
@@ -37,7 +33,6 @@ pedantic = { level = "warn", priority = -1 }
 
 [features]
 default = []
-search = []  # reserved for vector embeddings when fastembed/ort are unyanked
 git = ["dep:gix"]  # Phase 10: git change coupling
 ra = ["dep:ra_ap_ide"]  # Phase 2: rust-analyzer for trait/ownership/unsafe/macro
 
@@ -49,7 +44,8 @@ version = "0.67"
 optional = true
 version = "0.0.309"
 
-# Override transitive graph_builder (cozo -> graph -> graph_builder) with local patch
-# if needed for build or compatibility; remove patch and patches/ if not required.
+# Override transitive graph_builder (cozo -> graph -> graph_builder) with local patch.
+# Used when the crates.io graph_builder is incompatible with our toolchain or cozo version;
+# remove patch and patches/ if upstream is compatible.
 [patch.crates-io]
 graph_builder = { path = "patches/graph_builder" }
