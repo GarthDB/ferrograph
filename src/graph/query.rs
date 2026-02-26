@@ -9,6 +9,18 @@ use cozo::NamedRows;
 use crate::graph::schema::{EdgeType, NodeType};
 use crate::graph::{unquote_datavalue, Store};
 
+/// (id, type, payload, incoming\_edges, outgoing\_edges)
+type NodeInfoResult = (
+    String,
+    String,
+    Option<String>,
+    Vec<(String, String)>,
+    Vec<(String, String)>,
+);
+
+/// (parent\_id, parent\_type, parent\_payload, children\_ids)
+type ModuleGraphEntry = (String, String, Option<String>, Vec<String>);
+
 /// Predefined and Datalog query execution.
 pub struct Query;
 
@@ -229,18 +241,7 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn node_info(
-        store: &Store,
-        node_id: &str,
-    ) -> Result<
-        Option<(
-            String,
-            String,
-            Option<String>,
-            Vec<(String, String)>,
-            Vec<(String, String)>,
-        )>,
-    > {
+    pub fn node_info(store: &Store, node_id: &str) -> Result<Option<NodeInfoResult>> {
         let mut params = BTreeMap::new();
         params.insert("id".to_string(), DataValue::from(node_id));
 
@@ -248,9 +249,8 @@ impl Query {
             "?[id, type, payload] := *nodes[id, type, payload], id = $id",
             params.clone(),
         )?;
-        let node_row = match node_rows.rows.first() {
-            Some(r) => r,
-            None => return Ok(None),
+        let Some(node_row) = node_rows.rows.first() else {
+            return Ok(None);
         };
         let nid = node_row.first().map(unquote_datavalue).unwrap_or_default();
         let ntype = node_row.get(1).map(unquote_datavalue).unwrap_or_default();
@@ -295,15 +295,12 @@ impl Query {
         Ok(Some((nid, ntype, payload, incoming_edges, outgoing_edges)))
     }
 
-    /// Return module containment tree: each node that has children, with (node_id, node_type,
-    /// payload, children). If root is Some, only return the subtree under that node.
+    /// Return module containment tree: each node that has children, with (`node_id`, `node_type`,
+    /// payload, children). If root is `Some`, only return the subtree under that node.
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn module_graph(
-        store: &Store,
-        root: Option<&str>,
-    ) -> Result<Vec<(String, String, Option<String>, Vec<String>)>> {
+    pub fn module_graph(store: &Store, root: Option<&str>) -> Result<Vec<ModuleGraphEntry>> {
         let edge_contains = EdgeType::Contains.to_string();
         let script = if let Some(r) = root {
             let mut params = BTreeMap::new();
@@ -350,14 +347,14 @@ impl Query {
                 .or_insert_with(|| (ptype.clone(), ppayload.clone(), Vec::new()));
             entry.2.push(child);
         }
-        let result: Vec<(String, String, Option<String>, Vec<String>)> = by_parent
+        let result: Vec<ModuleGraphEntry> = by_parent
             .into_iter()
             .map(|(parent, (ptype, ppayload, children))| (parent, ptype, ppayload, children))
             .collect();
         Ok(result)
     }
 
-    /// Return all impl blocks that implement the given trait (ImplementsTrait edges backward).
+    /// Return all impl blocks that implement the given trait (`ImplementsTrait` edges backward).
     ///
     /// # Errors
     /// Fails if the store query fails.
@@ -515,15 +512,15 @@ mod tests {
             .unwrap();
         let from_a = Query::blast_radius(&store, "a").unwrap();
         let from_c = Query::blast_radius(&store, "c").unwrap();
-        let from_a_ids: Vec<&str> = from_a.iter().map(|(id, _, _)| id.as_str()).collect();
-        let from_c_ids: Vec<&str> = from_c.iter().map(|(id, _, _)| id.as_str()).collect();
+        let ids_a: Vec<&str> = from_a.iter().map(|(id, _, _)| id.as_str()).collect();
+        let ids_c: Vec<&str> = from_c.iter().map(|(id, _, _)| id.as_str()).collect();
         assert!(
-            from_a_ids.contains(&"b") && from_a_ids.contains(&"c"),
-            "from a should reach b and c (forward), got {from_a_ids:?}"
+            ids_a.contains(&"b") && ids_a.contains(&"c"),
+            "from a should reach b and c (forward), got {ids_a:?}"
         );
         assert!(
-            from_c_ids.contains(&"b") && !from_c_ids.contains(&"a"),
-            "from c should reach only b (seed), not transitive a, got {from_c_ids:?}"
+            ids_c.contains(&"b") && !ids_c.contains(&"a"),
+            "from c should reach only b (seed), not transitive a, got {ids_c:?}"
         );
     }
 

@@ -214,6 +214,7 @@ impl ServerHandler for FerrographMcp {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn list_tools(
         &self,
         _request: Option<rmcp::model::PaginatedRequestParams>,
@@ -340,6 +341,7 @@ impl ServerHandler for FerrographMcp {
         ]))
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
@@ -385,19 +387,25 @@ impl ServerHandler for FerrographMcp {
                     .as_ref()
                     .and_then(|m| m.get("node_type"))
                     .and_then(serde_json::Value::as_str);
-                let limit = request
-                    .arguments
-                    .as_ref()
-                    .and_then(|m| m.get("limit"))
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(100)
-                    .min(10_000) as usize;
-                let offset = request
-                    .arguments
-                    .as_ref()
-                    .and_then(|m| m.get("offset"))
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0) as usize;
+                let limit = usize::try_from(
+                    request
+                        .arguments
+                        .as_ref()
+                        .and_then(|m| m.get("limit"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(100)
+                        .min(10_000),
+                )
+                .unwrap_or(10_000);
+                let offset = usize::try_from(
+                    request
+                        .arguments
+                        .as_ref()
+                        .and_then(|m| m.get("offset"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0),
+                )
+                .unwrap_or(0);
 
                 let filtered_ids: Vec<String> = if file_glob.is_some() || node_type_filter.is_some()
                 {
@@ -538,7 +546,7 @@ impl ServerHandler for FerrographMcp {
                     .and_then(|m| m.get("limit"))
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or(10_000)
-                    .min(10_000) as u64;
+                    .min(10_000);
                 let script = if query_str.contains(":limit") {
                     query_str.trim().to_string()
                 } else {
@@ -583,8 +591,7 @@ impl ServerHandler for FerrographMcp {
                     .as_ref()
                     .and_then(|m| m.get("depth"))
                     .and_then(serde_json::Value::as_u64)
-                    .map(|n| n.min(100) as u32)
-                    .unwrap_or(1);
+                    .map_or(1, |n| n.min(100) as u32);
                 let callers =
                     crate::graph::Query::callers(&store, node_id, depth).map_err(|e| {
                         rmcp::ErrorData::internal_error(format!("Callers query failed: {e}"), None)
@@ -635,9 +642,7 @@ impl ServerHandler for FerrographMcp {
                         (
                             serde_json::Value::String(nid),
                             serde_json::Value::String(ntype),
-                            payload
-                                .map(serde_json::Value::String)
-                                .unwrap_or(serde_json::Value::Null),
+                            payload.map_or(serde_json::Value::Null, serde_json::Value::String),
                             inc_json,
                             out_json,
                         )
