@@ -401,8 +401,8 @@ impl ServerHandler for FerrographMcp {
 
                 let filtered_ids: Vec<String> = if file_glob.is_some() || node_type_filter.is_some()
                 {
-                    let id_types = crate::graph::Query::node_ids_to_types(&store, &ids)
-                        .map_err(|e| {
+                    let id_types =
+                        crate::graph::Query::node_ids_to_types(&store, &ids).map_err(|e| {
                             rmcp::ErrorData::internal_error(
                                 format!("Dead code (node types) failed: {e}"),
                                 None,
@@ -432,13 +432,9 @@ impl ServerHandler for FerrographMcp {
                     ids
                 };
 
-                let paginated: Vec<&String> = filtered_ids
-                    .iter()
-                    .skip(offset)
-                    .take(limit)
-                    .collect();
-                let dead_function_ids: Vec<String> =
-                    paginated.into_iter().cloned().collect();
+                let paginated: Vec<&String> =
+                    filtered_ids.iter().skip(offset).take(limit).collect();
+                let dead_function_ids: Vec<String> = paginated.into_iter().cloned().collect();
                 CallToolResult::structured(serde_json::json!({
                     "dead_function_ids": dead_function_ids,
                     "count": dead_function_ids.len(),
@@ -489,9 +485,10 @@ impl ServerHandler for FerrographMcp {
                     .and_then(|m| m.get("case_insensitive"))
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
-                let rows = crate::search::text_search(&store, query, case_insensitive).map_err(
-                    |e| rmcp::ErrorData::internal_error(format!("Search failed: {e}"), None),
-                )?;
+                let rows =
+                    crate::search::text_search(&store, query, case_insensitive).map_err(|e| {
+                        rmcp::ErrorData::internal_error(format!("Search failed: {e}"), None)
+                    })?;
                 let results: Vec<serde_json::Value> = rows
                     .into_iter()
                     .map(|(node_id, node_type, payload)| {
@@ -509,10 +506,16 @@ impl ServerHandler for FerrographMcp {
             }
             "status" => {
                 let node_count = store.node_count().map_err(|e| {
-                    rmcp::ErrorData::internal_error(format!("Status (node_count) failed: {e}"), None)
+                    rmcp::ErrorData::internal_error(
+                        format!("Status (node_count) failed: {e}"),
+                        None,
+                    )
                 })?;
                 let edge_count = store.edge_count().map_err(|e| {
-                    rmcp::ErrorData::internal_error(format!("Status (edge_count) failed: {e}"), None)
+                    rmcp::ErrorData::internal_error(
+                        format!("Status (edge_count) failed: {e}"),
+                        None,
+                    )
                 })?;
                 CallToolResult::structured(serde_json::json!({
                     "db_path": store_path.display().to_string(),
@@ -582,9 +585,10 @@ impl ServerHandler for FerrographMcp {
                     .and_then(serde_json::Value::as_u64)
                     .map(|n| n.min(100) as u32)
                     .unwrap_or(1);
-                let callers = crate::graph::Query::callers(&store, node_id, depth).map_err(|e| {
-                    rmcp::ErrorData::internal_error(format!("Callers query failed: {e}"), None)
-                })?;
+                let callers =
+                    crate::graph::Query::callers(&store, node_id, depth).map_err(|e| {
+                        rmcp::ErrorData::internal_error(format!("Callers query failed: {e}"), None)
+                    })?;
                 let callers_json: Vec<serde_json::Value> = callers
                     .into_iter()
                     .map(|(node_id, node_type, payload)| {
@@ -608,10 +612,7 @@ impl ServerHandler for FerrographMcp {
                     .and_then(|m| m.get("node_id"))
                     .and_then(serde_json::Value::as_str)
                     .ok_or_else(|| {
-                        rmcp::ErrorData::invalid_params(
-                            "missing required parameter: node_id",
-                            None,
-                        )
+                        rmcp::ErrorData::invalid_params("missing required parameter: node_id", None)
                     })?;
                 let info = crate::graph::Query::node_info(&store, node_id).map_err(|e| {
                     rmcp::ErrorData::internal_error(format!("Node info query failed: {e}"), None)
@@ -665,10 +666,7 @@ impl ServerHandler for FerrographMcp {
                     .and_then(|m| m.get("root"))
                     .and_then(serde_json::Value::as_str);
                 let modules = crate::graph::Query::module_graph(&store, root).map_err(|e| {
-                    rmcp::ErrorData::internal_error(
-                        format!("Module graph query failed: {e}"),
-                        None,
-                    )
+                    rmcp::ErrorData::internal_error(format!("Module graph query failed: {e}"), None)
                 })?;
                 let modules_json: Vec<serde_json::Value> = modules
                     .into_iter()
@@ -697,13 +695,13 @@ impl ServerHandler for FerrographMcp {
                             None,
                         )
                     })?;
-                let implementors =
-                    crate::graph::Query::trait_implementors(&store, trait_node_id).map_err(|e| {
-                        rmcp::ErrorData::internal_error(
-                            format!("Trait implementors query failed: {e}"),
-                            None,
-                        )
-                    })?;
+                let implementors = crate::graph::Query::trait_implementors(&store, trait_node_id)
+                    .map_err(|e| {
+                    rmcp::ErrorData::internal_error(
+                        format!("Trait implementors query failed: {e}"),
+                        None,
+                    )
+                })?;
                 let implementors_json: Vec<serde_json::Value> = implementors
                     .into_iter()
                     .map(|(node_id, node_type, payload)| {
@@ -770,8 +768,8 @@ pub async fn run_stdio() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 mod tests {
     use super::{
         blast_radius_input_schema, callers_input_schema, dead_code_input_schema,
-        module_graph_input_schema, node_info_input_schema, query_input_schema,
-        search_input_schema, status_input_schema, trait_implementors_input_schema, FerrographMcp,
+        module_graph_input_schema, node_info_input_schema, query_input_schema, search_input_schema,
+        status_input_schema, trait_implementors_input_schema, FerrographMcp,
     };
 
     #[test]
@@ -836,9 +834,7 @@ mod tests {
         let schema = trait_implementors_input_schema();
         assert_eq!(schema.get("type").and_then(|v| v.as_str()), Some("object"));
         let required = schema.get("required").and_then(|v| v.as_array()).unwrap();
-        assert!(required
-            .iter()
-            .any(|v| v.as_str() == Some("trait_node_id")));
+        assert!(required.iter().any(|v| v.as_str() == Some("trait_node_id")));
     }
 
     #[test]

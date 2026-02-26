@@ -58,16 +58,10 @@ impl Query {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let id_list: Vec<DataValue> = ids
-            .iter()
-            .map(|s| DataValue::from(s.as_str()))
-            .collect();
+        let id_list: Vec<DataValue> = ids.iter().map(|s| DataValue::from(s.as_str())).collect();
         let mut params = BTreeMap::new();
         params.insert("ids".to_string(), DataValue::List(id_list));
-        let rows = store.run_query(
-            "?[id, type] := *nodes[id, type, _], id in $ids",
-            params,
-        )?;
+        let rows = store.run_query("?[id, type] := *nodes[id, type, _], id in $ids", params)?;
         let result: Vec<(String, String)> = rows
             .rows
             .iter()
@@ -238,7 +232,15 @@ impl Query {
     pub fn node_info(
         store: &Store,
         node_id: &str,
-    ) -> Result<Option<(String, String, Option<String>, Vec<(String, String)>, Vec<(String, String)>)>> {
+    ) -> Result<
+        Option<(
+            String,
+            String,
+            Option<String>,
+            Vec<(String, String)>,
+            Vec<(String, String)>,
+        )>,
+    > {
         let mut params = BTreeMap::new();
         params.insert("id".to_string(), DataValue::from(node_id));
 
@@ -330,10 +332,8 @@ impl Query {
                 BTreeMap::new(),
             )?
         };
-        let mut by_parent: BTreeMap<
-            String,
-            (String, Option<String>, Vec<String>),
-        > = BTreeMap::new();
+        let mut by_parent: BTreeMap<String, (String, Option<String>, Vec<String>)> =
+            BTreeMap::new();
         for row in &script.rows {
             let parent = row.first().map(unquote_datavalue).unwrap_or_default();
             let ptype = row.get(1).map(unquote_datavalue).unwrap_or_default();
@@ -531,13 +531,25 @@ mod tests {
     fn callers_depth1_returns_direct_callers() {
         let store = Store::new_memory().unwrap();
         store
-            .put_node(&NodeId("a".to_string()), &NodeType::Function, Some("caller_a"))
+            .put_node(
+                &NodeId("a".to_string()),
+                &NodeType::Function,
+                Some("caller_a"),
+            )
             .unwrap();
         store
-            .put_node(&NodeId("b".to_string()), &NodeType::Function, Some("target"))
+            .put_node(
+                &NodeId("b".to_string()),
+                &NodeType::Function,
+                Some("target"),
+            )
             .unwrap();
         store
-            .put_edge(&NodeId("a".to_string()), &NodeId("b".to_string()), &EdgeType::Calls)
+            .put_edge(
+                &NodeId("a".to_string()),
+                &NodeId("b".to_string()),
+                &EdgeType::Calls,
+            )
             .unwrap();
         let callers = Query::callers(&store, "b", 1).unwrap();
         assert_eq!(callers.len(), 1);
@@ -549,11 +561,7 @@ mod tests {
     fn node_info_returns_node_and_edges() {
         let store = Store::new_memory().unwrap();
         store
-            .put_node(
-                &NodeId("n1".to_string()),
-                &NodeType::Function,
-                Some("foo"),
-            )
+            .put_node(&NodeId("n1".to_string()), &NodeType::Function, Some("foo"))
             .unwrap();
         store
             .put_node(&NodeId("n2".to_string()), &NodeType::Function, None)
