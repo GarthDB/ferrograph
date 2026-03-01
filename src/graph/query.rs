@@ -5,21 +5,48 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use cozo::DataValue;
 use cozo::NamedRows;
+use serde::Serialize;
 
 use crate::graph::schema::{EdgeType, NodeType};
 use crate::graph::{unquote_datavalue, Store};
 
-/// (id, type, payload, incoming\_edges, outgoing\_edges)
-type NodeInfoResult = (
-    String,
-    String,
-    Option<String>,
-    Vec<(String, String)>,
-    Vec<(String, String)>,
-);
+/// Endpoint of an edge (the other node) for `node_info`.
+#[derive(Debug, Clone, Serialize)]
+pub struct EdgeEndpoint {
+    pub id: String,
+    pub edge_type: String,
+    pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<String>,
+}
 
-/// (parent\_id, parent\_type, parent\_payload, children\_ids)
-type ModuleGraphEntry = (String, String, Option<String>, Vec<String>);
+/// Full node details plus edges for `node_info`.
+#[derive(Debug, Clone, Serialize)]
+pub struct NodeInfo {
+    pub id: String,
+    pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<String>,
+    pub outgoing_edges: Vec<EdgeEndpoint>,
+    pub incoming_edges: Vec<EdgeEndpoint>,
+}
+
+/// Extract optional string from a Cozo payload cell (Null → None).
+fn optional_payload(v: &DataValue) -> Option<String> {
+    if matches!(v, DataValue::Null) {
+        None
+    } else {
+        Some(unquote_datavalue(v))
+    }
+}
+
+/// Extract (id, type, payload) from a row of at least 3 columns (node table shape).
+fn extract_node_triple(row: &[DataValue]) -> (String, String, Option<String>) {
+    let id = row.first().map(unquote_datavalue).unwrap_or_default();
+    let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
+    let payload = row.get(2).and_then(optional_payload);
+    (id, type_val, payload)
+}
 
 /// Predefined and Datalog query execution.
 pub struct Query;
@@ -60,31 +87,6 @@ impl Query {
             .map(unquote_datavalue)
             .collect();
         Ok(ids)
-    }
-
-    /// Return (id, type) for the given node ids. Used for filtering dead code by node type.
-    ///
-    /// # Errors
-    /// Fails if the store query fails.
-    pub fn node_ids_to_types(store: &Store, ids: &[String]) -> Result<Vec<(String, String)>> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let id_list: Vec<DataValue> = ids.iter().map(|s| DataValue::from(s.as_str())).collect();
-        let mut params = BTreeMap::new();
-        params.insert("ids".to_string(), DataValue::List(id_list));
-        let rows = store.run_query("?[id, type] := *nodes[id, type, _], id in $ids", params)?;
-        let result: Vec<(String, String)> = rows
-            .rows
-            .iter()
-            .map(|row| {
-                (
-                    row.first().map(unquote_datavalue).unwrap_or_default(),
-                    row.get(1).map(unquote_datavalue).unwrap_or_default(),
-                )
-            })
-            .collect();
-        Ok(result)
     }
 
     /// Return function node ids that are not reachable from known entry points.
@@ -135,10 +137,10 @@ impl Query {
         Ok(ids)
     }
 
-    /// Return nodes in the "blast radius" of the given node (id, type, payload): immediate
-    /// neighbors (both directions) plus all nodes reachable by following edges forward only
-    /// (Calls, Contains, References, `ChangesWith`). Recursive expansion is forward-only to avoid
-    /// inflating to the full connected component.
+    /// Return nodes in the "blast radius" of the given node: immediate neighbors (both
+    /// directions) plus all nodes reachable by following edges forward only (Calls, Contains,
+    /// References, `ChangesWith`). Recursive expansion is forward-only to avoid inflating to the
+    /// full connected component. Returns (id, type, payload) for each reachable node.
     ///
     /// # Errors
     /// Fails if the store query fails.
@@ -159,239 +161,194 @@ impl Query {
             seed[from] := *edges[from, to, et], to = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
             reachable[id] := seed[id]
             reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
-            ?[id, type, payload] := reachable[id], id != $from, *nodes[id, type, payload]
+            ?[id, type, payload] := reachable[id], *nodes[id, type, payload], id != $from
             :limit {BLAST_RADIUS_LIMIT}
             "#
         );
         let rows = store.run_query(script.trim(), params)?;
-        let result: Vec<(String, String, Option<String>)> = rows
+        let results: Vec<(String, String, Option<String>)> = rows
             .rows
             .iter()
-            .map(|row| {
-                let id = row.first().map(unquote_datavalue).unwrap_or_default();
-                let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
-                let payload = row.get(2).and_then(|v| {
-                    if matches!(v, DataValue::Null) {
-                        None
-                    } else {
-                        Some(unquote_datavalue(v))
-                    }
-                });
-                (id, type_val, payload)
-            })
+            .map(|row| extract_node_triple(row))
             .collect();
-        Ok(result)
+        Ok(results)
     }
 
-    /// Return nodes that call the given node (reverse call graph). Depth 1 = direct callers only;
-    /// depth > 1 = transitive callers via fixed-point (Calls edges backward), limited to 500.
+    /// Return nodes that call the given node (reverse call graph). Optionally limited by depth.
+    /// depth 1 = direct callers only; depth > 1 = transitive callers up to N hops.
+    /// Returns (id, type, payload) for each caller.
     ///
     /// # Errors
     /// Fails if the store query fails.
     pub fn callers(
         store: &Store,
-        node_id: &str,
+        target_id: &str,
         depth: u32,
     ) -> Result<Vec<(String, String, Option<String>)>> {
-        const CALLERS_LIMIT: u64 = 500;
         let edge_calls = EdgeType::Calls.to_string();
-        let mut params = BTreeMap::new();
-        params.insert("target".to_string(), DataValue::from(node_id));
+        let mut frontier: Vec<String> = vec![target_id.to_string()];
+        let mut seen = std::collections::HashSet::new();
+        seen.insert(target_id.to_string());
+        let mut all_callers: Vec<(String, String, Option<String>)> = Vec::new();
+        let max_rounds = depth.max(1) as usize;
 
-        let script = if depth <= 1 {
-            format!(
-                r#"
-                ?[id, type, payload] := *edges[id, $target, "{edge_calls}"],
-                  *nodes[id, type, payload]
-                "#
-            )
-        } else {
-            format!(
-                r#"
-                callers[id] := *edges[id, $target, "{edge_calls}"]
-                callers[id] := *edges[id, mid, "{edge_calls}"], callers[mid]
-                ?[id, type, payload] := callers[id], *nodes[id, type, payload]
-                :limit {CALLERS_LIMIT}
-                "#
-            )
-        };
-
-        let rows = store.run_query(script.trim(), params)?;
-        let result: Vec<(String, String, Option<String>)> = rows
-            .rows
-            .iter()
-            .map(|row| {
-                let id = row.first().map(unquote_datavalue).unwrap_or_default();
-                let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
-                let payload = row.get(2).and_then(|v| {
-                    if matches!(v, DataValue::Null) {
-                        None
-                    } else {
-                        Some(unquote_datavalue(v))
-                    }
-                });
-                (id, type_val, payload)
-            })
-            .collect();
-        Ok(result)
-    }
-
-    /// Return node metadata and immediate edges for a given node ID. If the node does not exist,
-    /// returns None for node data and empty edge lists.
-    ///
-    /// # Errors
-    /// Fails if the store query fails.
-    pub fn node_info(store: &Store, node_id: &str) -> Result<Option<NodeInfoResult>> {
-        let mut params = BTreeMap::new();
-        params.insert("id".to_string(), DataValue::from(node_id));
-
-        let node_rows = store.run_query(
-            "?[id, type, payload] := *nodes[id, type, payload], id = $id",
-            params.clone(),
-        )?;
-        let Some(node_row) = node_rows.rows.first() else {
-            return Ok(None);
-        };
-        let nid = node_row.first().map(unquote_datavalue).unwrap_or_default();
-        let ntype = node_row.get(1).map(unquote_datavalue).unwrap_or_default();
-        let payload = node_row.get(2).and_then(|v| {
-            if matches!(v, DataValue::Null) {
-                None
-            } else {
-                Some(unquote_datavalue(v))
+        for _ in 0..max_rounds {
+            if frontier.is_empty() {
+                break;
             }
-        });
-
-        let incoming = store.run_query(
-            "?[from_id, edge_type] := *edges[from_id, to_id, edge_type], to_id = $id",
-            params.clone(),
-        )?;
-        let incoming_edges: Vec<(String, String)> = incoming
-            .rows
-            .iter()
-            .map(|r| {
-                (
-                    r.first().map(unquote_datavalue).unwrap_or_default(),
-                    r.get(1).map(unquote_datavalue).unwrap_or_default(),
-                )
-            })
-            .collect();
-
-        let outgoing = store.run_query(
-            "?[to_id, edge_type] := *edges[from_id, to_id, edge_type], from_id = $id",
-            params,
-        )?;
-        let outgoing_edges: Vec<(String, String)> = outgoing
-            .rows
-            .iter()
-            .map(|r| {
-                (
-                    r.first().map(unquote_datavalue).unwrap_or_default(),
-                    r.get(1).map(unquote_datavalue).unwrap_or_default(),
-                )
-            })
-            .collect();
-
-        Ok(Some((nid, ntype, payload, incoming_edges, outgoing_edges)))
+            let frontier_values: Vec<DataValue> = frontier
+                .iter()
+                .map(|s| DataValue::from(s.as_str()))
+                .collect();
+            let mut params = BTreeMap::new();
+            params.insert("frontier".to_string(), DataValue::List(frontier_values));
+            let script = format!(
+                r#"
+                ?[caller_id, type, payload] := *edges[caller_id, callee_id, "{edge_calls}"],
+                  callee_id in $frontier,
+                  *nodes[caller_id, type, payload]
+                "#
+            );
+            let rows = store.run_query(script.trim(), params)?;
+            frontier = Vec::new();
+            for row in &rows.rows {
+                let (id, type_val, payload) = extract_node_triple(row);
+                if seen.insert(id.clone()) {
+                    frontier.push(id.clone());
+                    all_callers.push((id, type_val, payload));
+                }
+            }
+        }
+        Ok(all_callers)
     }
 
-    /// Return module containment tree: each node that has children, with (`node_id`, `node_type`,
-    /// payload, children). If root is `Some`, only return the subtree under that node.
+    /// Return full info for a node: type, payload, and all outgoing/incoming edges with endpoint details.
+    /// Returns `None` if the node does not exist.
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn module_graph(store: &Store, root: Option<&str>) -> Result<Vec<ModuleGraphEntry>> {
-        let edge_contains = EdgeType::Contains.to_string();
-        let script = if let Some(r) = root {
-            let mut params = BTreeMap::new();
-            params.insert("root".to_string(), DataValue::from(r));
-            store.run_query(
-                &format!(
-                    r#"
-                    descendant[id] := id = $root
-                    descendant[child] := descendant[parent], *edges[parent, child, "{edge_contains}"]
-                    ?[parent, parent_type, parent_payload, child] := descendant[parent],
-                      *edges[parent, child, "{edge_contains}"],
-                      *nodes[parent, parent_type, parent_payload]
-                    "#
-                ),
-                params,
-            )?
-        } else {
-            store.run_query(
-                &format!(
-                    r#"
-                    ?[parent, parent_type, parent_payload, child] :=
-                      *edges[parent, child, "{edge_contains}"],
-                      *nodes[parent, parent_type, parent_payload]
-                    "#
-                ),
-                BTreeMap::new(),
-            )?
+    pub fn node_info(store: &Store, node_id: &str) -> Result<Option<NodeInfo>> {
+        let mut params = BTreeMap::new();
+        params.insert("node_id".to_string(), DataValue::from(node_id));
+        let node_rows = store.run_query(
+            "?[id, type, payload] := *nodes[id, type, payload], id = $node_id",
+            params.clone(),
+        )?;
+        let (id, node_type, payload) = match node_rows.rows.first() {
+            Some(row) => extract_node_triple(row),
+            None => return Ok(None),
         };
-        let mut by_parent: BTreeMap<String, (String, Option<String>, Vec<String>)> =
-            BTreeMap::new();
-        for row in &script.rows {
-            let parent = row.first().map(unquote_datavalue).unwrap_or_default();
-            let ptype = row.get(1).map(unquote_datavalue).unwrap_or_default();
-            let ppayload = row.get(2).and_then(|v| {
-                if matches!(v, DataValue::Null) {
-                    None
-                } else {
-                    Some(unquote_datavalue(v))
-                }
-            });
-            let child = row.get(3).map(unquote_datavalue).unwrap_or_default();
-            let entry = by_parent
-                .entry(parent.clone())
-                .or_insert_with(|| (ptype.clone(), ppayload.clone(), Vec::new()));
-            entry.2.push(child);
-        }
-        let result: Vec<ModuleGraphEntry> = by_parent
-            .into_iter()
-            .map(|(parent, (ptype, ppayload, children))| (parent, ptype, ppayload, children))
-            .collect();
-        Ok(result)
+        let outgoing = {
+            let rows = store.run_query(
+                r"
+                ?[to_id, edge_type, to_type, to_payload] := *edges[$node_id, to_id, edge_type],
+                  *nodes[to_id, to_type, to_payload]
+                ",
+                params.clone(),
+            )?;
+            rows.rows
+                .iter()
+                .map(|row| EdgeEndpoint {
+                    id: row.first().map(unquote_datavalue).unwrap_or_default(),
+                    edge_type: row.get(1).map(unquote_datavalue).unwrap_or_default(),
+                    node_type: row.get(2).map(unquote_datavalue).unwrap_or_default(),
+                    payload: row.get(3).and_then(optional_payload),
+                })
+                .collect()
+        };
+        let incoming = {
+            let rows = store.run_query(
+                r"
+                ?[from_id, edge_type, from_type, from_payload] := *edges[from_id, $node_id, edge_type],
+                  *nodes[from_id, from_type, from_payload]
+                ",
+                params,
+            )?;
+            rows.rows
+                .iter()
+                .map(|row| EdgeEndpoint {
+                    id: row.first().map(unquote_datavalue).unwrap_or_default(),
+                    edge_type: row.get(1).map(unquote_datavalue).unwrap_or_default(),
+                    node_type: row.get(2).map(unquote_datavalue).unwrap_or_default(),
+                    payload: row.get(3).and_then(optional_payload),
+                })
+                .collect()
+        };
+        Ok(Some(NodeInfo {
+            id,
+            node_type,
+            payload,
+            outgoing_edges: outgoing,
+            incoming_edges: incoming,
+        }))
     }
 
-    /// Return all impl blocks that implement the given trait (`ImplementsTrait` edges backward).
+    /// Return impl nodes that implement the given trait (by name substring match).
+    /// Uses `ImplementsTrait` edges from impl to trait.
     ///
     /// # Errors
     /// Fails if the store query fails.
     pub fn trait_implementors(
         store: &Store,
-        trait_node_id: &str,
+        trait_name: &str,
     ) -> Result<Vec<(String, String, Option<String>)>> {
-        let edge_impl = EdgeType::ImplementsTrait.to_string();
         let mut params = BTreeMap::new();
-        params.insert("trait_id".to_string(), DataValue::from(trait_node_id));
-        let rows = store.run_query(
-            &format!(
-                r#"
-                ?[impl_id, type, payload] :=
-                  *edges[impl_id, $trait_id, "{edge_impl}"],
-                  *nodes[impl_id, type, payload]
-                "#
-            ),
-            params,
-        )?;
-        let result: Vec<(String, String, Option<String>)> = rows
+        params.insert("trait_name".to_string(), DataValue::from(trait_name));
+        let script = r#"
+            ?[impl_id, impl_type, impl_payload] := *nodes[trait_id, type, payload],
+              type = "trait",
+              str_includes(payload, $trait_name),
+              *edges[impl_id, trait_id, "implements_trait"],
+              *nodes[impl_id, impl_type, impl_payload]
+            :limit 500
+        "#;
+        let rows = store.run_query(script.trim(), params)?;
+        let results: Vec<(String, String, Option<String>)> = rows
+            .rows
+            .iter()
+            .map(|row| extract_node_triple(row))
+            .collect();
+        Ok(results)
+    }
+
+    /// Return the module containment graph: edges (`from_id`, `to_id`, `from_type`, `to_type`) for
+    /// Contains relations between file, module, and `crate_root` nodes. Optional path prefix filter.
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn module_graph(
+        store: &Store,
+        path_prefix: Option<&str>,
+    ) -> Result<Vec<(String, String, String, String)>> {
+        let script = r#"
+            ?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
+              *nodes[from_id, from_type, _],
+              *nodes[to_id, to_type, _],
+              from_type in ["file", "module", "crate_root"],
+              to_type in ["file", "module"]
+            :limit 10000
+        "#;
+        let rows = store.run_query(script.trim(), BTreeMap::new())?;
+        let mut results: Vec<(String, String, String, String)> = rows
             .rows
             .iter()
             .map(|row| {
-                let id = row.first().map(unquote_datavalue).unwrap_or_default();
-                let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
-                let payload = row.get(2).and_then(|v| {
-                    if matches!(v, DataValue::Null) {
-                        None
-                    } else {
-                        Some(unquote_datavalue(v))
-                    }
-                });
-                (id, type_val, payload)
+                (
+                    row.first().map(unquote_datavalue).unwrap_or_default(),
+                    row.get(1).map(unquote_datavalue).unwrap_or_default(),
+                    row.get(2).map(unquote_datavalue).unwrap_or_default(),
+                    row.get(3).map(unquote_datavalue).unwrap_or_default(),
+                )
             })
             .collect();
-        Ok(result)
+        if let Some(prefix) = path_prefix {
+            if !prefix.is_empty() {
+                results.retain(|(from_id, to_id, _, _)| {
+                    from_id.starts_with(prefix) || to_id.starts_with(prefix)
+                });
+            }
+        }
+        Ok(results)
     }
 }
 
@@ -474,12 +431,14 @@ mod tests {
             .unwrap();
         let from_a = Query::blast_radius(&store, "a").unwrap();
         let from_b = Query::blast_radius(&store, "b").unwrap();
+        let ids_a: Vec<String> = from_a.iter().map(|(id, _, _)| id.clone()).collect();
+        let ids_b: Vec<String> = from_b.iter().map(|(id, _, _)| id.clone()).collect();
         assert!(
-            from_a.iter().any(|(id, _, _)| id == "b"),
+            ids_a.contains(&"b".to_string()),
             "from a should reach b (seed)"
         );
         assert!(
-            from_b.iter().any(|(id, _, _)| id == "a"),
+            ids_b.contains(&"a".to_string()),
             "from b should reach a (seed, direct backward neighbor)"
         );
     }
@@ -512,46 +471,68 @@ mod tests {
             .unwrap();
         let from_a = Query::blast_radius(&store, "a").unwrap();
         let from_c = Query::blast_radius(&store, "c").unwrap();
-        let ids_a: Vec<&str> = from_a.iter().map(|(id, _, _)| id.as_str()).collect();
-        let ids_c: Vec<&str> = from_c.iter().map(|(id, _, _)| id.as_str()).collect();
+        let ids_a: Vec<String> = from_a.iter().map(|(id, _, _)| id.clone()).collect();
+        let ids_c: Vec<String> = from_c.iter().map(|(id, _, _)| id.clone()).collect();
         assert!(
-            ids_a.contains(&"b") && ids_a.contains(&"c"),
+            ids_a.contains(&"b".to_string()) && ids_a.contains(&"c".to_string()),
             "from a should reach b and c (forward), got {ids_a:?}"
         );
         assert!(
-            ids_c.contains(&"b") && !ids_c.contains(&"a"),
+            ids_c.contains(&"b".to_string()) && !ids_c.contains(&"a".to_string()),
             "from c should reach only b (seed), not transitive a, got {ids_c:?}"
         );
     }
 
     #[test]
-    fn callers_depth1_returns_direct_callers() {
+    fn callers_direct_only_depth1() {
         let store = Store::new_memory().unwrap();
         store
             .put_node(
-                &NodeId("a".to_string()),
+                &NodeId("callee".to_string()),
                 &NodeType::Function,
-                Some("caller_a"),
+                Some("callee"),
             )
             .unwrap();
         store
             .put_node(
-                &NodeId("b".to_string()),
+                &NodeId("caller1".to_string()),
                 &NodeType::Function,
-                Some("target"),
+                Some("caller1"),
+            )
+            .unwrap();
+        store
+            .put_node(
+                &NodeId("caller2".to_string()),
+                &NodeType::Function,
+                Some("caller2"),
             )
             .unwrap();
         store
             .put_edge(
-                &NodeId("a".to_string()),
-                &NodeId("b".to_string()),
+                &NodeId("caller1".to_string()),
+                &NodeId("callee".to_string()),
                 &EdgeType::Calls,
             )
             .unwrap();
-        let callers = Query::callers(&store, "b", 1).unwrap();
-        assert_eq!(callers.len(), 1);
-        assert_eq!(callers[0].0, "a");
-        assert_eq!(callers[0].2.as_deref(), Some("caller_a"));
+        store
+            .put_edge(
+                &NodeId("caller2".to_string()),
+                &NodeId("callee".to_string()),
+                &EdgeType::Calls,
+            )
+            .unwrap();
+        let callers = Query::callers(&store, "callee", 1).unwrap();
+        assert_eq!(callers.len(), 2, "two direct callers");
+        let ids: Vec<String> = callers.iter().map(|(id, _, _)| id.clone()).collect();
+        assert!(ids.contains(&"caller1".to_string()));
+        assert!(ids.contains(&"caller2".to_string()));
+    }
+
+    #[test]
+    fn node_info_returns_none_for_missing() {
+        let store = Store::new_memory().unwrap();
+        let info = Query::node_info(&store, "nonexistent").unwrap();
+        assert!(info.is_none());
     }
 
     #[test]
@@ -561,54 +542,53 @@ mod tests {
             .put_node(&NodeId("n1".to_string()), &NodeType::Function, Some("foo"))
             .unwrap();
         store
-            .put_node(&NodeId("n2".to_string()), &NodeType::Function, None)
+            .put_node(&NodeId("n2".to_string()), &NodeType::Function, Some("bar"))
             .unwrap();
         store
             .put_edge(
-                &NodeId("n2".to_string()),
                 &NodeId("n1".to_string()),
+                &NodeId("n2".to_string()),
                 &EdgeType::Calls,
             )
             .unwrap();
-        let info = Query::node_info(&store, "n1").unwrap();
-        let (id, ntype, payload, inc, out) = info.expect("node should exist");
-        assert_eq!(id, "n1");
-        assert_eq!(ntype, "function");
-        assert_eq!(payload.as_deref(), Some("foo"));
-        assert_eq!(inc.len(), 1);
-        assert_eq!(inc[0].0, "n2");
-        assert_eq!(inc[0].1, "calls");
-        assert!(out.is_empty());
+        let info = Query::node_info(&store, "n1")
+            .unwrap()
+            .expect("node exists");
+        assert_eq!(info.id, "n1");
+        assert_eq!(info.node_type, "function");
+        assert_eq!(info.payload.as_deref(), Some("foo"));
+        assert_eq!(info.outgoing_edges.len(), 1);
+        assert_eq!(info.outgoing_edges[0].id, "n2");
+        assert_eq!(info.outgoing_edges[0].edge_type, "calls");
+        assert_eq!(info.incoming_edges.len(), 0);
     }
 
     #[test]
-    fn trait_implementors_returns_impls_for_trait() {
+    fn trait_implementors_empty_when_no_trait() {
+        let store = Store::new_memory().unwrap();
+        let impls = Query::trait_implementors(&store, "NoSuchTrait").unwrap();
+        assert!(impls.is_empty());
+    }
+
+    #[test]
+    fn module_graph_returns_contains_edges() {
         let store = Store::new_memory().unwrap();
         store
-            .put_node(
-                &NodeId("trait#1:1".to_string()),
-                &NodeType::Trait,
-                Some("MyTrait"),
-            )
+            .put_node(&NodeId("file://a".to_string()), &NodeType::File, None)
             .unwrap();
         store
-            .put_node(
-                &NodeId("impl#5:1".to_string()),
-                &NodeType::Impl,
-                Some("impl MyTrait for Foo"),
-            )
+            .put_node(&NodeId("mod://b".to_string()), &NodeType::Module, None)
             .unwrap();
         store
             .put_edge(
-                &NodeId("impl#5:1".to_string()),
-                &NodeId("trait#1:1".to_string()),
-                &EdgeType::ImplementsTrait,
+                &NodeId("file://a".to_string()),
+                &NodeId("mod://b".to_string()),
+                &EdgeType::Contains,
             )
             .unwrap();
-        let impls = Query::trait_implementors(&store, "trait#1:1").unwrap();
-        assert_eq!(impls.len(), 1);
-        assert_eq!(impls[0].0, "impl#5:1");
-        assert_eq!(impls[0].1, "impl");
-        assert_eq!(impls[0].2.as_deref(), Some("impl MyTrait for Foo"));
+        let edges = Query::module_graph(&store, None).unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].0, "file://a");
+        assert_eq!(edges[0].1, "mod://b");
     }
 }

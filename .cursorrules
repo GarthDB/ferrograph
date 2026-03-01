@@ -1,0 +1,55 @@
+# Ferrograph — Cursor Rules
+
+## Rust Quality Standards
+
+### Clippy
+
+This project enforces **`clippy::pedantic`** (see `[lints.clippy]` in `Cargo.toml`).
+
+- Run `cargo clippy -- -D warnings` after every meaningful code change. All warnings must be resolved before considering work complete.
+- Treat clippy suggestions as requirements, not optional advice. If clippy flags something, fix the code rather than suppressing the lint.
+- When clippy offers a cleaner idiom (e.g., `if let` instead of `match` with one arm, `map_or` instead of `match` on `Option`), prefer the idiomatic form.
+
+### No `#[allow(...)]` Suppression
+
+- **Do not add `#[allow(...)]` attributes** unless there is a genuinely unavoidable false positive. If you believe a suppression is necessary, leave a comment explaining why the lint is incorrect for that specific case.
+- Never blanket-suppress lints at the module or crate level.
+- If a pedantic lint is consistently wrong for a pattern used throughout the codebase, the correct fix is to adjust the lint level in `Cargo.toml`, not to scatter `#[allow]` annotations.
+
+### Formatting
+
+- Run **`cargo fmt`** before every commit. Code that does not pass `cargo fmt --check` must not be committed.
+- Do not manually override `rustfmt` defaults (e.g., avoid `#[rustfmt::skip]`) unless there is a strong readability reason with an accompanying comment.
+
+## Git Workflow
+
+### Conventional Commits
+
+All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `ci`, `perf`, `style`, `build`.
+
+Examples:
+- `feat(mcp): add blast_radius tool`
+- `fix(parser): handle nested impl blocks`
+- `refactor: simplify dead-code detection`
+- `test: add integration tests for watch mode`
+- `docs: update README usage examples`
+
+### Pre-Push Checklist
+
+Before committing and pushing changes, always run the following in order:
+
+1. `cargo fmt`
+2. `cargo clippy -- -D warnings`
+3. `cargo test`
+
+All three must pass cleanly before creating a commit.
