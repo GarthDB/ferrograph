@@ -22,7 +22,7 @@ fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
         "properties": {
             "file": {
                 "type": "string",
-                "description": "Path prefix to filter by (e.g. src/ or ./apps/ferris); node IDs must start with this"
+                "description": "Glob pattern to filter node IDs by path (e.g. src/**/*.rs, **/utils/*)"
             },
             "node_type": {
                 "type": "string",
@@ -228,7 +228,7 @@ fn all_tools() -> Vec<Tool> {
         ),
         tool(
             "query",
-            "Run a raw Datalog query against the graph (read-only). Full power for e.g. trait implementors, import chains.",
+            "Run a raw Datalog query against the graph (read-only). A row limit (default 100, max 10000) is always applied; an explicit :limit in the script is overridden by this cap.",
             query_input_schema(),
         ),
         tool(
@@ -243,7 +243,7 @@ fn all_tools() -> Vec<Tool> {
         ),
         tool(
             "trait_implementors",
-            "Given a trait name, list all impl blocks that implement it (uses ImplementsTrait edges).",
+            "Given a trait name, list all impl blocks that implement it (uses ImplementsTrait edges). Note: results depend on the index pipeline having populated trait edges; currently a stub.",
             trait_implementors_input_schema(),
         ),
         tool(
@@ -462,8 +462,11 @@ impl FerrographMcp {
         } else {
             "stored"
         };
-        if let Some(prefix) = get_str_arg(request, "file") {
-            ids.retain(|id| id.starts_with(prefix));
+        if let Some(pattern) = get_str_arg(request, "file") {
+            let pat = glob::Pattern::new(pattern).map_err(|e| {
+                rmcp::ErrorData::invalid_params(format!("Invalid glob pattern: {e}"), None)
+            })?;
+            ids.retain(|id| pat.matches(id));
         }
         if let Some(nt) = get_str_arg(request, "node_type") {
             let id_list: Vec<cozo::DataValue> = ids
@@ -599,11 +602,7 @@ impl FerrographMcp {
             }
         }
         let limit = parse_limit(request, 100, 10_000);
-        let script_with_limit = if script.contains(":limit") {
-            script.trim().to_string()
-        } else {
-            format!("{}\n:limit {limit}", script.trim())
-        };
+        let script_with_limit = format!("{}\n:limit {limit}", script.trim());
         let params = std::collections::BTreeMap::new();
         let result = store
             .run_query(&script_with_limit, params)
@@ -888,6 +887,29 @@ mod tests {
         assert!(json.get("count").unwrap().is_number());
         assert!(json.get("total_filtered").unwrap().is_number());
         assert_eq!(json.get("source").unwrap().as_str().unwrap(), "computed");
+    }
+
+    #[test]
+    fn handle_dead_code_file_glob_filters_by_pattern() {
+        let store = Store::new_memory().unwrap();
+        store.put_dead_function("src/lib.rs#10:1").unwrap();
+        store.put_dead_function("src/foo.rs#5:1").unwrap();
+        store.put_dead_function("tests/helper.rs#1:1").unwrap();
+        let mut args = serde_json::Map::new();
+        args.insert("file".to_string(), serde_json::json!("src/**"));
+        let request = tool_request("dead_code", Some(args));
+        let result = FerrographMcp::handle_dead_code(&request, &store).unwrap();
+        let json = result_json(result);
+        let ids = json.get("dead_node_ids").unwrap().as_array().unwrap();
+        let ids: Vec<&str> = ids.iter().filter_map(|v| v.as_str()).collect();
+        assert!(
+            ids.iter().all(|id| id.starts_with("src/")),
+            "all returned ids should match src/**"
+        );
+        assert!(
+            !ids.iter().any(|id| id.starts_with("tests/")),
+            "tests/ helper should be filtered out"
+        );
     }
 
     #[test]

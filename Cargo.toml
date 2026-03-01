@@ -21,6 +21,7 @@ rmcp = { version = "0.16", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 notify = "6"
 ctrlc = "3"
+glob = "0.3"
 [dev-dependencies]
 insta = "1"
 tempfile = "3"
