@@ -60,7 +60,8 @@ The schema defines 11 edge types; in v1 only a subset are populated:
 | `calls`             | Yes         | Same-file and cross-file (via imports) calls. |
 | `references`        | No          | Planned (e.g. type mentions). |
 | `implements_trait`  | No          | Planned (rust-analyzer integration). |
-| `owns` / `borrows`  | No          | Planned. |
+| `owns`              | No          | Planned. |
+| `borrows`           | No          | Planned. |
 | `expands_to`        | No          | Macro expansion. |
 | `uses_unsafe`       | No          | Planned. |
 | `lifetime_scope`    | No          | Planned. |

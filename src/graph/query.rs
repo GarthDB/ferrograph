@@ -191,7 +191,7 @@ impl Query {
         let mut seen = std::collections::HashSet::new();
         seen.insert(target_id.to_string());
         let mut all_callers: Vec<(String, String, Option<String>)> = Vec::new();
-        let max_rounds = depth.max(1) as usize;
+        let max_rounds = usize::try_from(depth.max(1)).unwrap_or(1);
 
         for _ in 0..max_rounds {
             if frontier.is_empty() {

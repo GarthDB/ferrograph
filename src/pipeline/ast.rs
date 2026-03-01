@@ -66,7 +66,10 @@ fn traverse(
     let parent = stack.last().cloned();
 
     let (node_type, name_opt) = match kind {
-        "function_item" => (Some(NodeType::Function), function_payload(&node, source)),
+        "function_item" => (
+            Some(NodeType::Function),
+            function_payload(&node, source, cursor),
+        ),
         "struct_item" => (Some(NodeType::Struct), name_of_node(&node, source)),
         "enum_item" => (Some(NodeType::Enum), name_of_node(&node, source)),
         "trait_item" => (Some(NodeType::Trait), name_of_node(&node, source)),
@@ -145,6 +148,24 @@ fn name_of_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
     None
 }
 
+/// Returns true if the node immediately preceding `cursor`'s current node is an attribute (e.g. `#[bench]`, `#[test]`)
+/// that matches `name`. Tree-sitter-rust often attaches outer attributes as the previous sibling of the item.
+fn has_attribute_on_prev_sibling(
+    cursor: &mut tree_sitter::TreeCursor,
+    source: &str,
+    name: &str,
+) -> bool {
+    if !cursor.goto_previous_sibling() {
+        return false;
+    }
+    let prev = cursor.node();
+    let kind = prev.kind();
+    let ok = (kind == "attribute_item" || kind == "outer_attribute_list")
+        && has_attribute_node(&prev, source, name);
+    cursor.goto_next_sibling();
+    ok
+}
+
 /// Returns true if the node has an attribute containing an identifier with the given name
 /// (e.g. `#[test]`, `#[cfg(test)]`, `#[bench]`). Uses structural matching via `attribute_contains_identifier`;
 /// if that fails, matches exact attribute text `#[name]` only (avoids false positives like `[bench]` or `#[cfg(bench)]`).
@@ -177,6 +198,7 @@ fn has_attribute_node(n: &tree_sitter::Node, source: &str, name: &str) -> bool {
             if attr_text.contains(&needle) {
                 return true;
             }
+            // Tree-sitter may emit attribute content without the leading `#` in some parse-error recovery paths; match bare `[bench]` as a safety net.
             if name == "bench" && attr_text.trim() == "[bench]" {
                 return true;
             }
@@ -219,13 +241,19 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
 }
 
 /// Payload for a function node: "`pub::name`" if public, "`test::name`" if test, "`bench::name`" if bench, else "name". Used for dead-code entry point detection.
-fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
+fn function_payload(
+    node: &tree_sitter::Node,
+    source: &str,
+    cursor: &mut tree_sitter::TreeCursor,
+) -> Option<String> {
     let name = name_of_node(node, source)?;
     let is_pub = node
         .child(0)
         .is_some_and(|c| c.kind() == "visibility_modifier");
-    let is_test = has_attribute(node, source, "test");
-    let is_bench = has_attribute(node, source, "bench");
+    let is_test = has_attribute(node, source, "test")
+        || has_attribute_on_prev_sibling(cursor, source, "test");
+    let is_bench = has_attribute(node, source, "bench")
+        || has_attribute_on_prev_sibling(cursor, source, "bench");
     let prefix = match (is_pub, is_test, is_bench) {
         (true, true, _) => "pub::test::",
         (false, true, _) => "test::",
@@ -381,13 +409,11 @@ mod tests {
             "expected at least one function node, got {rows:?}"
         );
         let payload = fn_rows[0].get(2).map(std::string::ToString::to_string);
-        let has_bench_prefix = payload
-            .as_ref()
-            .is_some_and(|p| p.contains("bench::my_bench"));
-        let has_name = payload.as_ref().is_some_and(|p| p.contains("my_bench"));
         assert!(
-            has_bench_prefix || has_name,
-            "expected bench:: prefix or function name in payload, got {payload:?}"
+            payload
+                .as_ref()
+                .is_some_and(|p| p.contains("bench::my_bench")),
+            "expected bench:: prefix in payload, got {payload:?}"
         );
     }
 }

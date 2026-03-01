@@ -16,17 +16,12 @@ use crate::graph::{query::Query, unquote_datavalue, Store};
 /// Strip `pub::`, `test::`, and `bench::` prefixes from payload for canonical function name.
 fn canonical_name(payload: &str) -> &str {
     let mut s = payload;
-    loop {
-        let prev = s;
-        for prefix in &["pub::", "test::", "bench::"] {
-            if let Some(rest) = s.strip_prefix(prefix) {
-                s = rest;
-                break;
-            }
-        }
-        if s == prev {
-            break;
-        }
+    while let Some(rest) = s
+        .strip_prefix("pub::")
+        .or_else(|| s.strip_prefix("test::"))
+        .or_else(|| s.strip_prefix("bench::"))
+    {
+        s = rest;
     }
     s
 }
@@ -50,6 +45,8 @@ fn resolve_placeholder(
                 return Some(one.clone());
             }
         }
+        // Qualified type/module path (e.g. std::collections::HashMap); do not resolve via global lookup to avoid false positives.
+        return None;
     }
     let key = (path_part.to_string(), fn_name.to_string());
     if let Some(candidates) = local.get(&key) {

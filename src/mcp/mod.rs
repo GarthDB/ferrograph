@@ -291,6 +291,15 @@ fn resolve_store_path() -> Option<PathBuf> {
         .or_else(|| std::env::current_dir().ok().map(|p| p.join(".ferrograph")))
 }
 
+/// Database file mtime as Unix epoch seconds. May not reflect an in-process reindex until the DB flushes.
+fn indexed_at_epoch(store_path: &Path) -> Option<u64> {
+    std::fs::metadata(store_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+}
+
 /// Cache: path and store handle so we do not reopen the database on every tool call.
 type StoreCache = Arc<Mutex<Option<(PathBuf, Arc<crate::graph::Store>)>>>;
 
@@ -394,12 +403,7 @@ impl ServerHandler for FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("edge_count failed: {e}"), None)
         })?;
-        // Derived from filesystem mtime; may not reflect an in-process reindex until the DB flushes.
-        let indexed_at = std::fs::metadata(&store_path)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs());
+        let indexed_at = indexed_at_epoch(&store_path);
         let status = serde_json::json!({
             "node_count": node_count,
             "edge_count": edge_count,
@@ -440,7 +444,7 @@ impl ServerHandler for FerrographMcp {
             "node_info" => Self::handle_node_info(&request, &store)?,
             "trait_implementors" => Self::handle_trait_implementors(&request, &store)?,
             "module_graph" => Self::handle_module_graph(&request, &store)?,
-            "reindex" => Self::handle_reindex(&request, &store, &store_path)?,
+            "reindex" => Self::handle_reindex(&request, store, &store_path).await?,
             _ => {
                 return Err(rmcp::ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -622,12 +626,7 @@ impl FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Status (edge_count) failed: {e}"), None)
         })?;
-        // Derived from filesystem mtime; may not reflect an in-process reindex until the DB flushes.
-        let indexed_at = std::fs::metadata(store_path)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs());
+        let indexed_at = indexed_at_epoch(store_path);
         Ok(CallToolResult::structured(serde_json::json!({
             "node_count": node_count,
             "edge_count": edge_count,
@@ -771,9 +770,9 @@ impl FerrographMcp {
         })))
     }
 
-    fn handle_reindex(
+    async fn handle_reindex(
         request: &CallToolRequestParams,
-        store: &crate::graph::Store,
+        store: Arc<crate::graph::Store>,
         store_path: &Path,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let root = get_str_arg(request, "path").map_or_else(
@@ -786,13 +785,21 @@ impl FerrographMcp {
                 "path": root.display().to_string()
             })));
         }
-        store.clear().map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("Reindex (clear) failed: {e}"), None)
-        })?;
-        let config = crate::pipeline::PipelineConfig::default();
-        crate::pipeline::run_pipeline(store, &root, &config).map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("Reindex (pipeline) failed: {e}"), None)
-        })?;
+        let root_clone = root.clone();
+        let store_clone = Arc::clone(&store);
+        let blocking_result = tokio::task::spawn_blocking(move || {
+            store_clone.clear().map_err(|e| {
+                rmcp::ErrorData::internal_error(format!("Reindex (clear) failed: {e}"), None)
+            })?;
+            let config = crate::pipeline::PipelineConfig::default();
+            crate::pipeline::run_pipeline(&store_clone, &root_clone, &config).map_err(|e| {
+                rmcp::ErrorData::internal_error(format!("Reindex (pipeline) failed: {e}"), None)
+            })?;
+            Ok::<(), rmcp::ErrorData>(())
+        })
+        .await
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Reindex task failed: {e}"), None))?;
+        blocking_result?;
         Ok(CallToolResult::structured(serde_json::json!({
             "ok": true,
             "message": "Reindex complete",
