@@ -145,21 +145,17 @@ fn name_of_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
     None
 }
 
-/// Returns true if the node has a `#[test]` or `#[cfg(test)]` attribute (for dead-code entry points).
-fn has_test_attribute(node: &tree_sitter::Node, source: &str) -> bool {
+/// Returns true if the node has an attribute containing an identifier with the given name
+/// (e.g. `#[test]`, `#[cfg(test)]`, `#[bench]`). Uses structural matching via `attribute_contains_identifier`;
+/// if that fails, matches exact attribute text `#[name]` only (avoids false positives like `[bench]` or `#[cfg(bench)]`).
+fn has_attribute(node: &tree_sitter::Node, source: &str, name: &str) -> bool {
     let mut cursor = node.walk();
     if !cursor.goto_first_child() {
         return false;
     }
     loop {
-        let n = cursor.node();
-        if n.kind() == "attribute_item" {
-            let r = n.byte_range();
-            if let Some(attr_text) = source.get(r.start..r.end) {
-                if attr_text.contains("#[test]") || attr_text.contains("#[cfg(test)]") {
-                    return true;
-                }
-            }
+        if has_attribute_node(&cursor.node(), source, name) {
+            return true;
         }
         if !cursor.goto_next_sibling() {
             break;
@@ -168,28 +164,33 @@ fn has_test_attribute(node: &tree_sitter::Node, source: &str) -> bool {
     false
 }
 
-/// Returns true if the node has a `#[bench]` attribute (benchmark entry point for dead-code).
-fn has_bench_attribute(node: &tree_sitter::Node, source: &str) -> bool {
-    let mut cursor = node.walk();
-    if !cursor.goto_first_child() {
-        return false;
-    }
-    loop {
-        let n = cursor.node();
-        let kind = n.kind();
-        if kind == "attribute_item" || kind == "outer_attribute_list" {
-            let r = n.byte_range();
-            if let Some(attr_text) = source.get(r.start..r.end) {
-                if attr_text.contains("#[bench]") || attr_text.contains("[bench]") {
-                    return true;
-                }
+/// Check a single node (and its descendants) for attribute match. Called from `has_attribute` on direct children and recursively for nested attribute lists.
+fn has_attribute_node(n: &tree_sitter::Node, source: &str, name: &str) -> bool {
+    let kind = n.kind();
+    if kind == "attribute_item" || kind == "outer_attribute_list" {
+        if attribute_contains_identifier(n, source, name) {
+            return true;
+        }
+        let r = n.byte_range();
+        if let Some(attr_text) = source.get(r.start..r.end) {
+            let needle = format!("#[{name}]");
+            if attr_text.contains(&needle) {
+                return true;
             }
-            if attribute_contains_identifier(&n, source, "bench") {
+            if name == "bench" && attr_text.trim() == "[bench]" {
                 return true;
             }
         }
-        if !cursor.goto_next_sibling() {
-            break;
+    }
+    let mut cursor = n.walk();
+    if cursor.goto_first_child() {
+        loop {
+            if has_attribute_node(&cursor.node(), source, name) {
+                return true;
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
     }
     false
@@ -223,8 +224,8 @@ fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let is_pub = node
         .child(0)
         .is_some_and(|c| c.kind() == "visibility_modifier");
-    let is_test = has_test_attribute(node, source);
-    let is_bench = has_bench_attribute(node, source);
+    let is_test = has_attribute(node, source, "test");
+    let is_bench = has_attribute(node, source, "bench");
     let prefix = match (is_pub, is_test, is_bench) {
         (true, true, _) => "pub::test::",
         (false, true, _) => "test::",
@@ -346,17 +347,16 @@ mod tests {
             .iter()
             .filter(|r| {
                 r.get(1)
-                    .map(|v| v.to_string().trim_matches('"') == "trait")
-                    .unwrap_or(false)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "trait")
             })
             .collect();
         assert!(
             !trait_rows.is_empty(),
             "expected at least one trait node, got {rows:?}"
         );
-        let payload = trait_rows[0].get(2).map(|v| v.to_string());
+        let payload = trait_rows[0].get(2).map(std::string::ToString::to_string);
         assert!(
-            payload.as_ref().map_or(false, |p| p.contains("Draw")),
+            payload.as_ref().is_some_and(|p| p.contains("Draw")),
             "trait node should have payload with name Draw, got {payload:?}"
         );
     }
@@ -373,19 +373,18 @@ mod tests {
             .iter()
             .filter(|r| {
                 r.get(1)
-                    .map(|v| v.to_string().trim_matches('"') == "function")
-                    .unwrap_or(false)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "function")
             })
             .collect();
         assert!(
             !fn_rows.is_empty(),
             "expected at least one function node, got {rows:?}"
         );
-        // Tree-sitter may or may not expose #[bench] in a way we detect; at minimum we extract the function.
-        // Entry-point treatment of bench:: is tested in graph::query::tests::bench_function_is_entry_point_not_dead.
-        let payload = fn_rows[0].get(2).map(|v| v.to_string());
-        let has_bench_prefix = payload.as_ref().map_or(false, |p| p.contains("bench::"));
-        let has_name = payload.as_ref().map_or(false, |p| p.contains("my_bench"));
+        let payload = fn_rows[0].get(2).map(std::string::ToString::to_string);
+        let has_bench_prefix = payload
+            .as_ref()
+            .is_some_and(|p| p.contains("bench::my_bench"));
+        let has_name = payload.as_ref().is_some_and(|p| p.contains("my_bench"));
         assert!(
             has_bench_prefix || has_name,
             "expected bench:: prefix or function name in payload, got {payload:?}"

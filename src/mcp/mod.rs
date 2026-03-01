@@ -394,6 +394,7 @@ impl ServerHandler for FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("edge_count failed: {e}"), None)
         })?;
+        // Derived from filesystem mtime; may not reflect an in-process reindex until the DB flushes.
         let indexed_at = std::fs::metadata(&store_path)
             .ok()
             .and_then(|m| m.modified().ok())
@@ -621,6 +622,7 @@ impl FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Status (edge_count) failed: {e}"), None)
         })?;
+        // Derived from filesystem mtime; may not reflect an in-process reindex until the DB flushes.
         let indexed_at = std::fs::metadata(store_path)
             .ok()
             .and_then(|m| m.modified().ok())

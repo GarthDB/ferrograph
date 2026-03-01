@@ -3,7 +3,8 @@
 //! Resolves placeholder call targets (`file_path::fn_name`) to real function node IDs
 //! (`file_path#line:col`). Tries same-file first, then global `fn_name` lookup for cross-file calls.
 //!
-//! **Known limitation**: Method calls, qualified paths (`mod::fn`), and UFCS are not resolved.
+//! **Known limitation**: Method calls and UFCS are not resolved. Qualified paths (`mod::fn`) are
+//! partially handled (see `resolve_call_target` `scoped_identifier` support).
 
 use std::collections::HashMap;
 
@@ -12,9 +13,22 @@ use anyhow::Result;
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::{query::Query, unquote_datavalue, Store};
 
-/// Strip "`pub::`" prefix from payload for canonical function name.
+/// Strip `pub::`, `test::`, and `bench::` prefixes from payload for canonical function name.
 fn canonical_name(payload: &str) -> &str {
-    payload.strip_prefix("pub::").unwrap_or(payload)
+    let mut s = payload;
+    loop {
+        let prev = s;
+        for prefix in &["pub::", "test::", "bench::"] {
+            if let Some(rest) = s.strip_prefix(prefix) {
+                s = rest;
+                break;
+            }
+        }
+        if s == prev {
+            break;
+        }
+    }
+    s
 }
 
 /// Resolve a single placeholder (`path_part::fn_name`) to a `NodeId`, or None if ambiguous/unresolved.
