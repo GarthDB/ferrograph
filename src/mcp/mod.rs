@@ -73,6 +73,16 @@ fn search_input_schema() -> serde_json::Map<String, serde_json::Value> {
                 "type": "boolean",
                 "description": "Match case-insensitively",
                 "default": false
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max number of results to return (default 100)",
+                "default": 100
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Number of results to skip for pagination (default 0)",
+                "default": 0
             }
         },
         "required": ["query"]
@@ -178,6 +188,21 @@ fn module_graph_input_schema() -> serde_json::Map<String, serde_json::Value> {
     .clone()
 }
 
+fn reindex_input_schema() -> serde_json::Map<String, serde_json::Value> {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Project root to index (default: current working directory)"
+            }
+        }
+    })
+    .as_object()
+    .unwrap()
+    .clone()
+}
+
 fn get_str_arg<'a>(request: &'a CallToolRequestParams, key: &str) -> Option<&'a str> {
     request
         .arguments
@@ -250,6 +275,11 @@ fn all_tools() -> Vec<Tool> {
             "module_graph",
             "Return the module containment tree (Contains edges between file/module/crate_root). Optional path prefix filter.",
             module_graph_input_schema(),
+        ),
+        tool(
+            "reindex",
+            "Re-run the index pipeline on the current graph database (clears and repopulates). Optional project root path; defaults to current working directory.",
+            reindex_input_schema(),
         ),
     ]
 }
@@ -364,10 +394,16 @@ impl ServerHandler for FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("edge_count failed: {e}"), None)
         })?;
+        let indexed_at = std::fs::metadata(&store_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
         let status = serde_json::json!({
             "node_count": node_count,
             "edge_count": edge_count,
-            "db_path": store_path.display().to_string()
+            "db_path": store_path.display().to_string(),
+            "indexed_at": indexed_at
         });
         Ok(ReadResourceResult {
             contents: vec![ResourceContents::text(status.to_string(), STATUS_URI)],
@@ -403,6 +439,7 @@ impl ServerHandler for FerrographMcp {
             "node_info" => Self::handle_node_info(&request, &store)?,
             "trait_implementors" => Self::handle_trait_implementors(&request, &store)?,
             "module_graph" => Self::handle_module_graph(&request, &store)?,
+            "reindex" => Self::handle_reindex(&request, &store, &store_path)?,
             _ => {
                 return Err(rmcp::ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -551,7 +588,11 @@ impl FerrographMcp {
             .unwrap_or(false);
         let rows = crate::search::text_search(store, query, case_insensitive)
             .map_err(|e| rmcp::ErrorData::internal_error(format!("Search failed: {e}"), None))?;
-        let results: Vec<serde_json::Value> = rows
+        let total = rows.len();
+        let offset = parse_offset(request);
+        let limit = parse_limit(request, 100, 10_000);
+        let page: Vec<_> = rows.into_iter().skip(offset).take(limit).collect();
+        let results: Vec<serde_json::Value> = page
             .into_iter()
             .map(|(id, node_type, payload)| {
                 serde_json::json!({
@@ -563,7 +604,10 @@ impl FerrographMcp {
             .collect();
         Ok(CallToolResult::structured(serde_json::json!({
             "results": results,
-            "count": results.len()
+            "count": results.len(),
+            "total": total,
+            "offset": offset,
+            "limit": limit
         })))
     }
 
@@ -577,10 +621,16 @@ impl FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Status (edge_count) failed: {e}"), None)
         })?;
+        let indexed_at = std::fs::metadata(store_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
         Ok(CallToolResult::structured(serde_json::json!({
             "node_count": node_count,
             "edge_count": edge_count,
-            "db_path": store_path.display().to_string()
+            "db_path": store_path.display().to_string(),
+            "indexed_at": indexed_at
         })))
     }
 
@@ -610,11 +660,7 @@ impl FerrographMcp {
         let rows: Vec<Vec<serde_json::Value>> = result
             .rows
             .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
-                    .collect()
-            })
+            .map(|row| row.iter().map(crate::graph::datavalue_to_json).collect())
             .collect();
         Ok(CallToolResult::structured(serde_json::json!({
             "headers": result.headers,
@@ -723,6 +769,36 @@ impl FerrographMcp {
         })))
     }
 
+    fn handle_reindex(
+        request: &CallToolRequestParams,
+        store: &crate::graph::Store,
+        store_path: &Path,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let root = get_str_arg(request, "path").map_or_else(
+            || std::env::current_dir().unwrap_or_else(|_| store_path.to_path_buf()),
+            PathBuf::from,
+        );
+        if !root.exists() {
+            return Ok(CallToolResult::structured_error(serde_json::json!({
+                "error": "Project path does not exist",
+                "path": root.display().to_string()
+            })));
+        }
+        store.clear().map_err(|e| {
+            rmcp::ErrorData::internal_error(format!("Reindex (clear) failed: {e}"), None)
+        })?;
+        let config = crate::pipeline::PipelineConfig::default();
+        crate::pipeline::run_pipeline(store, &root, &config).map_err(|e| {
+            rmcp::ErrorData::internal_error(format!("Reindex (pipeline) failed: {e}"), None)
+        })?;
+        Ok(CallToolResult::structured(serde_json::json!({
+            "ok": true,
+            "message": "Reindex complete",
+            "path": root.display().to_string(),
+            "db_path": store_path.display().to_string()
+        })))
+    }
+
     async fn get_or_open_store(
         &self,
         store_path: &Path,
@@ -768,8 +844,9 @@ mod tests {
 
     use super::{
         blast_radius_input_schema, callers_input_schema, dead_code_input_schema,
-        module_graph_input_schema, node_info_input_schema, query_input_schema, search_input_schema,
-        status_input_schema, trait_implementors_input_schema, FerrographMcp,
+        module_graph_input_schema, node_info_input_schema, query_input_schema,
+        reindex_input_schema, search_input_schema, status_input_schema,
+        trait_implementors_input_schema, FerrographMcp,
     };
 
     fn tool_request(
@@ -812,16 +889,18 @@ mod tests {
     }
 
     #[test]
-    fn search_schema_has_required_query() {
+    fn search_schema_has_required_query_and_pagination() {
         let schema = search_input_schema();
         assert_eq!(schema.get("type").and_then(|v| v.as_str()), Some("object"));
         let required = schema.get("required").and_then(|v| v.as_array()).unwrap();
         assert!(required.iter().any(|v| v.as_str() == Some("query")));
-        assert!(schema
+        let props = schema
             .get("properties")
             .and_then(|v| v.as_object())
-            .unwrap()
-            .contains_key("case_insensitive"));
+            .unwrap();
+        assert!(props.contains_key("case_insensitive"));
+        assert!(props.contains_key("limit"));
+        assert!(props.contains_key("offset"));
     }
 
     #[test]
@@ -871,6 +950,17 @@ mod tests {
             .and_then(|v| v.as_object())
             .unwrap()
             .contains_key("root"));
+    }
+
+    #[test]
+    fn reindex_schema_has_optional_path() {
+        let schema = reindex_input_schema();
+        assert_eq!(schema.get("type").and_then(|v| v.as_str()), Some("object"));
+        assert!(schema
+            .get("properties")
+            .and_then(|v| v.as_object())
+            .unwrap()
+            .contains_key("path"));
     }
 
     fn result_json(result: CallToolResult) -> serde_json::Value {

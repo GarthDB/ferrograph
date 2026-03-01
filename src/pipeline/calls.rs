@@ -18,6 +18,7 @@ fn canonical_name(payload: &str) -> &str {
 }
 
 /// Resolve a single placeholder (`path_part::fn_name`) to a `NodeId`, or None if ambiguous/unresolved.
+/// For qualified paths (`path_part` contains "::"), first try same-file resolution by file path only.
 fn resolve_placeholder(
     path_part: &str,
     fn_name: &str,
@@ -27,6 +28,15 @@ fn resolve_placeholder(
     node_id_to_payload: &HashMap<String, String>,
     global_by_name: &HashMap<String, Vec<NodeId>>,
 ) -> Option<NodeId> {
+    if path_part.contains("::") {
+        let file_only = path_part.split("::").next().unwrap_or(path_part);
+        let key = (file_only.to_string(), fn_name.to_string());
+        if let Some(candidates) = local.get(&key) {
+            if let [one] = candidates.as_slice() {
+                return Some(one.clone());
+            }
+        }
+    }
     let key = (path_part.to_string(), fn_name.to_string());
     if let Some(candidates) = local.get(&key) {
         if let [one] = candidates.as_slice() {
@@ -147,12 +157,21 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         if !to_str.contains("::") {
             continue;
         }
-        let Some((path_part, fn_name)) = to_str.split_once("::") else {
+        let Some((path_part, fn_name_maybe_path)) = to_str.split_once("::") else {
             continue;
+        };
+        // Qualified call like file::mod::foo: use last segment as fn name for resolution.
+        let (path_part, fn_name) = if fn_name_maybe_path.contains("::") {
+            fn_name_maybe_path
+                .rsplit_once("::")
+                .map(|(path_suffix, name)| (format!("{path_part}::{path_suffix}"), name))
+                .unwrap_or((path_part.to_string(), fn_name_maybe_path))
+        } else {
+            (path_part.to_string(), fn_name_maybe_path)
         };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let resolved_id = resolve_placeholder(
-            path_part,
+            &path_part,
             fn_name,
             from_file,
             &local,

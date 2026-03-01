@@ -112,7 +112,8 @@ impl Query {
                 let payload = row.get(1).map(unquote_datavalue).unwrap_or_default();
                 let is_entry = payload == "main"
                     || payload.starts_with("pub::")
-                    || payload.starts_with("test::");
+                    || payload.starts_with("test::")
+                    || payload.starts_with("bench::");
                 is_entry.then(|| DataValue::from(id))
             })
             .collect();
@@ -410,6 +411,23 @@ mod tests {
         assert!(
             !dead.iter().any(|id| id == "f#1:1"),
             "test::my_test (f#1:1) should not be dead (test is entry point), got {dead:?}"
+        );
+    }
+
+    #[test]
+    fn bench_function_is_entry_point_not_dead() {
+        let store = Store::new_memory().unwrap();
+        store
+            .put_node(
+                &NodeId::new("f#1:1"),
+                &NodeType::Function,
+                Some("bench::my_bench"),
+            )
+            .unwrap();
+        let dead = Query::compute_dead_functions(&store).unwrap();
+        assert!(
+            !dead.iter().any(|id| id == "f#1:1"),
+            "bench::my_bench (f#1:1) should not be dead (bench is entry point), got {dead:?}"
         );
     }
 
