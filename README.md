@@ -1,9 +1,5 @@
 # Ferrograph
 
-<p align="center">
-  <img src="assets/logo-wordmark.svg" alt="Ferrograph" width="240" />
-</p>
-
 Graph-powered Rust code intelligence. Indexes Rust codebases into a queryable knowledge graph with CLI and MCP interfaces.
 
 ## Status

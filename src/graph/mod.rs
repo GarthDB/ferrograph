@@ -30,7 +30,8 @@ pub fn datavalue_to_json(v: &DataValue) -> JsonValue {
         DataValue::Bool(b) => JsonValue::Bool(*b),
         DataValue::Num(n) => match n {
             Num::Int(i) => JsonValue::Number(Number::from(*i)),
-            Num::Float(f) => Number::from_f64(*f).map_or(JsonValue::Null, JsonValue::Number),
+            Num::Float(f) => Number::from_f64(*f)
+                .map_or(JsonValue::Null, JsonValue::Number),
         },
         DataValue::Str(s) => JsonValue::String(s.to_string()),
         DataValue::Bytes(b) => JsonValue::Array(
@@ -45,7 +46,8 @@ pub fn datavalue_to_json(v: &DataValue) -> JsonValue {
                 cozo::Vector::F32(a) => a
                     .iter()
                     .map(|&x| {
-                        Number::from_f64(f64::from(x)).map_or(JsonValue::Null, JsonValue::Number)
+                        Number::from_f64(f64::from(x))
+                            .map_or(JsonValue::Null, JsonValue::Number)
                     })
                     .collect(),
                 cozo::Vector::F64(a) => a

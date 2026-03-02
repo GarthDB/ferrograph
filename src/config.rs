@@ -7,12 +7,7 @@ use clap::{Parser, Subcommand};
 
 /// Graph-powered Rust code intelligence.
 #[derive(Debug, Parser)]
-#[command(
-    name = "ferrograph",
-    version,
-    about,
-    long_version = include_str!("../assets/ascii-banner.txt")
-)]
+#[command(name = "ferrograph", version, about)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
