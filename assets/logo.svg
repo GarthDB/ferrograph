@@ -1,35 +1,79 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" aria-hidden="true">
   <title>Ferrograph logo</title>
   <!--
-    Ferrofluid-graph mark: central node with radiating edges and leaf nodes.
-    Variants: use class "color" | "dark" | "light" on a wrapper, or override --fg-steel and --fg-accent.
+    Organic ferrofluid-graph mark: central blob with curved tendrils and leaf nodes.
+    Asymmetric; evokes magnetic ferrofluid in speakers. Override --fg-body and --fg-accent for color.
   -->
   <g class="mark">
-    <!-- Central hub node -->
-    <circle cx="16" cy="16" r="3.5" class="hub" />
-    <!-- Radiating edges (slightly irregular angles for organic feel) -->
-    <line x1="16" y1="16" x2="16" y2="4" class="edge" stroke-linecap="round" />
-    <line x1="16" y1="16" x2="22.5" y2="7.2" class="edge" stroke-linecap="round" />
-    <line x1="16" y1="16" x2="26" y2="16" class="edge" stroke-linecap="round" />
-    <line x1="16" y1="16" x2="22.5" y2="24.8" class="edge" stroke-linecap="round" />
-    <line x1="16" y1="16" x2="16" y2="28" class="edge" stroke-linecap="round" />
-    <line x1="16" y1="16" x2="9.5" y2="24.8" class="edge" stroke-linecap="round" />
-    <line x1="16" y1="16" x2="6" y2="16" class="edge" stroke-linecap="round" />
-    <line x1="16" y1="16" x2="9.5" y2="7.2" class="edge" stroke-linecap="round" />
-    <!-- Leaf nodes (endpoints) -->
-    <circle cx="16" cy="4" r="1.5" class="node" />
-    <circle cx="22.5" cy="7.2" r="1.5" class="node accent" />
-    <circle cx="26" cy="16" r="1.5" class="node" />
-    <circle cx="22.5" cy="24.8" r="1.5" class="node" />
-    <circle cx="16" cy="28" r="1.5" class="node accent" />
-    <circle cx="9.5" cy="24.8" r="1.5" class="node" />
-    <circle cx="6" cy="16" r="1.5" class="node" />
-    <circle cx="9.5" cy="7.2" r="1.5" class="node" />
+    <!-- Central blob (irregular ferrofluid mass) -->
+    <path
+      class="hub"
+      d="M14 11 C 10 12 9 15 10 18 C 11 21 14 23 17 22.5 C 20 22 23 20 23.5 17 C 24 14 22 11 19 10.5 C 16.5 10 14 11 14 11 Z"
+    />
+    <!-- Curved tendrils (flowing edges, irregular angles) -->
+    <path
+      class="edge"
+      d="M16.8 11.8 Q14 6 10 4.5"
+      stroke-width="1.2"
+      stroke-linecap="round"
+      fill="none"
+    />
+    <path
+      class="edge"
+      d="M18 13 Q24 8 27 14"
+      stroke-width="1"
+      stroke-linecap="round"
+      fill="none"
+    />
+    <path
+      class="edge"
+      d="M17.5 15.5 Q24 16 28 18"
+      stroke-width="1.1"
+      stroke-linecap="round"
+      fill="none"
+    />
+    <path
+      class="edge accent-edge"
+      d="M16 17 Q20 24 15 28"
+      stroke-width="1"
+      stroke-linecap="round"
+      fill="none"
+    />
+    <path
+      class="edge"
+      d="M14.5 16 Q8 20 5 15"
+      stroke-width="1.2"
+      stroke-linecap="round"
+      fill="none"
+    />
+    <path
+      class="edge accent-edge"
+      d="M15 14 Q10 10 6 12"
+      stroke-width="1"
+      stroke-linecap="round"
+      fill="none"
+    />
+    <path
+      class="edge"
+      d="M15.2 12.5 Q12 8 8 9.5"
+      stroke-width="0.9"
+      stroke-linecap="round"
+      fill="none"
+    />
+    <!-- Leaf nodes (organic endpoints, varying size); 2–3 with accent -->
+    <ellipse cx="10" cy="4.8" rx="1.4" ry="1.1" class="node" />
+    <ellipse cx="26.5" cy="13.5" rx="1.6" ry="1.2" class="node accent" />
+    <ellipse cx="27.5" cy="18" rx="1.2" ry="1.4" class="node" />
+    <ellipse cx="15" cy="28" rx="1.3" ry="1.5" class="node accent" />
+    <ellipse cx="5.2" cy="15" rx="1.1" ry="1.3" class="node" />
+    <ellipse cx="6" cy="12" rx="1.5" ry="1.2" class="node accent" />
+    <ellipse cx="8.2" cy="9.8" rx="1" ry="1.2" class="node" />
   </g>
   <style>
-    .mark .hub { fill: var(--fg-steel, currentColor); }
-    .mark .edge { stroke: var(--fg-steel, currentColor); stroke-width: 1; }
-    .mark .node { fill: var(--fg-steel, currentColor); }
+    .mark .hub { fill: var(--fg-body, currentColor); }
+    .mark .edge { stroke: var(--fg-body, currentColor); }
+    .mark .edge.accent-edge { stroke: var(--fg-accent, currentColor); }
+    .mark .node { fill: var(--fg-body, currentColor); }
     .mark .node.accent { fill: var(--fg-accent, currentColor); }
   </style>
 </svg>
