@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+  <title>Ferrograph logo</title>
+  <!--
+    Ferrofluid-graph mark: central node with radiating edges and leaf nodes.
+    Variants: use class "color" | "dark" | "light" on a wrapper, or override --fg-steel and --fg-accent.
+  -->
+  <g class="mark">
+    <!-- Central hub node -->
+    <circle cx="16" cy="16" r="3.5" class="hub" />
+    <!-- Radiating edges (slightly irregular angles for organic feel) -->
+    <line x1="16" y1="16" x2="16" y2="4" class="edge" stroke-linecap="round" />
+    <line x1="16" y1="16" x2="22.5" y2="7.2" class="edge" stroke-linecap="round" />
+    <line x1="16" y1="16" x2="26" y2="16" class="edge" stroke-linecap="round" />
+    <line x1="16" y1="16" x2="22.5" y2="24.8" class="edge" stroke-linecap="round" />
+    <line x1="16" y1="16" x2="16" y2="28" class="edge" stroke-linecap="round" />
+    <line x1="16" y1="16" x2="9.5" y2="24.8" class="edge" stroke-linecap="round" />
+    <line x1="16" y1="16" x2="6" y2="16" class="edge" stroke-linecap="round" />
+    <line x1="16" y1="16" x2="9.5" y2="7.2" class="edge" stroke-linecap="round" />
+    <!-- Leaf nodes (endpoints) -->
+    <circle cx="16" cy="4" r="1.5" class="node" />
+    <circle cx="22.5" cy="7.2" r="1.5" class="node accent" />
+    <circle cx="26" cy="16" r="1.5" class="node" />
+    <circle cx="22.5" cy="24.8" r="1.5" class="node" />
+    <circle cx="16" cy="28" r="1.5" class="node accent" />
+    <circle cx="9.5" cy="24.8" r="1.5" class="node" />
+    <circle cx="6" cy="16" r="1.5" class="node" />
+    <circle cx="9.5" cy="7.2" r="1.5" class="node" />
+  </g>
+  <style>
+    .mark .hub { fill: var(--fg-steel, currentColor); }
+    .mark .edge { stroke: var(--fg-steel, currentColor); stroke-width: 1; }
+    .mark .node { fill: var(--fg-steel, currentColor); }
+    .mark .node.accent { fill: var(--fg-accent, currentColor); }
+  </style>
+</svg>

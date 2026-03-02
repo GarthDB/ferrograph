@@ -1,0 +1,8 @@
+        \  |  /
+         \ | /
+      *---*---*
+         / | \
+        /  |  \
+
+     F E R R O G R A P H
+  graph-powered rust code intelligence
