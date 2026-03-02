@@ -66,10 +66,7 @@ fn traverse(
     let parent = stack.last().cloned();
 
     let (node_type, name_opt) = match kind {
-        "function_item" => (
-            Some(NodeType::Function),
-            function_payload(&node, source, cursor),
-        ),
+        "function_item" => (Some(NodeType::Function), function_payload(&node, source)),
         "struct_item" => (Some(NodeType::Struct), name_of_node(&node, source)),
         "enum_item" => (Some(NodeType::Enum), name_of_node(&node, source)),
         "trait_item" => (Some(NodeType::Trait), name_of_node(&node, source)),
@@ -148,22 +145,15 @@ fn name_of_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
     None
 }
 
-/// Returns true if the node immediately preceding `cursor`'s current node is an attribute (e.g. `#[bench]`, `#[test]`)
+/// Returns true if the node immediately preceding `node` is an attribute (e.g. `#[bench]`, `#[test]`)
 /// that matches `name`. Tree-sitter-rust often attaches outer attributes as the previous sibling of the item.
-fn has_attribute_on_prev_sibling(
-    cursor: &mut tree_sitter::TreeCursor,
-    source: &str,
-    name: &str,
-) -> bool {
-    if !cursor.goto_previous_sibling() {
+fn has_attribute_on_prev_sibling(node: &tree_sitter::Node, source: &str, name: &str) -> bool {
+    let Some(prev) = node.prev_sibling() else {
         return false;
-    }
-    let prev = cursor.node();
+    };
     let kind = prev.kind();
-    let ok = (kind == "attribute_item" || kind == "outer_attribute_list")
-        && has_attribute_node(&prev, source, name);
-    cursor.goto_next_sibling();
-    ok
+    (kind == "attribute_item" || kind == "outer_attribute_list")
+        && has_attribute_node(&prev, source, name)
 }
 
 /// Returns true if the node has an attribute containing an identifier with the given name
@@ -186,6 +176,7 @@ fn has_attribute(node: &tree_sitter::Node, source: &str, name: &str) -> bool {
 }
 
 /// Check a single node (and its descendants) for attribute match. Called from `has_attribute` on direct children and recursively for nested attribute lists.
+/// For `attribute_item`/`outer_attribute_list` we only check identifier and text; for other nodes we recurse into children to find nested attribute lists.
 fn has_attribute_node(n: &tree_sitter::Node, source: &str, name: &str) -> bool {
     let kind = n.kind();
     if kind == "attribute_item" || kind == "outer_attribute_list" {
@@ -198,11 +189,8 @@ fn has_attribute_node(n: &tree_sitter::Node, source: &str, name: &str) -> bool {
             if attr_text.contains(&needle) {
                 return true;
             }
-            // Tree-sitter may emit attribute content without the leading `#` in some parse-error recovery paths; match bare `[bench]` as a safety net.
-            if name == "bench" && attr_text.trim() == "[bench]" {
-                return true;
-            }
         }
+        return false;
     }
     let mut cursor = n.walk();
     if cursor.goto_first_child() {
@@ -241,19 +229,15 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
 }
 
 /// Payload for a function node: "`pub::name`" if public, "`test::name`" if test, "`bench::name`" if bench, else "name". Used for dead-code entry point detection.
-fn function_payload(
-    node: &tree_sitter::Node,
-    source: &str,
-    cursor: &mut tree_sitter::TreeCursor,
-) -> Option<String> {
+fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let name = name_of_node(node, source)?;
     let is_pub = node
         .child(0)
         .is_some_and(|c| c.kind() == "visibility_modifier");
-    let is_test = has_attribute(node, source, "test")
-        || has_attribute_on_prev_sibling(cursor, source, "test");
+    let is_test =
+        has_attribute(node, source, "test") || has_attribute_on_prev_sibling(node, source, "test");
     let is_bench = has_attribute(node, source, "bench")
-        || has_attribute_on_prev_sibling(cursor, source, "bench");
+        || has_attribute_on_prev_sibling(node, source, "bench");
     let prefix = match (is_pub, is_test, is_bench) {
         (true, true, _) => "pub::test::",
         (false, true, _) => "test::",

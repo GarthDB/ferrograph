@@ -38,6 +38,7 @@ fn resolve_placeholder(
     global_by_name: &HashMap<String, Vec<NodeId>>,
 ) -> Option<NodeId> {
     if path_part.contains("::") {
+        // TODO: qualified path resolution only uses file-level (first path segment); module path within the file (e.g. mod::submod::foo()) is not considered.
         let file_only = path_part.split("::").next().unwrap_or(path_part);
         let key = (file_only.to_string(), fn_name.to_string());
         if let Some(candidates) = local.get(&key) {

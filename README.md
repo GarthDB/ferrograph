@@ -61,7 +61,7 @@ The schema defines 11 edge types; in v1 only a subset are populated:
 | `expands_to`        | No          | Macro expansion. |
 | `uses_unsafe`       | No          | Planned. |
 | `lifetime_scope`    | No          | Planned. |
-| `changes_with`      | With `git`  | Git change coupling (optional feature). |
+| `changes_with`      | Yes (requires `git` feature) | Git change coupling (optional feature). |
 
 ## Publishing
 

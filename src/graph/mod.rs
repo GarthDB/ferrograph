@@ -61,3 +61,73 @@ pub fn datavalue_to_json(v: &DataValue) -> JsonValue {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::datavalue_to_json;
+    use cozo::DataValue;
+
+    #[test]
+    fn datavalue_to_json_null() {
+        let j = datavalue_to_json(&DataValue::Null);
+        assert!(j.is_null());
+    }
+
+    #[test]
+    fn datavalue_to_json_bool() {
+        let j = datavalue_to_json(&DataValue::Bool(true));
+        assert_eq!(j.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn datavalue_to_json_int() {
+        let j = datavalue_to_json(&DataValue::from(42_i64));
+        assert_eq!(j.as_i64(), Some(42));
+    }
+
+    #[test]
+    fn datavalue_to_json_float_nan_becomes_null() {
+        let j = datavalue_to_json(&DataValue::Num(cozo::Num::Float(f64::NAN)));
+        assert!(j.is_null());
+    }
+
+    #[test]
+    fn datavalue_to_json_float_infinity_becomes_null() {
+        let j = datavalue_to_json(&DataValue::Num(cozo::Num::Float(f64::INFINITY)));
+        assert!(j.is_null());
+    }
+
+    #[test]
+    fn datavalue_to_json_str() {
+        let j = datavalue_to_json(&DataValue::from("hello"));
+        assert_eq!(j.as_str(), Some("hello"));
+    }
+
+    #[test]
+    fn datavalue_to_json_list() {
+        let list = DataValue::List(vec![DataValue::from(1), DataValue::from("x")]);
+        let j = datavalue_to_json(&list);
+        let arr = j.as_array().expect("array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0].as_i64(), Some(1));
+        assert_eq!(arr[1].as_str(), Some("x"));
+    }
+
+    #[test]
+    fn datavalue_to_json_bytes() {
+        let b = DataValue::Bytes(vec![1_u8, 2, 3]);
+        let j = datavalue_to_json(&b);
+        let arr = j.as_array().expect("array");
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0].as_i64(), Some(1));
+        assert_eq!(arr[1].as_i64(), Some(2));
+        assert_eq!(arr[2].as_i64(), Some(3));
+    }
+
+    #[test]
+    fn datavalue_to_json_bot_fallback_stringified() {
+        let j = datavalue_to_json(&DataValue::Bot);
+        assert!(j.is_string());
+        assert!(!j.as_str().unwrap_or("").is_empty());
+    }
+}

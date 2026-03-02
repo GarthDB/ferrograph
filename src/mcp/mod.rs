@@ -591,6 +591,7 @@ impl FerrographMcp {
             .and_then(|m| m.get("case_insensitive"))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        // TODO: pagination is in-memory; for large graphs push limit/offset into the query engine.
         let rows = crate::search::text_search(store, query, case_insensitive)
             .map_err(|e| rmcp::ErrorData::internal_error(format!("Search failed: {e}"), None))?;
         let total = rows.len();
@@ -800,11 +801,21 @@ impl FerrographMcp {
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Reindex task failed: {e}"), None))?;
         blocking_result?;
+        let node_count = store.node_count().map_err(|e| {
+            rmcp::ErrorData::internal_error(format!("Reindex (node_count) failed: {e}"), None)
+        })?;
+        let edge_count = store.edge_count().map_err(|e| {
+            rmcp::ErrorData::internal_error(format!("Reindex (edge_count) failed: {e}"), None)
+        })?;
+        let indexed_at = indexed_at_epoch(store_path);
         Ok(CallToolResult::structured(serde_json::json!({
             "ok": true,
             "message": "Reindex complete",
             "path": root.display().to_string(),
-            "db_path": store_path.display().to_string()
+            "db_path": store_path.display().to_string(),
+            "node_count": node_count,
+            "edge_count": edge_count,
+            "indexed_at": indexed_at
         })))
     }
 
