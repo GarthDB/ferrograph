@@ -1,0 +1,8 @@
+[package]
+name = "gen-logo"
+version = "0.1.0"
+edition = "2021"
+description = "Generates Ferrograph metaball logo SVG"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }

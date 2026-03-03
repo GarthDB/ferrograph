@@ -65,7 +65,21 @@ Use for logo mark when a single color is required (favicon, print, terminal).
 
 ## Logo
 
-- **Logo mark** ([assets/logo.svg](logo.svg)): Organic ferrofluid-graph mark — a central blob with curved tendrils and leaf nodes (asymmetric, evocative of magnetic ferrofluid in speakers). Communicates “graph” via connected nodes and “ferrofluid” via fluid, non-geometric shapes. Use on light or dark backgrounds; ensure sufficient contrast. For single-color use, set CSS `color` or use monochrome (black on light, white on dark).
+- **Logo mark** ([assets/logo.svg](logo.svg)): Metaball-style graph mark — circles (nodes) connected by smooth bezier “membranes” so they read as one organic blob. Asymmetric layout; evokes ferrofluid and a code graph. Use on light or dark backgrounds; ensure sufficient contrast. For single-color use, set CSS `color` or use monochrome (black on light, white on dark).
 - **Wordmark** ([assets/logo-wordmark.svg](logo-wordmark.svg)): Horizontal lockup of mark + “ferrograph” for README and docs headers.
 - **Clear space:** Keep at least one mark-height of clear space around the logo on all sides.
-- **Variants:** Override `--fg-body` and `--fg-accent` for the color variant; omit for monochrome (inherits `currentColor`).
+- **Variants:** Override `--fg-body` for the mark; omit for monochrome (inherits `currentColor`).
+
+### Logo generator and animation
+
+The mark is generated programmatically so the layout can be tuned and, in the future, animated.
+
+- **Static logo (bezier bridges):** The Rust tool in [assets/gen-logo/](gen-logo/) outputs clean SVG paths. It places 6 nodes and 7 edges, then draws cubic bezier bridges between connected circles (Varun Vachhar / Paper.js–style algorithm). Use this for favicon, print, and README.
+
+  Regenerate the logo:
+  ```bash
+  cd assets/gen-logo && cargo run > ../logo.svg
+  ```
+  Then refresh the embedded mark in `logo-wordmark.svg` (copy the `<g id="mark">` contents from `logo.svg` into the wordmark so it stays self-contained).
+
+- **Animated demo (SVG filter):** [assets/metaball-demo.html](metaball-demo.html) uses the same node positions but renders with an SVG filter (`feGaussianBlur` + `feColorMatrix`) so the circles merge visually. Nodes are animated with `requestAnimationFrame` for a gentle oscillation. Use this as a reference for future web or docs animation.
