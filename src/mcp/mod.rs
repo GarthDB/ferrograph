@@ -1,4 +1,6 @@
 //! MCP server for AI agents.
+//!
+//! TODO: split into submodules (e.g. `tools.rs`, `handlers.rs`, `resources.rs`) once more tools land.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -647,16 +649,24 @@ impl FerrographMcp {
         while normalized.contains(": ") {
             normalized = normalized.replace(": ", ":");
         }
-        for directive in MUTATION_DIRECTIVES {
-            if normalized.contains(directive) {
-                return Err(rmcp::ErrorData::invalid_params(
-                    format!("Script may not contain mutation directive {directive}"),
-                    None,
-                ));
+        for line in normalized.lines() {
+            let trimmed = line.trim();
+            for directive in MUTATION_DIRECTIVES {
+                if trimmed.starts_with(directive) {
+                    return Err(rmcp::ErrorData::invalid_params(
+                        format!("Script may not contain mutation directive {directive}"),
+                        None,
+                    ));
+                }
             }
         }
         let limit = parse_limit(request, 100, 10_000);
-        let script_with_limit = format!("{}\n:limit {limit}", script.trim());
+        let stripped: String = script
+            .lines()
+            .filter(|line| !line.trim().to_lowercase().starts_with(":limit"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let script_with_limit = format!("{}\n:limit {limit}", stripped.trim());
         let params = std::collections::BTreeMap::new();
         let result = store
             .run_query(&script_with_limit, params)
@@ -788,8 +798,19 @@ impl FerrographMcp {
                 "path": root.display().to_string()
             })));
         }
-        let store = self.get_or_open_store(store_path).await?;
-        let _guard = self.cached.lock().await;
+        let path_buf = store_path.to_path_buf();
+        let mut cache_guard = self.cached.lock().await;
+        let store = match &*cache_guard {
+            Some((ref cached_path, ref s)) if *cached_path == path_buf => Arc::clone(s),
+            _ => {
+                let new_store = crate::graph::Store::new_persistent(store_path).map_err(|e| {
+                    rmcp::ErrorData::internal_error(format!("Failed to open graph: {e}"), None)
+                })?;
+                let new_store = Arc::new(new_store);
+                *cache_guard = Some((path_buf, Arc::clone(&new_store)));
+                new_store
+            }
+        };
         let root_clone = root.clone();
         let store_clone = Arc::clone(&store);
         let blocking_result = tokio::task::spawn_blocking(move || {
@@ -1081,6 +1102,49 @@ mod tests {
         let request = tool_request("query", Some(args));
         let err = FerrographMcp::handle_query(&request, &store).unwrap_err();
         assert!(err.to_string().contains(":put"));
+    }
+
+    #[test]
+    fn handle_query_accepts_script_containing_rmcp_substring() {
+        // ":rm" must not match inside ":rmcp" or other non-directive text (e.g. in a string literal).
+        let store = Store::new_memory().unwrap();
+        let mut args = serde_json::Map::new();
+        args.insert(
+            "script".to_string(),
+            serde_json::json!(
+                "?[id, type, payload] := *nodes[id, type, payload], type != \":rmcp\""
+            ),
+        );
+        let request = tool_request("query", Some(args));
+        let result = FerrographMcp::handle_query(&request, &store).unwrap();
+        let json = result_json(result);
+        assert!(
+            json.get("rows").is_some(),
+            "query with :rmcp in string literal should succeed"
+        );
+    }
+
+    #[test]
+    fn handle_query_strips_existing_limit_and_applies_handler_limit() {
+        let store = Store::new_memory().unwrap();
+        let mut args = serde_json::Map::new();
+        args.insert(
+            "script".to_string(),
+            serde_json::json!("?[id, type, payload] := *nodes[id, type, payload]\n:limit 5"),
+        );
+        args.insert("limit".to_string(), serde_json::json!(2));
+        let request = tool_request("query", Some(args));
+        let result = FerrographMcp::handle_query(&request, &store).unwrap();
+        let json = result_json(result);
+        assert_eq!(
+            json.get("count")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap(),
+            0
+        );
+        // Handler limit (2) is applied; script's :limit 5 is stripped.
+        let rows = json.get("rows").and_then(|v| v.as_array()).unwrap();
+        assert!(rows.len() <= 2);
     }
 
     #[test]

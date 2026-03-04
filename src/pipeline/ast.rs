@@ -183,8 +183,9 @@ fn has_attribute(node: &tree_sitter::Node, source: &str, name: &str) -> bool {
     false
 }
 
-/// Check a single node (and its descendants) for attribute match. Called from `has_attribute` on direct children and recursively for nested attribute lists.
-/// For `attribute_item`/`outer_attribute_list` we only check identifier and text; for other nodes we recurse into children to find nested attribute lists.
+/// Check a single node for attribute match. For `attribute_item`/`outer_attribute_list`, checks
+/// identifier content and raw text (does not recurse further). For other node types, recurses
+/// into children to find nested attribute nodes.
 fn has_attribute_node(n: &tree_sitter::Node, source: &str, name: &str) -> bool {
     let kind = n.kind();
     if kind == "attribute_item" || kind == "outer_attribute_list" {

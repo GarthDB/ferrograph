@@ -10,6 +10,9 @@ use serde::Serialize;
 use crate::graph::schema::{EdgeType, NodeType};
 use crate::graph::{unquote_datavalue, Store};
 
+/// (id, `node_type`, optional payload) -- lightweight triple returned by graph queries.
+pub type NodeTriple = (String, String, Option<String>);
+
 /// Endpoint of an edge (the other node) for `node_info`.
 #[derive(Debug, Clone, Serialize)]
 pub struct EdgeEndpoint {
@@ -41,7 +44,7 @@ fn optional_payload(v: &DataValue) -> Option<String> {
 }
 
 /// Extract (id, type, payload) from a row of at least 3 columns (node table shape).
-fn extract_node_triple(row: &[DataValue]) -> (String, String, Option<String>) {
+fn extract_node_triple(row: &[DataValue]) -> NodeTriple {
     let id = row.first().map(unquote_datavalue).unwrap_or_default();
     let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
     let payload = row.get(2).and_then(optional_payload);
@@ -145,10 +148,7 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn blast_radius(
-        store: &Store,
-        from_id: &str,
-    ) -> Result<Vec<(String, String, Option<String>)>> {
+    pub fn blast_radius(store: &Store, from_id: &str) -> Result<Vec<NodeTriple>> {
         const BLAST_RADIUS_LIMIT: u64 = 500;
         let edge_calls = EdgeType::Calls.to_string();
         let edge_contains = EdgeType::Contains.to_string();
@@ -167,7 +167,7 @@ impl Query {
             "#
         );
         let rows = store.run_query(script.trim(), params)?;
-        let results: Vec<(String, String, Option<String>)> = rows
+        let results: Vec<NodeTriple> = rows
             .rows
             .iter()
             .map(|row| extract_node_triple(row))
@@ -181,11 +181,8 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn callers(
-        store: &Store,
-        target_id: &str,
-        depth: u32,
-    ) -> Result<Vec<(String, String, Option<String>)>> {
+    pub fn callers(store: &Store, target_id: &str, depth: u32) -> Result<Vec<NodeTriple>> {
+        const CALLERS_LIMIT: u64 = 500;
         let edge_calls = EdgeType::Calls.to_string();
         let max_depth = i64::from(depth.max(1)).min(100);
         let mut params = BTreeMap::new();
@@ -199,10 +196,11 @@ impl Query {
               d_plus_1 = d + 1,
               d_plus_1 <= $max_depth
             ?[id, type, payload] := callers[id, _], *nodes[id, type, payload], id != $target
+            :limit {CALLERS_LIMIT}
             "#
         );
         let rows = store.run_query(script.trim(), params)?;
-        let results: Vec<(String, String, Option<String>)> = rows
+        let results: Vec<NodeTriple> = rows
             .rows
             .iter()
             .map(|row| extract_node_triple(row))
@@ -276,10 +274,7 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn trait_implementors(
-        store: &Store,
-        trait_name: &str,
-    ) -> Result<Vec<(String, String, Option<String>)>> {
+    pub fn trait_implementors(store: &Store, trait_name: &str) -> Result<Vec<NodeTriple>> {
         let mut params = BTreeMap::new();
         params.insert("trait_name".to_string(), DataValue::from(trait_name));
         let script = r#"
@@ -291,7 +286,7 @@ impl Query {
             :limit 500
         "#;
         let rows = store.run_query(script.trim(), params)?;
-        let results: Vec<(String, String, Option<String>)> = rows
+        let results: Vec<NodeTriple> = rows
             .rows
             .iter()
             .map(|row| extract_node_triple(row))
