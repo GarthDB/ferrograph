@@ -55,7 +55,7 @@ pub fn datavalue_to_json(v: &DataValue) -> JsonValue {
             };
             JsonValue::Array(arr)
         }
-        DataValue::Json(j) => serde_json::to_value(&j.0).unwrap_or(JsonValue::Null),
+        DataValue::Json(j) => j.0.clone(),
         DataValue::Validity(_) | DataValue::Set(_) | DataValue::Regex(_) | DataValue::Bot => {
             JsonValue::String(v.to_string())
         }

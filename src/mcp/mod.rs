@@ -300,6 +300,25 @@ fn indexed_at_epoch(store_path: &Path) -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
+fn status_json(
+    store: &crate::graph::Store,
+    store_path: &Path,
+) -> Result<serde_json::Value, rmcp::ErrorData> {
+    let node_count = store
+        .node_count()
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("node_count failed: {e}"), None))?;
+    let edge_count = store
+        .edge_count()
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("edge_count failed: {e}"), None))?;
+    let indexed_at = indexed_at_epoch(store_path);
+    Ok(serde_json::json!({
+        "node_count": node_count,
+        "edge_count": edge_count,
+        "db_path": store_path.display().to_string(),
+        "indexed_at": indexed_at
+    }))
+}
+
 /// Cache: path and store handle so we do not reopen the database on every tool call.
 type StoreCache = Arc<Mutex<Option<(PathBuf, Arc<crate::graph::Store>)>>>;
 
@@ -397,19 +416,7 @@ impl ServerHandler for FerrographMcp {
             });
         }
         let store = self.get_or_open_store(&store_path).await?;
-        let node_count = store.node_count().map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("node_count failed: {e}"), None)
-        })?;
-        let edge_count = store.edge_count().map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("edge_count failed: {e}"), None)
-        })?;
-        let indexed_at = indexed_at_epoch(&store_path);
-        let status = serde_json::json!({
-            "node_count": node_count,
-            "edge_count": edge_count,
-            "db_path": store_path.display().to_string(),
-            "indexed_at": indexed_at
-        });
+        let status = status_json(&store, &store_path)?;
         Ok(ReadResourceResult {
             contents: vec![ResourceContents::text(status.to_string(), STATUS_URI)],
         })
@@ -621,19 +628,8 @@ impl FerrographMcp {
         store: &crate::graph::Store,
         store_path: &Path,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let node_count = store.node_count().map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("Status (node_count) failed: {e}"), None)
-        })?;
-        let edge_count = store.edge_count().map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("Status (edge_count) failed: {e}"), None)
-        })?;
-        let indexed_at = indexed_at_epoch(store_path);
-        Ok(CallToolResult::structured(serde_json::json!({
-            "node_count": node_count,
-            "edge_count": edge_count,
-            "db_path": store_path.display().to_string(),
-            "indexed_at": indexed_at
-        })))
+        let status = status_json(store, store_path)?;
+        Ok(CallToolResult::structured(status))
     }
 
     fn handle_query(

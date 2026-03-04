@@ -14,6 +14,8 @@ use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::{query::Query, unquote_datavalue, Store};
 
 /// Strip `pub::`, `test::`, and `bench::` prefixes from payload for canonical function name.
+/// While-loop handles hypothetical stacked prefixes (e.g. `pub::test::name`) even though
+/// `function_payload` currently produces at most one prefix.
 fn canonical_name(payload: &str) -> &str {
     let mut s = payload;
     while let Some(rest) = s
@@ -232,6 +234,32 @@ mod tests {
         assert!(
             to_str.contains('#'),
             "edge should point to real id (path#line:col), got {to_str}"
+        );
+    }
+
+    #[test]
+    fn build_call_graph_resolves_qualified_placeholder() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let real_id = NodeId::new(format!("{path}#20:1"));
+        store
+            .put_node(&real_id, &NodeType::Function, Some("bar"))
+            .unwrap();
+        let caller_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&caller_id, &NodeType::Function, Some("main"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::submod::bar"));
+        store
+            .put_edge(&caller_id, &placeholder, &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert!(
+            to_str.contains('#'),
+            "qualified path should resolve to real id, got {to_str}"
         );
     }
 }

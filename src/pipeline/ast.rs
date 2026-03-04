@@ -145,15 +145,23 @@ fn name_of_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
     None
 }
 
-/// Returns true if the node immediately preceding `node` is an attribute (e.g. `#[bench]`, `#[test]`)
-/// that matches `name`. Tree-sitter-rust often attaches outer attributes as the previous sibling of the item.
+/// Returns true if any node preceding `node` (in sibling order) is an attribute (e.g. `#[bench]`, `#[test]`)
+/// that matches `name`. Walks backwards through all consecutive attribute siblings so multi-attribute
+/// items like `#[cfg(test)] #[bench] fn foo()` are detected.
 fn has_attribute_on_prev_sibling(node: &tree_sitter::Node, source: &str, name: &str) -> bool {
-    let Some(prev) = node.prev_sibling() else {
-        return false;
-    };
-    let kind = prev.kind();
-    (kind == "attribute_item" || kind == "outer_attribute_list")
-        && has_attribute_node(&prev, source, name)
+    let mut current = node.prev_sibling();
+    while let Some(prev) = current {
+        let kind = prev.kind();
+        if kind == "attribute_item" || kind == "outer_attribute_list" {
+            if has_attribute_node(&prev, source, name) {
+                return true;
+            }
+            current = prev.prev_sibling();
+        } else {
+            break;
+        }
+    }
+    false
 }
 
 /// Returns true if the node has an attribute containing an identifier with the given name
@@ -398,6 +406,35 @@ mod tests {
                 .as_ref()
                 .is_some_and(|p| p.contains("bench::my_bench")),
             "expected bench:: prefix in payload, got {payload:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_multi_attr_bench_after_other() {
+        // #[bench] is not the immediate prev sibling; we walk back and still detect it.
+        let store = Store::new_memory().unwrap();
+        let path = Path::new("/multi.rs");
+        let content = "#[allow(dead_code)]\n#[bench]\nfn multi_bench(b: &mut Bencher) {}";
+        extract_ast(&store, path, content).unwrap();
+        let rows = Query::all_nodes(&store).unwrap();
+        let fn_rows: Vec<_> = rows
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(1)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "function")
+            })
+            .collect();
+        assert!(
+            !fn_rows.is_empty(),
+            "expected at least one function node, got {rows:?}"
+        );
+        let payload = fn_rows[0].get(2).map(std::string::ToString::to_string);
+        assert!(
+            payload
+                .as_ref()
+                .is_some_and(|p| p.contains("bench::multi_bench")),
+            "expected bench:: prefix when #[bench] follows another attribute, got {payload:?}"
         );
     }
 }
