@@ -215,6 +215,8 @@ fn has_attribute_node(n: &tree_sitter::Node, source: &str, name: &str) -> bool {
 }
 
 /// Returns true if any descendant of `node` is an identifier with the given text.
+/// Skips `token_tree` (e.g. `(test)` in `#[cfg(test)]`) except when `name == "test"`, so
+/// `#[cfg(bench)]` does not match "bench" (not a benchmark entry point).
 fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &str) -> bool {
     let mut cursor = node.walk();
     if !cursor.goto_first_child() {
@@ -224,6 +226,10 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
         let n = cursor.node();
         if n.kind() == "identifier" {
             if source.get(n.byte_range()) == Some(name) {
+                return true;
+            }
+        } else if n.kind() == "token_tree" {
+            if name == "test" && attribute_contains_identifier(&n, source, name) {
                 return true;
             }
         } else if attribute_contains_identifier(&n, source, name) {
@@ -246,6 +252,7 @@ fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
         has_attribute(node, source, "test") || has_attribute_on_prev_sibling(node, source, "test");
     let is_bench = has_attribute(node, source, "bench")
         || has_attribute_on_prev_sibling(node, source, "bench");
+    // When both test and bench are present, test takes priority (the _ ignores bench in test arms).
     let prefix = match (is_pub, is_test, is_bench) {
         (true, true, _) => "pub::test::",
         (false, true, _) => "test::",
@@ -435,6 +442,35 @@ mod tests {
                 .as_ref()
                 .is_some_and(|p| p.contains("bench::multi_bench")),
             "expected bench:: prefix when #[bench] follows another attribute, got {payload:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_cfg_bench_not_bench_entry_point() {
+        // #[cfg(bench)] is not a benchmark; "bench" is inside token_tree, so we must not add bench:: prefix.
+        let store = Store::new_memory().unwrap();
+        let path = Path::new("/cfg_bench.rs");
+        let content = "#[cfg(bench)]\nfn not_a_bench() {}";
+        extract_ast(&store, path, content).unwrap();
+        let rows = Query::all_nodes(&store).unwrap();
+        let fn_rows: Vec<_> = rows
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(1)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "function")
+            })
+            .collect();
+        assert!(
+            !fn_rows.is_empty(),
+            "expected at least one function node, got {rows:?}"
+        );
+        let payload = fn_rows[0].get(2).map(std::string::ToString::to_string);
+        assert!(
+            payload
+                .as_ref()
+                .is_some_and(|p| p.contains("not_a_bench") && !p.contains("bench::")),
+            "#[cfg(bench)] fn should not get bench:: prefix, got {payload:?}"
         );
     }
 }

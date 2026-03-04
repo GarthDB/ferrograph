@@ -6,6 +6,7 @@
 //! **Known limitation**: Method calls and UFCS are not resolved. Qualified paths (`mod::fn`) are
 //! partially handled (see `resolve_call_target` `scoped_identifier` support).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use anyhow::Result;
@@ -14,8 +15,7 @@ use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::{query::Query, unquote_datavalue, Store};
 
 /// Strip `pub::`, `test::`, and `bench::` prefixes from payload for canonical function name.
-/// While-loop handles hypothetical stacked prefixes (e.g. `pub::test::name`) even though
-/// `function_payload` currently produces at most one prefix.
+/// While-loop handles composite prefixes (e.g. `pub::test::name`) produced by `function_payload`.
 fn canonical_name(payload: &str) -> &str {
     let mut s = payload;
     while let Some(rest) = s
@@ -178,14 +178,16 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         let (path_part, fn_name) = if fn_name_maybe_path.contains("::") {
             fn_name_maybe_path
                 .rsplit_once("::")
-                .map(|(path_suffix, name)| (format!("{path_part}::{path_suffix}"), name))
-                .unwrap_or((path_part.to_string(), fn_name_maybe_path))
+                .map(|(path_suffix, name)| {
+                    (Cow::Owned(format!("{path_part}::{path_suffix}")), name)
+                })
+                .unwrap_or((Cow::Borrowed(path_part), fn_name_maybe_path))
         } else {
-            (path_part.to_string(), fn_name_maybe_path)
+            (Cow::Borrowed(path_part), fn_name_maybe_path)
         };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let resolved_id = resolve_placeholder(
-            &path_part,
+            path_part.as_ref(),
             fn_name,
             from_file,
             &local,

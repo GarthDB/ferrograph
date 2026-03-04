@@ -388,9 +388,10 @@ impl ServerHandler for FerrographMcp {
     ) -> Result<ReadResourceResult, rmcp::ErrorData> {
         const STATUS_URI: &str = "ferrograph://status";
         if request.uri != STATUS_URI {
-            return Err(rmcp::ErrorData::method_not_found::<
-                rmcp::model::ReadResourceRequestMethod,
-            >());
+            return Err(rmcp::ErrorData::invalid_params(
+                format!("Unknown resource URI: {}", request.uri),
+                None,
+            ));
         }
         let Some(store_path) = resolve_store_path() else {
             let empty = serde_json::json!({
@@ -451,7 +452,7 @@ impl ServerHandler for FerrographMcp {
             "node_info" => Self::handle_node_info(&request, &store)?,
             "trait_implementors" => Self::handle_trait_implementors(&request, &store)?,
             "module_graph" => Self::handle_module_graph(&request, &store)?,
-            "reindex" => Self::handle_reindex(&request, store, &store_path).await?,
+            "reindex" => Self::handle_reindex(self, &request, &store_path).await?,
             _ => {
                 return Err(rmcp::ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -641,8 +642,13 @@ impl FerrographMcp {
             rmcp::ErrorData::invalid_params("missing required parameter: script", None)
         })?;
         let script_lower = script.to_lowercase();
+        // Store::run_query uses ScriptMutability::Immutable; Cozo rejects mutations. This blocklist gives a clearer error before hitting the DB.
+        let mut normalized = script_lower;
+        while normalized.contains(": ") {
+            normalized = normalized.replace(": ", ":");
+        }
         for directive in MUTATION_DIRECTIVES {
-            if script_lower.contains(directive) {
+            if normalized.contains(directive) {
                 return Err(rmcp::ErrorData::invalid_params(
                     format!("Script may not contain mutation directive {directive}"),
                     None,
@@ -768,8 +774,8 @@ impl FerrographMcp {
     }
 
     async fn handle_reindex(
+        &self,
         request: &CallToolRequestParams,
-        store: Arc<crate::graph::Store>,
         store_path: &Path,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let root = get_str_arg(request, "path").map_or_else(
@@ -782,6 +788,8 @@ impl FerrographMcp {
                 "path": root.display().to_string()
             })));
         }
+        let store = self.get_or_open_store(store_path).await?;
+        let _guard = self.cached.lock().await;
         let root_clone = root.clone();
         let store_clone = Arc::clone(&store);
         let blocking_result = tokio::task::spawn_blocking(move || {
@@ -803,7 +811,10 @@ impl FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Reindex (edge_count) failed: {e}"), None)
         })?;
-        let indexed_at = indexed_at_epoch(store_path);
+        let indexed_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs());
         Ok(CallToolResult::structured(serde_json::json!({
             "ok": true,
             "message": "Reindex complete",
@@ -1070,6 +1081,57 @@ mod tests {
         let request = tool_request("query", Some(args));
         let err = FerrographMcp::handle_query(&request, &store).unwrap_err();
         assert!(err.to_string().contains(":put"));
+    }
+
+    #[test]
+    fn handle_search_returns_matching_nodes() {
+        let store = Store::new_memory().unwrap();
+        store
+            .put_node(
+                &NodeId("src/lib.rs#10:1".to_string()),
+                &NodeType::Function,
+                Some("unique_needle_xyz"),
+            )
+            .unwrap();
+        let mut args = serde_json::Map::new();
+        args.insert("query".to_string(), serde_json::json!("unique_needle"));
+        let request = tool_request("search", Some(args));
+        let result = FerrographMcp::handle_search(&request, &store).unwrap();
+        let json = result_json(result);
+        let results = json.get("results").unwrap().as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].get("id").unwrap().as_str().unwrap(),
+            "src/lib.rs#10:1"
+        );
+        assert_eq!(json.get("total").unwrap().as_u64().unwrap(), 1);
+    }
+
+    #[test]
+    fn handle_search_pagination_limit_offset() {
+        let store = Store::new_memory().unwrap();
+        for (id, payload) in [
+            ("f#1:1", "page_one"),
+            ("f#2:1", "page_two"),
+            ("f#3:1", "page_three"),
+        ] {
+            store
+                .put_node(&NodeId(id.to_string()), &NodeType::Function, Some(payload))
+                .unwrap();
+        }
+        let mut args = serde_json::Map::new();
+        args.insert("query".to_string(), serde_json::json!("page"));
+        args.insert("limit".to_string(), serde_json::json!(2));
+        args.insert("offset".to_string(), serde_json::json!(1));
+        let request = tool_request("search", Some(args));
+        let result = FerrographMcp::handle_search(&request, &store).unwrap();
+        let json = result_json(result);
+        assert_eq!(json.get("count").unwrap().as_u64().unwrap(), 2);
+        assert_eq!(json.get("total").unwrap().as_u64().unwrap(), 3);
+        assert_eq!(json.get("offset").unwrap().as_u64().unwrap(), 1);
+        assert_eq!(json.get("limit").unwrap().as_u64().unwrap(), 2);
+        let results = json.get("results").unwrap().as_array().unwrap();
+        assert_eq!(results.len(), 2);
     }
 
     #[test]

@@ -187,40 +187,27 @@ impl Query {
         depth: u32,
     ) -> Result<Vec<(String, String, Option<String>)>> {
         let edge_calls = EdgeType::Calls.to_string();
-        let mut frontier: Vec<String> = vec![target_id.to_string()];
-        let mut seen = std::collections::HashSet::new();
-        seen.insert(target_id.to_string());
-        let mut all_callers: Vec<(String, String, Option<String>)> = Vec::new();
-        let max_rounds = usize::try_from(depth.max(1)).unwrap_or(1);
-
-        for _ in 0..max_rounds {
-            if frontier.is_empty() {
-                break;
-            }
-            let frontier_values: Vec<DataValue> = frontier
-                .iter()
-                .map(|s| DataValue::from(s.as_str()))
-                .collect();
-            let mut params = BTreeMap::new();
-            params.insert("frontier".to_string(), DataValue::List(frontier_values));
-            let script = format!(
-                r#"
-                ?[caller_id, type, payload] := *edges[caller_id, callee_id, "{edge_calls}"],
-                  callee_id in $frontier,
-                  *nodes[caller_id, type, payload]
-                "#
-            );
-            let rows = store.run_query(script.trim(), params)?;
-            frontier = Vec::new();
-            for row in &rows.rows {
-                let (id, type_val, payload) = extract_node_triple(row);
-                if seen.insert(id.clone()) {
-                    frontier.push(id.clone());
-                    all_callers.push((id, type_val, payload));
-                }
-            }
-        }
-        Ok(all_callers)
+        let max_depth = i64::from(depth.max(1)).min(100);
+        let mut params = BTreeMap::new();
+        params.insert("target".to_string(), DataValue::from(target_id));
+        params.insert("max_depth".to_string(), DataValue::from(max_depth));
+        let script = format!(
+            r#"
+            callers[caller, depth] := *edges[caller, callee, "{edge_calls}"], callee = $target, depth = 1
+            callers[caller, d_plus_1] := *edges[caller, prev, "{edge_calls}"],
+              callers[prev, d],
+              d_plus_1 = d + 1,
+              d_plus_1 <= $max_depth
+            ?[id, type, payload] := callers[id, _], *nodes[id, type, payload], id != $target
+            "#
+        );
+        let rows = store.run_query(script.trim(), params)?;
+        let results: Vec<(String, String, Option<String>)> = rows
+            .rows
+            .iter()
+            .map(|row| extract_node_triple(row))
+            .collect();
+        Ok(results)
     }
 
     /// Return full info for a node: type, payload, and all outgoing/incoming edges with endpoint details.
@@ -321,16 +308,37 @@ impl Query {
         store: &Store,
         path_prefix: Option<&str>,
     ) -> Result<Vec<(String, String, String, String)>> {
-        let script = r#"
-            ?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
-              *nodes[from_id, from_type, _],
-              *nodes[to_id, to_type, _],
-              from_type in ["file", "module", "crate_root"],
-              to_type in ["file", "module"]
-            :limit 10000
-        "#;
-        let rows = store.run_query(script.trim(), BTreeMap::new())?;
-        let mut results: Vec<(String, String, String, String)> = rows
+        let (script, params) = match path_prefix {
+            Some(prefix) if !prefix.is_empty() => {
+                let mut params = BTreeMap::new();
+                params.insert("prefix".to_string(), DataValue::from(prefix));
+                (
+                    r#"
+                    ?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
+                      *nodes[from_id, from_type, _],
+                      *nodes[to_id, to_type, _],
+                      from_type in ["file", "module", "crate_root"],
+                      to_type in ["file", "module"],
+                      (starts_with(from_id, $prefix) or starts_with(to_id, $prefix))
+                    :limit 10000
+                    "#,
+                    params,
+                )
+            }
+            _ => (
+                r#"
+                ?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
+                  *nodes[from_id, from_type, _],
+                  *nodes[to_id, to_type, _],
+                  from_type in ["file", "module", "crate_root"],
+                  to_type in ["file", "module"]
+                :limit 10000
+                "#,
+                BTreeMap::new(),
+            ),
+        };
+        let rows = store.run_query(script.trim(), params)?;
+        let results: Vec<(String, String, String, String)> = rows
             .rows
             .iter()
             .map(|row| {
@@ -342,13 +350,6 @@ impl Query {
                 )
             })
             .collect();
-        if let Some(prefix) = path_prefix {
-            if !prefix.is_empty() {
-                results.retain(|(from_id, to_id, _, _)| {
-                    from_id.starts_with(prefix) || to_id.starts_with(prefix)
-                });
-            }
-        }
         Ok(results)
     }
 }
