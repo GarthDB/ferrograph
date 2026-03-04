@@ -297,6 +297,9 @@ impl Query {
     /// Return the module containment graph: edges (`from_id`, `to_id`, `from_type`, `to_type`) for
     /// Contains relations between file, module, and `crate_root` nodes. Optional path prefix filter.
     ///
+    /// Note: `path_prefix` should include a trailing `/` (e.g. `"src/"`) to avoid
+    /// matching unrelated paths that share the same prefix (e.g. `"src2/"`).
+    ///
     /// # Errors
     /// Fails if the store query fails.
     pub fn module_graph(

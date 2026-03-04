@@ -141,7 +141,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         let file_path = id_trim.split('#').next().unwrap_or(&id_trim).to_string();
         let node_id = NodeId(id_trim.clone());
         local
-            .entry((file_path.clone(), payload.clone()))
+            .entry((file_path.clone(), canonical_name(&payload).to_string()))
             .or_default()
             .push(node_id.clone());
         let name = canonical_name(&payload).to_string();
@@ -236,6 +236,32 @@ mod tests {
         assert!(
             to_str.contains('#'),
             "edge should point to real id (path#line:col), got {to_str}"
+        );
+    }
+
+    #[test]
+    fn build_call_graph_resolves_pub_function_via_local() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let real_id = NodeId::new(format!("{path}#10:1"));
+        store
+            .put_node(&real_id, &NodeType::Function, Some("pub::foo"))
+            .unwrap();
+        let caller_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&caller_id, &NodeType::Function, Some("main"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::foo"));
+        store
+            .put_edge(&caller_id, &placeholder, &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert!(
+            to_str.contains('#'),
+            "same-file call to pub::foo should resolve via local map, got {to_str}"
         );
     }
 

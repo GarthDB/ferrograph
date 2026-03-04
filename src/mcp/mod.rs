@@ -653,10 +653,18 @@ impl FerrographMcp {
             let trimmed = line.trim();
             for directive in MUTATION_DIRECTIVES {
                 if trimmed.starts_with(directive) {
-                    return Err(rmcp::ErrorData::invalid_params(
-                        format!("Script may not contain mutation directive {directive}"),
-                        None,
-                    ));
+                    let rest = trimmed.get(directive.len()..).unwrap_or_default();
+                    let is_directive = rest.is_empty()
+                        || rest
+                            .chars()
+                            .next()
+                            .is_some_and(|c| c.is_whitespace() || c == '[');
+                    if is_directive {
+                        return Err(rmcp::ErrorData::invalid_params(
+                            format!("Script may not contain mutation directive {directive}"),
+                            None,
+                        ));
+                    }
                 }
             }
         }
@@ -789,7 +797,13 @@ impl FerrographMcp {
         store_path: &Path,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let root = get_str_arg(request, "path").map_or_else(
-            || std::env::current_dir().unwrap_or_else(|_| store_path.to_path_buf()),
+            || {
+                std::env::current_dir().unwrap_or_else(|_| {
+                    store_path
+                        .parent()
+                        .map_or_else(|| store_path.to_path_buf(), Path::to_path_buf)
+                })
+            },
             PathBuf::from,
         );
         if !root.exists() {
@@ -1122,6 +1136,25 @@ mod tests {
             json.get("rows").is_some(),
             "query with :rmcp in string literal should succeed"
         );
+    }
+
+    #[test]
+    fn handle_query_accepts_line_starting_with_rmcp() {
+        // A line starting with ":rmcp" must not be rejected as mutation directive ":rm".
+        let store = Store::new_memory().unwrap();
+        let mut args = serde_json::Map::new();
+        args.insert(
+            "script".to_string(),
+            serde_json::json!("?[id] := *nodes[id]\n:rmcp"),
+        );
+        let request = tool_request("query", Some(args));
+        let result = FerrographMcp::handle_query(&request, &store);
+        if let Err(e) = &result {
+            assert!(
+                !e.to_string().contains("mutation directive"),
+                "line starting with :rmcp should not be rejected as mutation directive, got {e}"
+            );
+        }
     }
 
     #[test]
