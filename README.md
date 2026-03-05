@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/social-preview.svg" alt="Ferrograph" width="640" />
+  <img src="assets/logo-stacked.svg" alt="Ferrograph" width="320" />
 </p>
 
 Graph-powered Rust code intelligence. Indexes Rust codebases into a queryable knowledge graph with CLI and MCP interfaces.
