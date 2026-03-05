@@ -74,7 +74,7 @@ Use for logo mark when a single color is required (favicon, print, terminal).
 
 The mark is generated programmatically so the layout can be tuned and, in the future, animated.
 
-- **Static logo (bezier bridges):** The Rust tool in [assets/gen-logo/](gen-logo/) outputs clean SVG paths. It places 6 nodes and 7 edges, then draws cubic bezier bridges between connected circles (Varun Vachhar / Paper.js–style algorithm). Use this for favicon, print, and README.
+- **Static logo (bezier bridges):** The Rust tool in [assets/gen-logo/](gen-logo/) outputs clean SVG paths. It places 9 nodes in a 3-cluster graph (3 anchors + 6 satellites) with 12 edges, then draws cubic bezier bridges between connected circles (Varun Vachhar / Paper.js–style algorithm). Use this for favicon, print, and README.
 
   Regenerate the logo:
   ```bash
@@ -82,4 +82,4 @@ The mark is generated programmatically so the layout can be tuned and, in the fu
   ```
   Then refresh the embedded mark in `logo-wordmark.svg` (copy the `<g id="mark">` contents from `logo.svg` into the wordmark so it stays self-contained).
 
-- **Animated demo (SVG filter):** [assets/metaball-demo.html](metaball-demo.html) uses the same node positions but renders with an SVG filter (`feGaussianBlur` + `feColorMatrix`) so the circles merge visually. Nodes are animated with `requestAnimationFrame` for a gentle oscillation. Use this as a reference for future web or docs animation.
+- **Animated demo (WebGL2 ferrofluid):** [assets/metaball-demo.html](metaball-demo.html) uses the same 3-cluster topology but renders with a WebGL2 3-pass pipeline: metaball field → blur heightmap → ferrofluid shading (directional light, specular, normal-derived from silhouette). Interactive sliders control lighting (Light X/Y/Z, diffuse, spec power/intensity, normal scale) and shape (separation, big/small blob min–max). Use this as a reference for the liquid mercury / ferrofluid aesthetic in web or docs.

@@ -34,24 +34,72 @@ fn main() {
     println!("{svg}");
 }
 
-/// Default asymmetric graph: one central node, 4–5 satellites, 5 edges.
+/// Default 3-cluster graph: 3 anchors + 6 satellites (9 nodes), 12 edges.
+/// Matches metaball-demo.html topology: intra-cluster triangles + inter-cluster anchors.
 fn default_layout() -> (Vec<Circle>, Vec<Edge>) {
     let nodes = vec![
-        Circle { x: 16.0, y: 15.0, r: 4.0 },   // 0: center
-        Circle { x: 8.0, y: 10.0, r: 2.8 },   // 1
-        Circle { x: 24.0, y: 9.0, r: 2.2 },   // 2
-        Circle { x: 25.0, y: 20.0, r: 2.5 },  // 3
-        Circle { x: 10.0, y: 22.0, r: 2.0 },  // 4
-        Circle { x: 6.0, y: 16.0, r: 1.8 },   // 5
+        // Cluster A: anchor 0, satellites 1, 2
+        Circle {
+            x: 10.0,
+            y: 14.0,
+            r: 3.0,
+        }, // 0
+        Circle {
+            x: 7.0,
+            y: 11.0,
+            r: 2.2,
+        }, // 1
+        Circle {
+            x: 12.0,
+            y: 11.0,
+            r: 2.2,
+        }, // 2
+        // Cluster B: anchor 3, satellites 4, 5
+        Circle {
+            x: 16.0,
+            y: 16.0,
+            r: 3.0,
+        }, // 3
+        Circle {
+            x: 13.0,
+            y: 20.0,
+            r: 2.2,
+        }, // 4
+        Circle {
+            x: 19.0,
+            y: 18.0,
+            r: 2.2,
+        }, // 5
+        // Cluster C: anchor 6, satellites 7, 8
+        Circle {
+            x: 22.0,
+            y: 14.0,
+            r: 3.0,
+        }, // 6
+        Circle {
+            x: 25.0,
+            y: 11.0,
+            r: 2.2,
+        }, // 7
+        Circle {
+            x: 20.0,
+            y: 12.0,
+            r: 2.2,
+        }, // 8
     ];
     let edges = vec![
         Edge(0, 1),
         Edge(0, 2),
-        Edge(0, 3),
-        Edge(0, 4),
-        Edge(0, 5),
-        Edge(1, 5),
+        Edge(1, 2),
         Edge(3, 4),
+        Edge(3, 5),
+        Edge(4, 5),
+        Edge(6, 7),
+        Edge(6, 8),
+        Edge(7, 8),
+        Edge(0, 3),
+        Edge(0, 6),
+        Edge(3, 6),
     ];
     (nodes, edges)
 }
@@ -117,12 +165,7 @@ fn circle_path(c: &Circle) -> String {
 }
 
 /// Bezier bridge between two circles (metaball membrane). Returns SVG path fragment or None if circles too far.
-fn metaball_bridge(
-    c1: &Circle,
-    c2: &Circle,
-    v: f64,
-    handle_size: f64,
-) -> Option<String> {
+fn metaball_bridge(c1: &Circle, c2: &Circle, v: f64, handle_size: f64) -> Option<String> {
     let dx = c2.x - c1.x;
     let dy = c2.y - c1.y;
     let d = (dx * dx + dy * dy).sqrt();
@@ -180,10 +223,22 @@ fn metaball_bridge(
 
     let path = format!(
         r#"    <path d="M {} {} C {} {} {} {} {} {} L {} {} C {} {} {} {} {} {} Z" />"#,
-        p1_a_x, p1_a_y,
-        cp1_a_x, cp1_a_y, cp2_a_x, cp2_a_y, p2_a_x, p2_a_y,
-        p2_b_x, p2_b_y,
-        cp1_b_x, cp1_b_y, cp2_b_x, cp2_b_y, p1_b_x, p1_b_y
+        p1_a_x,
+        p1_a_y,
+        cp1_a_x,
+        cp1_a_y,
+        cp2_a_x,
+        cp2_a_y,
+        p2_a_x,
+        p2_a_y,
+        p2_b_x,
+        p2_b_y,
+        cp1_b_x,
+        cp1_b_y,
+        cp2_b_x,
+        cp2_b_y,
+        p1_b_x,
+        p1_b_y
     );
     Some(path)
 }
