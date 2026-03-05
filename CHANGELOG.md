@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
-## [1.0.0] - 2026-03-01
+## [1.0.0] - 2026-03-04
 
 ### Added
 
@@ -20,12 +20,8 @@ No changes yet.
 - Dead code detection with entry points: `pub`, `main`, `#[test]`, and `#[bench]`.
 - CozoDB graph storage (in-memory and persistent).
 - CLI: `index`, `query`, `search`, `status`, `watch`.
-- MCP server with tools: `dead_code`, `blast_radius`, `search`, `query`, `reindex`, and related resources.
+- MCP server with tools: `reindex`, `status`, `search`, `node_info`, `dead_code`, `blast_radius`, `callers`, `query`, `trait_implementors`, `module_graph`.
 - Optional git change-coupling analysis (`git` feature).
-
-### Note
-
-- crates.io publish is blocked until the `graph_builder` patch is removed; see README.
 
 [Unreleased]: https://github.com/GarthDB/ferrograph/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/GarthDB/ferrograph/releases/tag/v1.0.0

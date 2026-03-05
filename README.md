@@ -84,7 +84,9 @@ The schema defines 11 edge types; in v1 only a subset are populated:
 
 ## Publishing
 
-`Cargo.toml` uses a `[patch.crates-io]` for `graph_builder` (transitive via cozo) because crates.io's graph_builder 0.4.1 has a rayon compatibility bug. The patch is under `patches/graph_builder`. To publish Ferrograph to crates.io, remove the patch once upstream [graph_builder](https://github.com/neo4j-labs/graph) releases a fix, or publish a fixed fork and patch by version instead of path. Until then, `cargo publish --dry-run` will fail verification (the packaged crate does not apply the patch).
+Published to [crates.io](https://crates.io/crates/ferrograph). `Cargo.toml` pins rayon to `>=1.5, <1.11` because cozo's transitive `graph_builder` 0.4.1 is incompatible with rayon 1.11+. This pin does not affect end users.
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## License
 
