@@ -65,34 +65,20 @@ Use for logo mark when a single color is required (favicon, print, terminal).
 
 ## Logo
 
-- **Logo mark** ([assets/logo.svg](logo.svg)): Metaball-style graph mark — circles (nodes) connected by smooth bezier “membranes” so they read as one organic blob. Asymmetric layout; evokes ferrofluid and a code graph. Use on light or dark backgrounds; ensure sufficient contrast. For single-color use, set CSS `color` or use monochrome (black on light, white on dark).
-- **Wordmark** ([assets/logo-wordmark.svg](logo-wordmark.svg)): Horizontal lockup of mark + “ferrograph” for README and docs headers.
+- **Source shape** ([assets/blob.svg](blob.svg)): Hand-drawn organic blob — an interconnected molecular graph silhouette that evokes ferrofluid and code graphs. This is the canonical source path.
+- **Logo mark** ([assets/logo.svg](logo.svg)): The blob scaled to a 32×32 viewBox. Uses `var(--fg-body, currentColor)` so it inherits color from the page. For single-color use, set CSS `color` or use monochrome (black on light, white on dark).
+- **Wordmark** ([assets/logo-wordmark.svg](logo-wordmark.svg)): Horizontal lockup of mark + "ferrograph" for README and docs headers.
 - **Clear space:** Keep at least one mark-height of clear space around the logo on all sides.
-- **Variants:** Override `--fg-body` for the mark; omit for monochrome (inherits `currentColor`).
 
 ### Raster assets (icon and social preview)
 
 - **icon.png** — 512×512 px, rendered from [assets/logo.svg](logo.svg) (mark only). Use for app icon, favicon sources.
-- **social-preview.png** — 1280×640 px, rendered from the logo-wordmark in a 2:1 composition. Use for GitHub social preview and Open Graph.
+- **social-preview.png** — 1280×640 px, rendered from the social preview SVG. Use for GitHub social preview and Open Graph.
 
-Both are generated from the SVG assets (not the WebGL demo) so they stay sharp and consistent with the static mark. Regenerate with:
+Regenerate both PNGs:
 
 ```bash
 ./assets/render-pngs.sh
 ```
 
-Run from the repo root. Requires Node (npx); the script uses `@resvg/resvg-js-cli` to render the SVGs.
-
-### Logo generator and animation
-
-The mark is generated programmatically so the layout can be tuned and, in the future, animated.
-
-- **Static logo (bezier bridges):** The Rust tool in [assets/gen-logo/](gen-logo/) outputs clean SVG paths. It places 9 nodes in a 3-cluster graph (3 anchors + 6 satellites) with 12 edges, then draws cubic bezier bridges between connected circles (Varun Vachhar / Paper.js–style algorithm). Use this for favicon, print, and README.
-
-  Regenerate the logo:
-  ```bash
-  cd assets/gen-logo && cargo run > ../logo.svg
-  ```
-  Then refresh the embedded mark in `logo-wordmark.svg` (copy the `<g id="mark">` contents from `logo.svg` into the wordmark so it stays self-contained).
-
-- **Animated demo (WebGL2 ferrofluid):** [assets/metaball-demo.html](metaball-demo.html) uses the same 3-cluster topology but renders with a WebGL2 3-pass pipeline: metaball field → blur heightmap → ferrofluid shading (directional light, specular, normal-derived from silhouette). Interactive sliders control lighting (Light X/Y/Z, diffuse, spec power/intensity, normal scale) and shape (separation, big/small blob min–max). Use this as a reference for the liquid mercury / ferrofluid aesthetic in web or docs.
+Run from the repo root. Requires ImageMagick 7+ (`magick`).
