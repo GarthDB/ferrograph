@@ -7,6 +7,9 @@ license = "MIT"
 repository = "https://github.com/GarthDB/ferrograph"
 readme = "README.md"
 rust-version = "1.88"
+keywords = ["rust", "code-analysis", "mcp", "knowledge-graph", "tree-sitter"]
+categories = ["development-tools"]
+exclude = ["patches/", ".ferrograph", "tests/fixtures/"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -22,6 +25,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 notify = "6"
 ctrlc = "3"
 glob = "0.3"
+
 [dev-dependencies]
 insta = "1"
 tempfile = "3"
@@ -45,8 +49,8 @@ version = "0.79"
 optional = true
 version = "0.0.309"
 
-# Override transitive graph_builder (cozo -> graph -> graph_builder) with local patch.
-# Used when the crates.io graph_builder is incompatible with our toolchain or cozo version;
-# remove patch and patches/ if upstream is compatible.
+# crates.io graph_builder 0.4.1 has a rayon compatibility bug (into_par_iter().copied()).
+# We patch with a local fix. For crates.io publish: remove this patch once upstream
+# graph_builder releases a fix, or publish the patched crate under another name and patch here by version.
 [patch.crates-io]
 graph_builder = { path = "patches/graph_builder" }

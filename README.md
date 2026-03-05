@@ -45,6 +45,28 @@ cargo run -- mcp
 
 **MCP configuration:** Point the MCP server at your graph by either running it from the project root (after `ferrograph index --output .ferrograph`) or setting the `FERROGRAPH_DB` environment variable to the path of your `.ferrograph` (or other) database file.
 
+## Graph schema (edge types)
+
+The schema defines 11 edge types; in v1 only a subset are populated:
+
+| Edge type           | v1 populated | Notes |
+|---------------------|-------------|-------|
+| `contains`          | Yes         | File/module containment. |
+| `imports`           | Yes         | From `mod`/`use` resolution. |
+| `calls`             | Yes         | Same-file and cross-file (via imports) calls. |
+| `references`        | No          | Planned (e.g. type mentions). |
+| `implements_trait`  | No          | Planned (rust-analyzer integration). |
+| `owns`              | No          | Planned. |
+| `borrows`           | No          | Planned. |
+| `expands_to`        | No          | Macro expansion. |
+| `uses_unsafe`       | No          | Planned. |
+| `lifetime_scope`    | No          | Planned. |
+| `changes_with`      | Yes (requires `git` feature) | Git change coupling (optional feature). |
+
+## Publishing
+
+`Cargo.toml` uses a `[patch.crates-io]` for `graph_builder` (transitive via cozo) because crates.io’s graph_builder 0.4.1 has a rayon compatibility bug. The patch is under `patches/graph_builder`. To publish ferrograph to crates.io, remove the patch once upstream [graph_builder](https://github.com/neo4j-labs/graph) releases a fix, or publish a fixed fork and patch by version instead of path. Until then, `cargo publish --dry-run` will fail verification (the packaged crate does not apply the patch).
+
 ## License
 
 MIT

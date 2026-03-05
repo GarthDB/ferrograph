@@ -3,8 +3,10 @@
 //! Resolves placeholder call targets (`file_path::fn_name`) to real function node IDs
 //! (`file_path#line:col`). Tries same-file first, then global `fn_name` lookup for cross-file calls.
 //!
-//! **Known limitation**: Method calls, qualified paths (`mod::fn`), and UFCS are not resolved.
+//! **Known limitation**: Method calls and UFCS are not resolved. Qualified paths (`mod::fn`) are
+//! partially handled (see `resolve_call_target` `scoped_identifier` support).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use anyhow::Result;
@@ -12,12 +14,22 @@ use anyhow::Result;
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::{query::Query, unquote_datavalue, Store};
 
-/// Strip "`pub::`" prefix from payload for canonical function name.
+/// Strip `pub::`, `test::`, and `bench::` prefixes from payload for canonical function name.
+/// While-loop handles composite prefixes (e.g. `pub::test::name`) produced by `function_payload`.
 fn canonical_name(payload: &str) -> &str {
-    payload.strip_prefix("pub::").unwrap_or(payload)
+    let mut s = payload;
+    while let Some(rest) = s
+        .strip_prefix("pub::")
+        .or_else(|| s.strip_prefix("test::"))
+        .or_else(|| s.strip_prefix("bench::"))
+    {
+        s = rest;
+    }
+    s
 }
 
 /// Resolve a single placeholder (`path_part::fn_name`) to a `NodeId`, or None if ambiguous/unresolved.
+/// For qualified paths (`path_part` contains "::"), first try same-file resolution by file path only.
 fn resolve_placeholder(
     path_part: &str,
     fn_name: &str,
@@ -27,6 +39,18 @@ fn resolve_placeholder(
     node_id_to_payload: &HashMap<String, String>,
     global_by_name: &HashMap<String, Vec<NodeId>>,
 ) -> Option<NodeId> {
+    if path_part.contains("::") {
+        // TODO: qualified path resolution only uses file-level (first path segment); module path within the file (e.g. mod::submod::foo()) is not considered.
+        let file_only = path_part.split("::").next().unwrap_or(path_part);
+        let key = (file_only.to_string(), fn_name.to_string());
+        if let Some(candidates) = local.get(&key) {
+            if let [one] = candidates.as_slice() {
+                return Some(one.clone());
+            }
+        }
+        // Qualified type/module path (e.g. std::collections::HashMap); do not resolve via global lookup to avoid false positives.
+        return None;
+    }
     let key = (path_part.to_string(), fn_name.to_string());
     if let Some(candidates) = local.get(&key) {
         if let [one] = candidates.as_slice() {
@@ -117,7 +141,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         let file_path = id_trim.split('#').next().unwrap_or(&id_trim).to_string();
         let node_id = NodeId(id_trim.clone());
         local
-            .entry((file_path.clone(), payload.clone()))
+            .entry((file_path.clone(), canonical_name(&payload).to_string()))
             .or_default()
             .push(node_id.clone());
         let name = canonical_name(&payload).to_string();
@@ -144,15 +168,26 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         }
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
         let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if !to_str.contains("::") {
-            continue;
-        }
-        let Some((path_part, fn_name)) = to_str.split_once("::") else {
-            continue;
-        };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
+        let (path_part, fn_name): (Cow<str>, &str) = if to_str.contains("::") {
+            let Some((pp, fn_name_maybe_path)) = to_str.split_once("::") else {
+                continue;
+            };
+            // Qualified call like file::mod::foo: use last segment as fn name for resolution.
+            if fn_name_maybe_path.contains("::") {
+                fn_name_maybe_path
+                    .rsplit_once("::")
+                    .map(|(path_suffix, name)| (Cow::Owned(format!("{pp}::{path_suffix}")), name))
+                    .unwrap_or((Cow::Borrowed(pp), fn_name_maybe_path))
+            } else {
+                (Cow::Borrowed(pp), fn_name_maybe_path)
+            }
+        } else {
+            // Unqualified placeholder (bare function name): resolve via same-file then global.
+            (Cow::Borrowed(from_file), to_str.as_str())
+        };
         let resolved_id = resolve_placeholder(
-            path_part,
+            path_part.as_ref(),
             fn_name,
             from_file,
             &local,
@@ -201,6 +236,86 @@ mod tests {
         assert!(
             to_str.contains('#'),
             "edge should point to real id (path#line:col), got {to_str}"
+        );
+    }
+
+    #[test]
+    fn build_call_graph_resolves_pub_function_via_local() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let real_id = NodeId::new(format!("{path}#10:1"));
+        store
+            .put_node(&real_id, &NodeType::Function, Some("pub::foo"))
+            .unwrap();
+        let caller_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&caller_id, &NodeType::Function, Some("main"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::foo"));
+        store
+            .put_edge(&caller_id, &placeholder, &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert!(
+            to_str.contains('#'),
+            "same-file call to pub::foo should resolve via local map, got {to_str}"
+        );
+    }
+
+    #[test]
+    fn build_call_graph_resolves_qualified_placeholder() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let real_id = NodeId::new(format!("{path}#20:1"));
+        store
+            .put_node(&real_id, &NodeType::Function, Some("bar"))
+            .unwrap();
+        let caller_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&caller_id, &NodeType::Function, Some("main"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::submod::bar"));
+        store
+            .put_edge(&caller_id, &placeholder, &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert!(
+            to_str.contains('#'),
+            "qualified path should resolve to real id, got {to_str}"
+        );
+    }
+
+    #[test]
+    fn build_call_graph_resolves_unqualified_placeholder() {
+        // Edge with to_id = bare "callee" (no ::) should resolve via same-file lookup.
+        let store = Store::new_memory().unwrap();
+        let path = "./src/lib.rs";
+        let target = NodeId::new(format!("{path}#10:1"));
+        store
+            .put_node(&target, &NodeType::Function, Some("callee"))
+            .unwrap();
+        let origin = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&origin, &NodeType::Function, Some("caller"))
+            .unwrap();
+        let placeholder = NodeId::new("callee".to_string());
+        store
+            .put_edge(&origin, &placeholder, &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert_eq!(
+            to_str,
+            format!("{path}#10:1"),
+            "unqualified placeholder 'callee' should resolve to same-file callee node"
         );
     }
 }
