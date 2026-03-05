@@ -236,7 +236,6 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
                 return true;
             }
         } else if n.kind() == "token_tree" {
-            // Recurse only for "test": #[cfg(test)] marks a test context. For "bench", #[cfg(bench)] is conditional compilation, not a benchmark.
             if name == "test" && attribute_contains_identifier(&n, source, name) {
                 return true;
             }
@@ -264,7 +263,6 @@ fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
         has_attribute(node, source, "test") || has_attribute_on_prev_sibling(node, source, "test");
     let is_bench = has_attribute(node, source, "bench")
         || has_attribute_on_prev_sibling(node, source, "bench");
-    // When both test and bench are present, test takes priority (the _ ignores bench in test arms).
     let prefix = match (is_pub, is_test, is_bench) {
         (true, true, _) => "pub::test::",
         (false, true, _) => "test::",
@@ -530,7 +528,6 @@ mod tests {
 
     #[test]
     fn extract_ast_cfg_bench_not_bench_entry_point() {
-        // #[cfg(bench)] is not a benchmark; "bench" is inside token_tree, so we must not add bench:: prefix.
         let store = Store::new_memory().unwrap();
         let root = Path::new("/");
         let path = Path::new("/cfg_bench.rs");

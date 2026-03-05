@@ -293,7 +293,6 @@ mod tests {
 
     #[test]
     fn build_call_graph_resolves_unqualified_placeholder() {
-        // Edge with to_id = bare "callee" (no ::) should resolve via same-file lookup.
         let store = Store::new_memory().unwrap();
         let path = "./src/lib.rs";
         let target = NodeId::new(format!("{path}#10:1"));

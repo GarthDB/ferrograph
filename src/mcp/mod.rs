@@ -479,6 +479,7 @@ impl ServerHandler for FerrographMcp {
             "node_info" => Self::handle_node_info(&request, &store)?,
             "trait_implementors" => Self::handle_trait_implementors(&request, &store)?,
             "module_graph" => Self::handle_module_graph(&request, &store)?,
+            "reindex" => self.handle_reindex(&request, &store, &store_path).await?,
             _ => {
                 return Err(rmcp::ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -625,14 +626,13 @@ impl FerrographMcp {
             .and_then(|m| m.get("case_insensitive"))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        // TODO(#16): pagination is in-memory; for large graphs push limit/offset into the query engine.
-        let rows = crate::search::text_search(store, query, case_insensitive)
-            .map_err(|e| rmcp::ErrorData::internal_error(format!("Search failed: {e}"), None))?;
-        let total = rows.len();
         let offset = parse_offset(request);
         let limit = parse_limit(request, 100, 10_000);
-        let page: Vec<_> = rows.into_iter().skip(offset).take(limit).collect();
-        let results: Vec<serde_json::Value> = page
+        let (rows, total) =
+            crate::search::text_search(store, query, case_insensitive, limit, offset).map_err(
+                |e| rmcp::ErrorData::internal_error(format!("Search failed: {e}"), None),
+            )?;
+        let results: Vec<serde_json::Value> = rows
             .into_iter()
             .map(|(id, node_type, payload)| {
                 serde_json::json!({
@@ -644,6 +644,7 @@ impl FerrographMcp {
             .collect();
         Ok(CallToolResult::structured(serde_json::json!({
             "results": results,
+            "count": results.len(),
             "total": total,
             "offset": offset,
             "limit": limit

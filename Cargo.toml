@@ -9,11 +9,13 @@ readme = "README.md"
 rust-version = "1.88"
 keywords = ["rust", "code-analysis", "mcp", "knowledge-graph", "tree-sitter"]
 categories = ["development-tools"]
-exclude = ["patches/", ".ferrograph", "tests/fixtures/"]
+exclude = [".ferrograph", "tests/fixtures/"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 cozo = "0.7"
+# Pin rayon <1.11 so cozo's graph_builder 0.4.1 compiles (rayon 1.11 added IntoParallelIterator for Box<[T]>, breaking graph_builder).
+rayon = ">=1.5, <1.11"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -48,9 +50,3 @@ version = "0.79"
 [dependencies.ra_ap_ide]
 optional = true
 version = "0.0.309"
-
-# crates.io graph_builder 0.4.1 has a rayon compatibility bug (into_par_iter().copied()).
-# We patch with a local fix. For crates.io publish: remove this patch once upstream
-# graph_builder releases a fix, or publish the patched crate under another name and patch here by version.
-[patch.crates-io]
-graph_builder = { path = "patches/graph_builder" }
