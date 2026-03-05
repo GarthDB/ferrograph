@@ -55,6 +55,86 @@ pub fn extract_ast(store: &Store, path: &Path, content: &str, root: &Path) -> Re
     Ok(())
 }
 
+fn classify_node(
+    kind: &str,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    parent: Option<&NodeId>,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) -> (Option<NodeType>, Option<String>, Option<(NodeId, EdgeType)>) {
+    match kind {
+        "function_item" => (
+            Some(NodeType::Function),
+            function_payload(node, source),
+            None,
+        ),
+        "struct_item" => (Some(NodeType::Struct), name_of_node(node, source), None),
+        "enum_item" => (Some(NodeType::Enum), name_of_node(node, source), None),
+        "trait_item" => (Some(NodeType::Trait), name_of_node(node, source), None),
+        "impl_item" => {
+            let extra = impl_trait_name(node, source).map(|trait_name| {
+                (
+                    NodeId::new(format!("{}::{}", file_id.as_str(), trait_name)),
+                    EdgeType::ImplementsTrait,
+                )
+            });
+            (Some(NodeType::Impl), impl_type_name(node, source), extra)
+        }
+        "type_item" => (Some(NodeType::TypeAlias), name_of_node(node, source), None),
+        "const_item" => (Some(NodeType::Const), name_of_node(node, source), None),
+        "static_item" => (Some(NodeType::Static), name_of_node(node, source), None),
+        "macro_definition" => (Some(NodeType::Macro), name_of_node(node, source), None),
+        "mod_declaration" | "mod_item" => {
+            (Some(NodeType::Module), name_of_node(node, source), None)
+        }
+        "call_expression" => {
+            if let Some(callee_id) = resolve_call_target(node, source, file_id) {
+                if let Some(from) = parent {
+                    edges.push((from.clone(), callee_id, EdgeType::Calls));
+                }
+            }
+            (None, None, None)
+        }
+        "method_call_expression" => {
+            if let Some(callee_id) = resolve_method_call_target(node, source, file_id) {
+                if let Some(from) = parent {
+                    edges.push((from.clone(), callee_id, EdgeType::Calls));
+                }
+            }
+            (None, None, None)
+        }
+        "macro_invocation" => {
+            scan_macro_for_calls(node, source, file_id, parent, edges);
+            if let (Some(from), Some(macro_name)) = (parent, macro_invocation_name(node, source)) {
+                edges.push((
+                    from.clone(),
+                    NodeId::new(format!("{}::{}", file_id.as_str(), macro_name)),
+                    EdgeType::ExpandsTo,
+                ));
+            }
+            (None, None, None)
+        }
+        "unsafe_block" => {
+            if let Some(p) = parent {
+                edges.push((p.clone(), p.clone(), EdgeType::UsesUnsafe));
+            }
+            (None, None, None)
+        }
+        "type_identifier" | "scoped_type_identifier" => {
+            if let (Some(from), Some(name)) = (parent.cloned(), type_name_from_node(node, source)) {
+                edges.push((
+                    from,
+                    NodeId::new(format!("{}::{}", file_id.as_str(), name)),
+                    EdgeType::References,
+                ));
+            }
+            (None, None, None)
+        }
+        _ => (None, None, None),
+    }
+}
+
 fn traverse(
     cursor: &mut tree_sitter::TreeCursor,
     source: &str,
@@ -66,42 +146,10 @@ fn traverse(
     let node = cursor.node();
     let kind = node.kind();
     let parent = stack.last().cloned();
+    let (node_type, name_opt, extra_edge) =
+        classify_node(kind, &node, source, file_id, parent.as_ref(), edges);
 
-    let (node_type, name_opt) = match kind {
-        "function_item" => (Some(NodeType::Function), function_payload(&node, source)),
-        "struct_item" => (Some(NodeType::Struct), name_of_node(&node, source)),
-        "enum_item" => (Some(NodeType::Enum), name_of_node(&node, source)),
-        "trait_item" => (Some(NodeType::Trait), name_of_node(&node, source)),
-        "impl_item" => (Some(NodeType::Impl), impl_type_name(&node, source)),
-        "type_item" => (Some(NodeType::TypeAlias), name_of_node(&node, source)),
-        "const_item" => (Some(NodeType::Const), name_of_node(&node, source)),
-        "static_item" => (Some(NodeType::Static), name_of_node(&node, source)),
-        "macro_definition" => (Some(NodeType::Macro), name_of_node(&node, source)),
-        "mod_declaration" | "mod_item" => (Some(NodeType::Module), name_of_node(&node, source)),
-        "call_expression" => {
-            if let Some(callee_id) = resolve_call_target(&node, source, file_id) {
-                if let Some(ref from) = parent {
-                    edges.push((from.clone(), callee_id, EdgeType::Calls));
-                }
-            }
-            (None, None)
-        }
-        "method_call_expression" => {
-            if let Some(callee_id) = resolve_method_call_target(&node, source, file_id) {
-                if let Some(ref from) = parent {
-                    edges.push((from.clone(), callee_id, EdgeType::Calls));
-                }
-            }
-            (None, None)
-        }
-        "macro_invocation" => {
-            scan_macro_for_calls(&node, source, file_id, parent.as_ref(), edges);
-            (None, None)
-        }
-        _ => (None, None),
-    };
-
-    let added = if let (Some(nt), no) = (node_type, name_opt) {
+    let added = if let (Some(nt), no, extra) = (node_type, name_opt, extra_edge) {
         let id = NodeId::new(format!(
             "{}#{}:{}",
             file_id.as_str(),
@@ -111,6 +159,12 @@ fn traverse(
         nodes.push((id.clone(), nt, no));
         if let Some(ref p) = parent {
             edges.push((p.clone(), id.clone(), EdgeType::Contains));
+        }
+        if (kind == "function_item" || kind == "impl_item") && has_unsafe_modifier(&node) {
+            edges.push((id.clone(), id.clone(), EdgeType::UsesUnsafe));
+        }
+        if let Some((to_id, edge_type)) = extra {
+            edges.push((id.clone(), to_id, edge_type));
         }
         stack.push(id);
         true
@@ -274,6 +328,30 @@ fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
     Some(format!("{prefix}{name}"))
 }
 
+/// Returns true if the node has an `unsafe` modifier (e.g. `unsafe fn` or `unsafe impl`).
+/// For `function_item`, `unsafe` appears inside a `function_modifiers` child; for
+/// `impl_item`/`trait_item` it is an optional direct child.
+fn has_unsafe_modifier(node: &tree_sitter::Node) -> bool {
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        let k = child.kind();
+        if k == "unsafe" {
+            return true;
+        }
+        if k == "function_modifiers" {
+            let mut j = 0;
+            while let Some(m) = child.child(j) {
+                if m.kind() == "unsafe" {
+                    return true;
+                }
+                j += 1;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Payload for an impl block: type name (e.g. "Point" for `impl Point`, or "Draw" for `impl Draw for Point`).
 fn impl_type_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let mut cursor = node.walk();
@@ -291,6 +369,44 @@ fn impl_type_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Trait name for trait impls only (`impl Trait for Type`). Returns None for inherent impls.
+/// Walks `impl_item` children; when we see "for", the preceding `type_identifier` (or last segment of `scoped_type_identifier`) is the trait.
+fn impl_trait_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
+    let mut i = 0;
+    let mut prev_type: Option<tree_sitter::Node> = None;
+    while let Some(child) = node.child(i) {
+        let k = child.kind();
+        if k == "for" {
+            let n = prev_type?;
+            let r = n.byte_range();
+            let text = source.get(r.start..r.end)?;
+            return Some(if n.kind() == "scoped_type_identifier" {
+                text.rsplit("::").next().unwrap_or(text).to_string()
+            } else {
+                text.to_string()
+            });
+        }
+        if k == "type_identifier" || k == "scoped_type_identifier" {
+            prev_type = Some(child);
+        } else if k != "unsafe" && k != "impl" && !k.starts_with("type_parameters") && k != "!" {
+            prev_type = None;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Type name for a `type_identifier` or `scoped_type_identifier` node (last segment for qualified paths).
+fn type_name_from_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
+    let r = node.byte_range();
+    let text = source.get(r.start..r.end)?;
+    Some(if node.kind() == "scoped_type_identifier" {
+        text.rsplit("::").next().unwrap_or(text).to_string()
+    } else {
+        text.to_string()
+    })
 }
 
 /// Resolve a call expression to a placeholder node id (`file_path::fn_name` or `file_path::path::to::fn`).
@@ -331,6 +447,18 @@ fn resolve_method_call_target(
         }
     }
     None
+}
+
+/// Macro name from a `macro_invocation` node (first child is `identifier` or `scoped_identifier`; last segment for qualified).
+fn macro_invocation_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
+    let child = node.child(0)?;
+    let r = child.byte_range();
+    let text = source.get(r.start..r.end)?;
+    Some(if child.kind() == "scoped_identifier" {
+        text.rsplit("::").next().unwrap_or(text).to_string()
+    } else {
+        text.to_string()
+    })
 }
 
 /// Returns true if the `token_tree` node's source text starts with `(` (parenthesized group).
@@ -553,6 +681,51 @@ mod tests {
                 .is_some_and(|p| p.contains("not_a_bench") && !p.contains("bench::")),
             "#[cfg(bench)] fn should not get bench:: prefix, got {payload:?}"
         );
+    }
+
+    #[test]
+    fn extract_ast_uses_unsafe_edges() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = r"
+            unsafe fn unsafe_fn() {}
+            fn with_unsafe_block() { unsafe { } }
+        ";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let uses_unsafe: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "uses_unsafe")
+            })
+            .collect();
+        assert_eq!(
+            uses_unsafe.len(),
+            2,
+            "expected exactly two uses_unsafe edges (unsafe fn and fn with unsafe block), got {}",
+            uses_unsafe.len()
+        );
+        for row in &uses_unsafe {
+            let from = row
+                .first()
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .unwrap_or_default();
+            let to = row
+                .get(1)
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .unwrap_or_default();
+            assert_eq!(
+                from, to,
+                "uses_unsafe edge should be self-loop (from == to)"
+            );
+            assert!(
+                from.contains("test.rs#"),
+                "uses_unsafe from id should reference test file, got {from}"
+            );
+        }
     }
 
     #[test]
