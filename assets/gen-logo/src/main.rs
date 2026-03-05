@@ -38,53 +38,53 @@ fn main() {
 /// Organic, asymmetric layout so the mark feels hand-placed rather than geometric.
 fn default_layout() -> (Vec<Circle>, Vec<Edge>) {
     let nodes = vec![
-        // Cluster A: anchor 0, satellites 1, 2
+        // Cluster A (top-left): anchor 0, satellites 1, 2
         Circle {
-            x: 10.2,
-            y: 13.6,
+            x: 7.8,
+            y: 11.2,
             r: 2.9,
         }, // 0
         Circle {
-            x: 6.8,
-            y: 10.7,
-            r: 2.1,
+            x: 4.8,
+            y: 8.6,
+            r: 2.0,
         }, // 1
         Circle {
-            x: 12.4,
-            y: 10.9,
-            r: 2.35,
+            x: 10.3,
+            y: 8.4,
+            r: 2.25,
         }, // 2
-        // Cluster B: anchor 3, satellites 4, 5
+        // Cluster B (bottom-center): anchor 3, satellites 4, 5
         Circle {
-            x: 15.7,
-            y: 16.4,
+            x: 15.5,
+            y: 19.8,
             r: 3.1,
         }, // 3
         Circle {
-            x: 12.9,
-            y: 20.3,
+            x: 12.0,
+            y: 23.2,
             r: 2.0,
         }, // 4
         Circle {
-            x: 19.2,
-            y: 17.8,
-            r: 2.25,
+            x: 19.4,
+            y: 22.0,
+            r: 2.15,
         }, // 5
-        // Cluster C: anchor 6, satellites 7, 8
+        // Cluster C (top-right): anchor 6, satellites 7, 8
         Circle {
-            x: 22.5,
-            y: 13.2,
+            x: 24.2,
+            y: 11.6,
             r: 2.85,
         }, // 6
         Circle {
-            x: 25.3,
-            y: 10.6,
-            r: 2.2,
+            x: 27.4,
+            y: 8.9,
+            r: 2.1,
         }, // 7
         Circle {
-            x: 19.8,
-            y: 11.9,
-            r: 2.15,
+            x: 21.6,
+            y: 8.8,
+            r: 2.2,
         }, // 8
     ];
     let edges = vec![
@@ -133,7 +133,13 @@ fn generate_svg(
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {view_size} {view_size}" fill="none" aria-hidden="true">
   <title>Ferrograph logo</title>
   <!-- Metaball graph mark: programmatically generated. Regenerate with: cd assets/gen-logo && cargo run > ../logo.svg -->
-  <g id="mark" class="mark">
+  <defs>
+    <filter id="goo" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.0" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 30 -12" result="goo"/>
+    </filter>
+  </defs>
+  <g id="mark" class="mark" filter="url(#goo)">
     {paths}
   </g>
   <style>
