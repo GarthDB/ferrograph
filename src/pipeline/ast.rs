@@ -94,6 +94,10 @@ fn traverse(
             }
             (None, None)
         }
+        "macro_invocation" => {
+            scan_macro_for_calls(&node, source, file_id, parent.as_ref(), edges);
+            (None, None)
+        }
         _ => (None, None),
     };
 
@@ -331,6 +335,72 @@ fn resolve_method_call_target(
     None
 }
 
+/// Returns true if the `token_tree` node's source text starts with `(` (parenthesized group).
+fn token_tree_starts_with_paren(node: &tree_sitter::Node, source: &str) -> bool {
+    let r = node.byte_range();
+    source
+        .get(r.start..r.end)
+        .is_some_and(|s| s.starts_with('('))
+}
+
+/// Scan a macro invocation's body for call-like patterns (identifier followed by `( ... )`).
+/// Creates placeholder call edges so the calls phase can resolve them.
+fn scan_macro_for_calls(
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    parent: Option<&NodeId>,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let Some(parent_id) = parent else {
+        return;
+    };
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        if child.kind() == "token_tree" && token_tree_starts_with_paren(&child, source) {
+            scan_token_tree_for_calls(&child, source, file_id, parent_id, edges);
+        }
+        i += 1;
+    }
+}
+
+/// Recursively scan a `token_tree` for identifier followed by parenthesized `token_tree`.
+/// Skips method calls (previous sibling `.`) and nested macros (next sibling `!`).
+fn scan_token_tree_for_calls(
+    tt: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    parent: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let mut i = 0;
+    let mut prev_kind: Option<String> = None;
+    while let Some(child) = tt.child(i) {
+        let kind = child.kind().to_string();
+        let next = tt.child(i + 1);
+        if kind == "identifier" {
+            let prev_is_dot = prev_kind.as_deref() == Some(".");
+            if !prev_is_dot {
+                if let Some(next_tt) = next {
+                    if next_tt.kind() == "token_tree"
+                        && token_tree_starts_with_paren(&next_tt, source)
+                    {
+                        if let Some(name) = source.get(child.byte_range()) {
+                            let callee_id = NodeId::new(format!("{}::{}", file_id.as_str(), name));
+                            edges.push((parent.clone(), callee_id, EdgeType::Calls));
+                        }
+                    }
+                }
+            }
+        }
+        if kind == "token_tree" {
+            scan_token_tree_for_calls(&child, source, file_id, parent, edges);
+        }
+        prev_kind = Some(kind);
+        i += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -485,6 +555,41 @@ mod tests {
                 .as_ref()
                 .is_some_and(|p| p.contains("not_a_bench") && !p.contains("bench::")),
             "#[cfg(bench)] fn should not get bench:: prefix, got {payload:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_call_inside_macro() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = "fn caller() { format!(\"{}\", callee()); }\nfn callee() {}";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let calls: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .map(|v| v.to_string().trim_matches('"') == "calls")
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert!(
+            !calls.is_empty(),
+            "expected at least one Calls edge from macro body, got {} edges total",
+            edges.rows.len()
+        );
+        let to_vals: Vec<String> = calls
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        assert!(
+            to_vals.iter().any(|t| t.contains("callee")),
+            "expected a call edge to callee (placeholder or resolved), got {to_vals:?}"
         );
     }
 }

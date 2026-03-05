@@ -447,6 +447,27 @@ impl ServerHandler for FerrographMcp {
                 "hint": "Run 'ferrograph index --output .ferrograph' in the project root, or use the reindex tool to create one, or set FERROGRAPH_DB to the graph path."
             })));
         }
+        // Reindex uses a fresh store so we get exclusive write access (avoids "readonly database" when cache was opened for reads).
+        if name == "reindex" {
+            {
+                let mut guard = self.cached.lock().await;
+                *guard = None;
+            }
+            let store = Arc::new(crate::graph::Store::new_persistent(&store_path).map_err(
+                |e| {
+                    rmcp::ErrorData::internal_error(
+                        format!("Failed to open graph for reindex: {e}"),
+                        None,
+                    )
+                },
+            )?);
+            let result = self.handle_reindex(&request, &store, &store_path).await?;
+            {
+                let mut guard = self.cached.lock().await;
+                *guard = Some((store_path.clone(), store));
+            }
+            return Ok(result);
+        }
         let store = self.get_or_open_store(&store_path).await?;
         let result = match name {
             "dead_code" => Self::handle_dead_code(&request, &store)?,
@@ -458,7 +479,6 @@ impl ServerHandler for FerrographMcp {
             "node_info" => Self::handle_node_info(&request, &store)?,
             "trait_implementors" => Self::handle_trait_implementors(&request, &store)?,
             "module_graph" => Self::handle_module_graph(&request, &store)?,
-            "reindex" => self.handle_reindex(&request, &store, &store_path).await?,
             _ => {
                 return Err(rmcp::ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
