@@ -168,24 +168,24 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         }
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
         let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if !to_str.contains("::") {
-            continue;
-        }
-        let Some((path_part, fn_name_maybe_path)) = to_str.split_once("::") else {
-            continue;
-        };
-        // Qualified call like file::mod::foo: use last segment as fn name for resolution.
-        let (path_part, fn_name) = if fn_name_maybe_path.contains("::") {
-            fn_name_maybe_path
-                .rsplit_once("::")
-                .map(|(path_suffix, name)| {
-                    (Cow::Owned(format!("{path_part}::{path_suffix}")), name)
-                })
-                .unwrap_or((Cow::Borrowed(path_part), fn_name_maybe_path))
-        } else {
-            (Cow::Borrowed(path_part), fn_name_maybe_path)
-        };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
+        let (path_part, fn_name): (Cow<str>, &str) = if to_str.contains("::") {
+            let Some((pp, fn_name_maybe_path)) = to_str.split_once("::") else {
+                continue;
+            };
+            // Qualified call like file::mod::foo: use last segment as fn name for resolution.
+            if fn_name_maybe_path.contains("::") {
+                fn_name_maybe_path
+                    .rsplit_once("::")
+                    .map(|(path_suffix, name)| (Cow::Owned(format!("{pp}::{path_suffix}")), name))
+                    .unwrap_or((Cow::Borrowed(pp), fn_name_maybe_path))
+            } else {
+                (Cow::Borrowed(pp), fn_name_maybe_path)
+            }
+        } else {
+            // Unqualified placeholder (bare function name): resolve via same-file then global.
+            (Cow::Borrowed(from_file), to_str.as_str())
+        };
         let resolved_id = resolve_placeholder(
             path_part.as_ref(),
             fn_name,
@@ -288,6 +288,34 @@ mod tests {
         assert!(
             to_str.contains('#'),
             "qualified path should resolve to real id, got {to_str}"
+        );
+    }
+
+    #[test]
+    fn build_call_graph_resolves_unqualified_placeholder() {
+        // Edge with to_id = bare "callee" (no ::) should resolve via same-file lookup.
+        let store = Store::new_memory().unwrap();
+        let path = "./src/lib.rs";
+        let callee_id = NodeId::new(format!("{path}#10:1"));
+        store
+            .put_node(&callee_id, &NodeType::Function, Some("callee"))
+            .unwrap();
+        let caller_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&caller_id, &NodeType::Function, Some("caller"))
+            .unwrap();
+        let placeholder = NodeId::new("callee".to_string());
+        store
+            .put_edge(&caller_id, &placeholder, &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert_eq!(
+            to_str,
+            format!("{path}#10:1"),
+            "unqualified placeholder 'callee' should resolve to same-file callee node"
         );
     }
 }

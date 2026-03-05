@@ -165,12 +165,15 @@ impl Query {
         let edge_changes = EdgeType::ChangesWith.to_string();
         let mut params = BTreeMap::new();
         params.insert("from".to_string(), DataValue::from(from_id));
+        // Seed: immediate neighbors via calls, contains, references, changes_with (both directions).
+        // Recursion: only follow calls, references, changes_with so we don't pull in all siblings
+        // when starting from a function (contains is parent->child; following it from file would add every node in the file).
         let script = format!(
             r#"
             seed[to] := *edges[from, to, et], from = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
             seed[from] := *edges[from, to, et], to = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
             reachable[id] := seed[id]
-            reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
+            reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_refs}", "{edge_changes}"]
             ?[id, type, payload] := reachable[id], *nodes[id, type, payload], id != $from
             :limit {BLAST_RADIUS_LIMIT}
             "#
@@ -286,9 +289,11 @@ impl Query {
     pub fn trait_implementors(store: &Store, trait_name: &str) -> Result<Vec<NodeTriple>> {
         let mut params = BTreeMap::new();
         params.insert("trait_name".to_string(), DataValue::from(trait_name));
+        // Guard against null payload so str_includes does not fail; implements_trait edges may not exist (stub).
         let script = r#"
             ?[impl_id, impl_type, impl_payload] := *nodes[trait_id, type, payload],
               type = "trait",
+              not(is_null(payload)),
               str_includes(payload, $trait_name),
               *edges[impl_id, trait_id, "implements_trait"],
               *nodes[impl_id, impl_type, impl_payload]
@@ -306,8 +311,9 @@ impl Query {
     /// Return the module containment graph: edges (`from_id`, `to_id`, `from_type`, `to_type`) for
     /// Contains relations between file, module, and `crate_root` nodes. Optional path prefix filter.
     ///
-    /// Note: `path_prefix` should include a trailing `/` (e.g. `"src/"`) to avoid
-    /// matching unrelated paths that share the same prefix (e.g. `"src2/"`).
+    /// Node IDs are relative to the project root (e.g. `./src/main.rs`). Use a prefix that
+    /// matches that form, e.g. `"./src/"` to restrict to `src/`; include a trailing `/` to avoid
+    /// matching unrelated paths (e.g. `"./src2/"`).
     ///
     /// # Errors
     /// Fails if the store query fails.
@@ -488,6 +494,75 @@ mod tests {
         assert!(
             ids_c.contains(&"b".to_string()) && !ids_c.contains(&"a".to_string()),
             "from c should reach only b (seed), not transitive a, got {ids_c:?}"
+        );
+    }
+
+    #[test]
+    fn blast_radius_does_not_include_siblings_via_contains() {
+        // File "f" contains three functions: f#1:1 calls f#2:1; f#3:1 is uncalled.
+        // Blast radius from f#1:1 must include f#2:1 (callee) but NOT f#3:1 (sibling).
+        let store = Store::new_memory().unwrap();
+        store
+            .put_node(&NodeId("f".to_string()), &NodeType::File, None)
+            .unwrap();
+        store
+            .put_node(
+                &NodeId("f#1:1".to_string()),
+                &NodeType::Function,
+                Some("caller"),
+            )
+            .unwrap();
+        store
+            .put_node(
+                &NodeId("f#2:1".to_string()),
+                &NodeType::Function,
+                Some("callee"),
+            )
+            .unwrap();
+        store
+            .put_node(
+                &NodeId("f#3:1".to_string()),
+                &NodeType::Function,
+                Some("sibling"),
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId("f".to_string()),
+                &NodeId("f#1:1".to_string()),
+                &EdgeType::Contains,
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId("f".to_string()),
+                &NodeId("f#2:1".to_string()),
+                &EdgeType::Contains,
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId("f".to_string()),
+                &NodeId("f#3:1".to_string()),
+                &EdgeType::Contains,
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId("f#1:1".to_string()),
+                &NodeId("f#2:1".to_string()),
+                &EdgeType::Calls,
+            )
+            .unwrap();
+        let from_f1 = Query::blast_radius(&store, "f#1:1").unwrap();
+        let ids: Vec<String> = from_f1.iter().map(|(id, _, _)| id.clone()).collect();
+        assert!(
+            ids.contains(&"f#2:1".to_string()),
+            "blast radius from f#1:1 should include callee f#2:1, got {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"f#3:1".to_string()),
+            "blast radius from f#1:1 must not include sibling f#3:1 (no call edge), got {ids:?}"
         );
     }
 

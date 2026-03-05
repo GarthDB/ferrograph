@@ -10,10 +10,11 @@ use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::Store;
 
 /// Extract graph nodes and edges from Rust source and write them to the store.
+/// Node IDs use paths relative to `root` (e.g. `./src/main.rs`) for portability.
 ///
 /// # Errors
 /// Fails if parsing fails, the language cannot be loaded, or store writes fail.
-pub fn extract_ast(store: &Store, path: &Path, content: &str) -> Result<()> {
+pub fn extract_ast(store: &Store, path: &Path, content: &str, root: &Path) -> Result<()> {
     let mut parser = Parser::new();
     parser.set_language(&LANGUAGE.into())?;
     let tree = parser
@@ -25,7 +26,8 @@ pub fn extract_ast(store: &Store, path: &Path, content: &str) -> Result<()> {
             path.display()
         );
     }
-    let file_id = NodeId::new(path.to_string_lossy().to_string());
+    let rel = path.strip_prefix(root).unwrap_or(path);
+    let file_id = NodeId::new(format!("./{}", rel.to_string_lossy()));
     let mut nodes = vec![(file_id.clone(), NodeType::File, None)];
     let mut edges = Vec::new();
 
@@ -341,9 +343,10 @@ mod tests {
     #[test]
     fn extract_ast_single_function() {
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/test.rs");
         let content = "fn foo() {}";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         assert!(rows.rows.len() >= 2, "expected file + function nodes");
         let types: Vec<String> = rows
@@ -359,10 +362,11 @@ mod tests {
     #[test]
     fn extract_ast_invalid_rust_partial_ast() {
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/test.rs");
         let content = "not valid rust {{{";
         // We tolerate parse errors and continue with partial AST instead of bailing.
-        let result = extract_ast(&store, path, content);
+        let result = extract_ast(&store, path, content, root);
         assert!(result.is_ok(), "partial AST should be accepted: {result:?}");
         let rows = Query::all_nodes(&store).unwrap();
         assert!(!rows.rows.is_empty(), "expected at least file node");
@@ -371,9 +375,10 @@ mod tests {
     #[test]
     fn extract_ast_trait_has_name_payload() {
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/test.rs");
         let content = "trait Draw { fn draw(&self); }";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         let trait_rows: Vec<_> = rows
             .rows
@@ -397,9 +402,10 @@ mod tests {
     #[test]
     fn extract_ast_bench_function_has_bench_prefix() {
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/benches/foo.rs");
         let content = "#[bench] fn my_bench(_: &mut Bencher) {}";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         let fn_rows: Vec<_> = rows
             .rows
@@ -426,9 +432,10 @@ mod tests {
     fn extract_ast_multi_attr_bench_after_other() {
         // #[bench] is not the immediate prev sibling; we walk back and still detect it.
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/multi.rs");
         let content = "#[allow(dead_code)]\n#[bench]\nfn multi_bench(b: &mut Bencher) {}";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         let fn_rows: Vec<_> = rows
             .rows
@@ -455,9 +462,10 @@ mod tests {
     fn extract_ast_cfg_bench_not_bench_entry_point() {
         // #[cfg(bench)] is not a benchmark; "bench" is inside token_tree, so we must not add bench:: prefix.
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/cfg_bench.rs");
         let content = "#[cfg(bench)]\nfn not_a_bench() {}";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         let fn_rows: Vec<_> = rows
             .rows

@@ -181,7 +181,7 @@ fn module_graph_input_schema() -> serde_json::Map<String, serde_json::Value> {
         "properties": {
             "root": {
                 "type": "string",
-                "description": "Optional path prefix to filter module graph (e.g. src/)"
+                "description": "Optional path prefix to filter module graph (e.g. ./src/); node IDs are relative to project root"
             }
         }
     })
@@ -275,7 +275,7 @@ fn all_tools() -> Vec<Tool> {
         ),
         tool(
             "module_graph",
-            "Return the module containment tree (Contains edges between file/module/crate_root). Optional path prefix filter.",
+            "Return the module containment tree (Contains edges between file/module/crate_root). Optional root: path prefix to filter (e.g. ./src/); node IDs are relative to project root.",
             module_graph_input_schema(),
         ),
         tool(
@@ -439,10 +439,12 @@ impl ServerHandler for FerrographMcp {
                 None,
             )
         })?;
-        if !store_path.exists() {
+        // reindex can bootstrap: create the DB if it does not exist; other tools require an existing graph.
+        let require_exists = name != "reindex";
+        if require_exists && !store_path.exists() {
             return Ok(CallToolResult::structured_error(serde_json::json!({
                 "error": "No graph database found",
-                "hint": "Run 'ferrograph index --output .ferrograph' in the project root, or set FERROGRAPH_DB to the graph path."
+                "hint": "Run 'ferrograph index --output .ferrograph' in the project root, or use the reindex tool to create one, or set FERROGRAPH_DB to the graph path."
             })));
         }
         let store = self.get_or_open_store(&store_path).await?;
@@ -762,9 +764,13 @@ impl FerrographMcp {
         let trait_name = get_str_arg(request, "trait_name").ok_or_else(|| {
             rmcp::ErrorData::invalid_params("missing required parameter: trait_name", None)
         })?;
-        let impls = crate::graph::Query::trait_implementors(store, trait_name).map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("Trait implementors query failed: {e}"), None)
-        })?;
+        let (impls, note) = match crate::graph::Query::trait_implementors(store, trait_name) {
+            Ok(list) => (list, None),
+            Err(_) => (
+                Vec::new(),
+                Some("Trait edge extraction is not yet implemented; results may be incomplete."),
+            ),
+        };
         let results: Vec<serde_json::Value> = impls
             .into_iter()
             .map(|(id, node_type, payload)| {
@@ -775,11 +781,15 @@ impl FerrographMcp {
                 })
             })
             .collect();
-        Ok(CallToolResult::structured(serde_json::json!({
+        let mut out = serde_json::json!({
             "trait_name": trait_name,
             "implementors": results,
             "count": results.len()
-        })))
+        });
+        if let Some(n) = note {
+            out["note"] = serde_json::Value::String(n.to_string());
+        }
+        Ok(CallToolResult::structured(out))
     }
 
     fn handle_module_graph(
