@@ -35,56 +35,56 @@ fn main() {
 }
 
 /// Default 3-cluster graph: 3 anchors + 6 satellites (9 nodes), 12 edges.
-/// Matches metaball-demo.html topology: intra-cluster triangles + inter-cluster anchors.
+/// Organic, asymmetric layout so the mark feels hand-placed rather than geometric.
 fn default_layout() -> (Vec<Circle>, Vec<Edge>) {
     let nodes = vec![
         // Cluster A: anchor 0, satellites 1, 2
         Circle {
-            x: 10.0,
-            y: 14.0,
-            r: 3.0,
+            x: 10.2,
+            y: 13.6,
+            r: 2.9,
         }, // 0
         Circle {
-            x: 7.0,
-            y: 11.0,
-            r: 2.2,
+            x: 6.8,
+            y: 10.7,
+            r: 2.1,
         }, // 1
         Circle {
-            x: 12.0,
-            y: 11.0,
-            r: 2.2,
+            x: 12.4,
+            y: 10.9,
+            r: 2.35,
         }, // 2
         // Cluster B: anchor 3, satellites 4, 5
         Circle {
-            x: 16.0,
-            y: 16.0,
-            r: 3.0,
+            x: 15.7,
+            y: 16.4,
+            r: 3.1,
         }, // 3
         Circle {
-            x: 13.0,
-            y: 20.0,
-            r: 2.2,
+            x: 12.9,
+            y: 20.3,
+            r: 2.0,
         }, // 4
         Circle {
-            x: 19.0,
-            y: 18.0,
-            r: 2.2,
+            x: 19.2,
+            y: 17.8,
+            r: 2.25,
         }, // 5
         // Cluster C: anchor 6, satellites 7, 8
         Circle {
-            x: 22.0,
-            y: 14.0,
-            r: 3.0,
+            x: 22.5,
+            y: 13.2,
+            r: 2.85,
         }, // 6
         Circle {
-            x: 25.0,
-            y: 11.0,
+            x: 25.3,
+            y: 10.6,
             r: 2.2,
         }, // 7
         Circle {
-            x: 20.0,
-            y: 12.0,
-            r: 2.2,
+            x: 19.8,
+            y: 11.9,
+            r: 2.15,
         }, // 8
     ];
     let edges = vec![

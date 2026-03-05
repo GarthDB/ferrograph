@@ -70,6 +70,19 @@ Use for logo mark when a single color is required (favicon, print, terminal).
 - **Clear space:** Keep at least one mark-height of clear space around the logo on all sides.
 - **Variants:** Override `--fg-body` for the mark; omit for monochrome (inherits `currentColor`).
 
+### Raster assets (icon and social preview)
+
+- **icon.png** — 512×512 px, rendered from [assets/logo.svg](logo.svg) (mark only). Use for app icon, favicon sources.
+- **social-preview.png** — 1280×640 px, rendered from the logo-wordmark in a 2:1 composition. Use for GitHub social preview and Open Graph.
+
+Both are generated from the SVG assets (not the WebGL demo) so they stay sharp and consistent with the static mark. Regenerate with:
+
+```bash
+./assets/render-pngs.sh
+```
+
+Run from the repo root. Requires Node (npx); the script uses `@resvg/resvg-js-cli` to render the SVGs.
+
 ### Logo generator and animation
 
 The mark is generated programmatically so the layout can be tuned and, in the future, animated.

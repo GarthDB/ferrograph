@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640">
+  <title>Ferrograph social preview</title>
+  <!-- 2:1 canvas; wordmark centered. Regenerate PNG with assets/render-pngs.sh -->
+  <rect width="1280" height="640" fill="#f5f0eb"/>
+  <image href="logo-wordmark.svg" x="0" y="218" width="1280" height="204" preserveAspectRatio="xMidYMid meet"/>
+</svg>
