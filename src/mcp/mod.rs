@@ -601,7 +601,7 @@ impl FerrographMcp {
             .and_then(|m| m.get("case_insensitive"))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        // TODO: pagination is in-memory; for large graphs push limit/offset into the query engine.
+        // TODO(#16): pagination is in-memory; for large graphs push limit/offset into the query engine.
         let rows = crate::search::text_search(store, query, case_insensitive)
             .map_err(|e| rmcp::ErrorData::internal_error(format!("Search failed: {e}"), None))?;
         let total = rows.len();
@@ -642,10 +642,20 @@ impl FerrographMcp {
         let script = get_str_arg(request, "script").ok_or_else(|| {
             rmcp::ErrorData::invalid_params("missing required parameter: script", None)
         })?;
-        let mut normalized = script.to_lowercase();
-        while normalized.contains(": ") {
-            normalized = normalized.replace(": ", ":");
-        }
+        let normalized: String = {
+            let lower = script.to_lowercase();
+            let mut result = String::with_capacity(lower.len());
+            let mut chars = lower.chars().peekable();
+            while let Some(c) = chars.next() {
+                result.push(c);
+                if c == ':' {
+                    while chars.peek() == Some(&' ') {
+                        let _ = chars.next();
+                    }
+                }
+            }
+            result
+        };
         // Defense-in-depth: Cozo's ScriptMutability::Immutable is the real safety net;
         // this line-start check provides clearer errors for common cases.
         // Single pass: check mutation directives and build script with existing :limit lines stripped.
@@ -811,26 +821,7 @@ impl FerrographMcp {
                 "path": root.display().to_string()
             })));
         }
-        let path_buf = store_path.to_path_buf();
-        // Resolve store under lock, then drop lock so other tools can run during reindex.
-        let store = {
-            let mut cache_guard = self.cached.lock().await;
-            match &*cache_guard {
-                Some((ref cached_path, ref s)) if *cached_path == path_buf => Arc::clone(s),
-                _ => {
-                    let new_store =
-                        crate::graph::Store::new_persistent(store_path).map_err(|e| {
-                            rmcp::ErrorData::internal_error(
-                                format!("Failed to open graph: {e}"),
-                                None,
-                            )
-                        })?;
-                    let new_store = Arc::new(new_store);
-                    *cache_guard = Some((path_buf, Arc::clone(&new_store)));
-                    new_store
-                }
-            }
-        };
+        let store = self.get_or_open_store(store_path).await?;
         let root_clone = root.clone();
         let store_clone = Arc::clone(&store);
         // Note: between clear() and pipeline completion, concurrent tool calls will see
@@ -855,10 +846,7 @@ impl FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Reindex (edge_count) failed: {e}"), None)
         })?;
-        let indexed_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()
-            .map(|d| d.as_secs());
+        let indexed_at = indexed_at_epoch(store_path);
         Ok(CallToolResult::structured(serde_json::json!({
             "ok": true,
             "message": "Reindex complete",

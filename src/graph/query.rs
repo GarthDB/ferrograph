@@ -312,35 +312,22 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn module_graph(store: &Store, path_prefix: Option<&str>) -> Result<Vec<ModuleEdge>> {
-        let (script, params) = match path_prefix {
+        let mut params = BTreeMap::new();
+        let filter = match path_prefix {
             Some(prefix) if !prefix.is_empty() => {
-                let mut params = BTreeMap::new();
                 params.insert("prefix".to_string(), DataValue::from(prefix));
-                (
-                    r#"
-                    ?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
-                      *nodes[from_id, from_type, _],
-                      *nodes[to_id, to_type, _],
-                      from_type in ["file", "module", "crate_root"],
-                      to_type in ["file", "module"],
-                      (starts_with(from_id, $prefix) or starts_with(to_id, $prefix))
-                    :limit 10000
-                    "#,
-                    params,
-                )
+                ",\n      (starts_with(from_id, $prefix) or starts_with(to_id, $prefix))"
             }
-            _ => (
-                r#"
-                ?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
-                  *nodes[from_id, from_type, _],
-                  *nodes[to_id, to_type, _],
-                  from_type in ["file", "module", "crate_root"],
-                  to_type in ["file", "module"]
-                :limit 10000
-                "#,
-                BTreeMap::new(),
-            ),
+            _ => "",
         };
+        let script = format!(
+            r#"?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
+              *nodes[from_id, from_type, _],
+              *nodes[to_id, to_type, _],
+              from_type in ["file", "module", "crate_root"],
+              to_type in ["file", "module"]{filter}
+            :limit 10000"#
+        );
         let rows = store.run_query(script.trim(), params)?;
         let results: Vec<ModuleEdge> = rows
             .rows

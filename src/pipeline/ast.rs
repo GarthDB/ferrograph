@@ -245,6 +245,10 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
 }
 
 /// Payload for a function node: "`pub::name`" if public, "`test::name`" if test, "`bench::name`" if bench, else "name". Used for dead-code entry point detection.
+///
+/// Note: `test` detection recurses into `#[cfg(test)]` token trees, but `bench`
+/// does not recurse into `#[cfg(bench)]` (conditional compilation, not a benchmark).
+/// See `attribute_contains_identifier` for the distinction.
 fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let name = name_of_node(node, source)?;
     let is_pub = node
