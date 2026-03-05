@@ -3,13 +3,14 @@
 //! Tree-sitter: resolves placeholder `ImplementsTrait` edges (impl → trait) emitted by AST.
 //! With `ra` feature: stub for rust-analyzer-based extraction.
 
-use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
 
-use crate::graph::schema::{EdgeType, NodeId, NodeType};
-use crate::graph::{query::Query, unquote_datavalue, Store};
+use crate::graph::schema::{EdgeType, NodeType};
+use crate::graph::Store;
+
+use super::placeholder;
 
 /// Resolve placeholder `ImplementsTrait` edges (`impl_id` → `file::TraitName`) to concrete trait node IDs.
 /// Runs after AST and modules; uses same-file and import-based resolution like call graph.
@@ -17,132 +18,7 @@ use crate::graph::{query::Query, unquote_datavalue, Store};
 /// # Errors
 /// Fails if the store query or update fails.
 pub fn resolve_impl_trait_edges(store: &Store) -> Result<()> {
-    let trait_type = NodeType::Trait.to_string();
-    let edge_type = EdgeType::ImplementsTrait;
-    let edge_type_str = edge_type.to_string();
-
-    let nodes = Query::all_nodes(store)?;
-    let mut local: HashMap<(String, String), Vec<NodeId>> = HashMap::new();
-    let mut global_by_name: HashMap<String, Vec<NodeId>> = HashMap::new();
-    for row in &nodes.rows {
-        let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if type_val != trait_type {
-            continue;
-        }
-        let id_str = row.first().map(unquote_datavalue).unwrap_or_default();
-        let payload = row.get(2).map(unquote_datavalue).unwrap_or_default();
-        if payload.is_empty() {
-            continue;
-        }
-        let node_id = NodeId(id_str.clone());
-        let file_path = id_str.split('#').next().unwrap_or(&id_str).to_string();
-        local
-            .entry((file_path.clone(), payload.clone()))
-            .or_default()
-            .push(node_id.clone());
-        global_by_name.entry(payload).or_default().push(node_id);
-    }
-
-    let mut imports_map: HashMap<String, Vec<String>> = HashMap::new();
-    let edges = Query::all_edges(store)?;
-    for row in &edges.rows {
-        let et = row.get(2).map(unquote_datavalue).unwrap_or_default();
-        if et != EdgeType::Imports.to_string() {
-            continue;
-        }
-        let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
-        let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        let from_file = from_str.split('#').next().unwrap_or(&from_str).to_string();
-        imports_map.entry(from_file).or_default().push(to_str);
-    }
-
-    for row in &edges.rows {
-        let et = row.get(2).map(unquote_datavalue).unwrap_or_default();
-        if et != edge_type_str {
-            continue;
-        }
-        let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
-        let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if to_str.contains('#') {
-            continue;
-        }
-        let (path_part, trait_name) = match to_str.split_once("::") {
-            Some((pp, name)) => (pp.to_string(), name.to_string()),
-            None => continue,
-        };
-        let from_file = from_str.split('#').next().unwrap_or(&from_str);
-        let resolved = resolve_trait_placeholder(
-            &path_part,
-            &trait_name,
-            from_file,
-            &local,
-            &imports_map,
-            &global_by_name,
-        );
-        let from_id = NodeId(from_str.clone());
-        let placeholder_to = NodeId(to_str.clone());
-        store.remove_edge(&from_id, &placeholder_to, &edge_type)?;
-        if let Some(trait_id) = resolved {
-            store.put_edge(&from_id, &trait_id, &edge_type)?;
-        }
-    }
-    Ok(())
-}
-
-fn resolve_trait_placeholder(
-    path_part: &str,
-    trait_name: &str,
-    from_file: &str,
-    local: &HashMap<(String, String), Vec<NodeId>>,
-    imports_map: &HashMap<String, Vec<String>>,
-    global_by_name: &HashMap<String, Vec<NodeId>>,
-) -> Option<NodeId> {
-    if path_part.contains("::") {
-        let file_only = path_part.split("::").next().unwrap_or(path_part);
-        let key = (file_only.to_string(), trait_name.to_string());
-        if let Some(candidates) = local.get(&key) {
-            if let [one] = candidates.as_slice() {
-                return Some(one.clone());
-            }
-        }
-        return None;
-    }
-    let key = (path_part.to_string(), trait_name.to_string());
-    if let Some(candidates) = local.get(&key) {
-        if let [one] = candidates.as_slice() {
-            return Some(one.clone());
-        }
-        return None;
-    }
-    if let Some(imported) = imports_map.get(from_file) {
-        for to_id in imported {
-            let in_file: Vec<NodeId> = global_by_name
-                .get(trait_name)
-                .map(|v| {
-                    v.iter()
-                        .filter(|n| {
-                            if to_id.contains('#') {
-                                n.as_str() == to_id
-                            } else {
-                                n.as_str().starts_with(&format!("{to_id}#"))
-                            }
-                        })
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            if in_file.len() == 1 {
-                return in_file.into_iter().next();
-            }
-        }
-    }
-    global_by_name.get(trait_name).and_then(|v| {
-        if v.len() == 1 {
-            v.first().cloned()
-        } else {
-            None
-        }
-    })
+    placeholder::resolve_placeholder_edges(store, &EdgeType::ImplementsTrait, &[NodeType::Trait])
 }
 
 /// Map trait implementations to traits (full tier only).
@@ -177,4 +53,40 @@ fn map_traits_ra(store: &Store, root: &Path) -> Result<()> {
         .canonicalize()
         .map_err(|e| anyhow::anyhow!("root path: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::graph::query::Query;
+    use crate::graph::schema::{EdgeType, NodeId, NodeType};
+    use crate::graph::Store;
+
+    use super::resolve_impl_trait_edges;
+
+    #[test]
+    fn resolve_impl_trait_edges_resolves_same_file_placeholder() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let trait_id = NodeId::new(format!("{path}#10:1"));
+        store
+            .put_node(&trait_id, &NodeType::Trait, Some("Draw"))
+            .unwrap();
+        let impl_id = NodeId::new(format!("{path}#15:1"));
+        store
+            .put_node(&impl_id, &NodeType::Impl, Some("Point"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::Draw"));
+        store
+            .put_edge(&impl_id, &placeholder, &EdgeType::ImplementsTrait)
+            .unwrap();
+        resolve_impl_trait_edges(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert!(
+            to_str.contains('#'),
+            "edge should point to real trait id (path#line:col), got {to_str}"
+        );
+        assert_eq!(to_str, format!("{path}#10:1"));
+    }
 }

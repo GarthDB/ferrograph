@@ -7,6 +7,7 @@ mod discovery;
 mod expands;
 mod git_coupling;
 mod modules;
+mod placeholder;
 mod references;
 mod traits;
 

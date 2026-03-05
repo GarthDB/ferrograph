@@ -702,11 +702,30 @@ mod tests {
                     .is_some_and(|v| v.to_string().trim_matches('"') == "uses_unsafe")
             })
             .collect();
-        assert!(
-            !uses_unsafe.is_empty(),
-            "expected at least one uses_unsafe edge (unsafe fn or unsafe block), got {} edges",
-            edges.rows.len()
+        assert_eq!(
+            uses_unsafe.len(),
+            2,
+            "expected exactly two uses_unsafe edges (unsafe fn and fn with unsafe block), got {}",
+            uses_unsafe.len()
         );
+        for row in &uses_unsafe {
+            let from = row
+                .first()
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .unwrap_or_default();
+            let to = row
+                .get(1)
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .unwrap_or_default();
+            assert_eq!(
+                from, to,
+                "uses_unsafe edge should be self-loop (from == to)"
+            );
+            assert!(
+                from.contains("test.rs#"),
+                "uses_unsafe from id should reference test file, got {from}"
+            );
+        }
     }
 
     #[test]
