@@ -1,24 +1,21 @@
-//! Phase 5: trait and impl mapping (requires rust-analyzer / full tier).
-//!
-//! Tree-sitter: resolves placeholder `ImplementsTrait` edges (impl → trait) emitted by AST.
-//! With `ra` feature: stub for rust-analyzer-based extraction.
+//! Resolve placeholder `References` edges (item → type) from AST to concrete type nodes.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use anyhow::Result;
 
-use crate::graph::schema::{EdgeType, NodeId, NodeType};
+use crate::graph::schema::{EdgeType, NodeId};
 use crate::graph::{query::Query, unquote_datavalue, Store};
 
-/// Resolve placeholder `ImplementsTrait` edges (`impl_id` → `file::TraitName`) to concrete trait node IDs.
-/// Runs after AST and modules; uses same-file and import-based resolution like call graph.
+const TYPE_NODES: [&str; 4] = ["struct", "enum", "trait", "type_alias"];
+
+/// Resolve placeholder `References` edges (`from_id` → `file::TypeName`) to concrete type node IDs.
+/// Type nodes are `struct`, `enum`, `trait`, `type_alias`. Uses same-file and import-based resolution.
 ///
 /// # Errors
 /// Fails if the store query or update fails.
-pub fn resolve_impl_trait_edges(store: &Store) -> Result<()> {
-    let trait_type = NodeType::Trait.to_string();
-    let edge_type = EdgeType::ImplementsTrait;
+pub fn resolve_reference_edges(store: &Store) -> Result<()> {
+    let edge_type = EdgeType::References;
     let edge_type_str = edge_type.to_string();
 
     let nodes = Query::all_nodes(store)?;
@@ -26,7 +23,7 @@ pub fn resolve_impl_trait_edges(store: &Store) -> Result<()> {
     let mut global_by_name: HashMap<String, Vec<NodeId>> = HashMap::new();
     for row in &nodes.rows {
         let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if type_val != trait_type {
+        if !TYPE_NODES.contains(&type_val.as_str()) {
             continue;
         }
         let id_str = row.first().map(unquote_datavalue).unwrap_or_default();
@@ -66,14 +63,14 @@ pub fn resolve_impl_trait_edges(store: &Store) -> Result<()> {
         if to_str.contains('#') {
             continue;
         }
-        let (path_part, trait_name) = match to_str.split_once("::") {
+        let (path_part, type_name) = match to_str.split_once("::") {
             Some((pp, name)) => (pp.to_string(), name.to_string()),
             None => continue,
         };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
-        let resolved = resolve_trait_placeholder(
+        let resolved = resolve_type_placeholder(
             &path_part,
-            &trait_name,
+            &type_name,
             from_file,
             &local,
             &imports_map,
@@ -82,16 +79,16 @@ pub fn resolve_impl_trait_edges(store: &Store) -> Result<()> {
         let from_id = NodeId(from_str.clone());
         let placeholder_to = NodeId(to_str.clone());
         store.remove_edge(&from_id, &placeholder_to, &edge_type)?;
-        if let Some(trait_id) = resolved {
-            store.put_edge(&from_id, &trait_id, &edge_type)?;
+        if let Some(type_id) = resolved {
+            store.put_edge(&from_id, &type_id, &edge_type)?;
         }
     }
     Ok(())
 }
 
-fn resolve_trait_placeholder(
+fn resolve_type_placeholder(
     path_part: &str,
-    trait_name: &str,
+    type_name: &str,
     from_file: &str,
     local: &HashMap<(String, String), Vec<NodeId>>,
     imports_map: &HashMap<String, Vec<String>>,
@@ -99,7 +96,7 @@ fn resolve_trait_placeholder(
 ) -> Option<NodeId> {
     if path_part.contains("::") {
         let file_only = path_part.split("::").next().unwrap_or(path_part);
-        let key = (file_only.to_string(), trait_name.to_string());
+        let key = (file_only.to_string(), type_name.to_string());
         if let Some(candidates) = local.get(&key) {
             if let [one] = candidates.as_slice() {
                 return Some(one.clone());
@@ -107,7 +104,7 @@ fn resolve_trait_placeholder(
         }
         return None;
     }
-    let key = (path_part.to_string(), trait_name.to_string());
+    let key = (path_part.to_string(), type_name.to_string());
     if let Some(candidates) = local.get(&key) {
         if let [one] = candidates.as_slice() {
             return Some(one.clone());
@@ -117,7 +114,7 @@ fn resolve_trait_placeholder(
     if let Some(imported) = imports_map.get(from_file) {
         for to_id in imported {
             let in_file: Vec<NodeId> = global_by_name
-                .get(trait_name)
+                .get(type_name)
                 .map(|v| {
                     v.iter()
                         .filter(|n| {
@@ -136,45 +133,11 @@ fn resolve_trait_placeholder(
             }
         }
     }
-    global_by_name.get(trait_name).and_then(|v| {
+    global_by_name.get(type_name).and_then(|v| {
         if v.len() == 1 {
             v.first().cloned()
         } else {
             None
         }
     })
-}
-
-/// Map trait implementations to traits (full tier only).
-///
-/// When the `ra` feature is enabled, uses rust-analyzer's semantic model to discover
-/// impl–trait relationships. Tree-sitter placeholder resolution is done by `resolve_impl_trait_edges`.
-///
-/// # Errors
-/// Fails if rust-analyzer or graph update fails.
-pub fn map_traits(store: &Store, root: &Path) -> Result<()> {
-    #[cfg(feature = "ra")]
-    {
-        map_traits_ra(store, root)?;
-    }
-    #[cfg(not(feature = "ra"))]
-    {
-        let _ = (store, root);
-    }
-    Ok(())
-}
-
-#[cfg(feature = "ra")]
-fn map_traits_ra(store: &Store, root: &Path) -> Result<()> {
-    let _ = store;
-    // TODO: Load project and extract ImplementsTrait edges. For now just create host and validate root.
-    // Full project load would use load_cargo (ra_ap_project_model)
-    // to populate the database from root; for now we integrate the API and leave
-    // trait/impl extraction as future work (requires loading crate graph and HIR).
-    let _host = ra_ap_ide::AnalysisHost::default();
-    // Ensure root exists so we could load it in a full implementation.
-    let _ = root
-        .canonicalize()
-        .map_err(|e| anyhow::anyhow!("root path: {e}"))?;
-    Ok(())
 }
