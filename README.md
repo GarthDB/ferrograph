@@ -51,7 +51,71 @@ cargo run -- watch . --output .ferrograph
 cargo run -- mcp
 ```
 
-**MCP configuration:** The MCP server looks for a graph at `FERROGRAPH_DB` or `.ferrograph` in the project directory. You can bootstrap an index from scratch using the `reindex` tool (no CLI step required), or run `ferrograph index --output .ferrograph` first. Set `FERROGRAPH_DB` to the path of your database file to use a specific graph.
+### Setup with Cursor
+
+Add to `.cursor/mcp.json` in your project (or global settings):
+
+```json
+{
+  "mcpServers": {
+    "ferrograph": {
+      "command": "ferrograph",
+      "args": ["mcp"],
+      "env": {
+        "FERROGRAPH_DB": "/absolute/path/to/your/project/.ferrograph"
+      }
+    }
+  }
+}
+```
+
+If building from source instead of installing via `cargo install ferrograph`:
+
+```json
+{
+  "mcpServers": {
+    "ferrograph": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "/path/to/ferrograph/Cargo.toml", "--", "mcp"],
+      "env": {
+        "FERROGRAPH_DB": "/absolute/path/to/your/project/.ferrograph"
+      }
+    }
+  }
+}
+```
+
+### Setup with Claude Desktop
+
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "ferrograph": {
+      "command": "ferrograph",
+      "args": ["mcp"],
+      "env": {
+        "FERROGRAPH_DB": "/absolute/path/to/your/project/.ferrograph"
+      }
+    }
+  }
+}
+```
+
+### First use
+
+You can either pre-index your project or let the MCP `reindex` tool bootstrap it:
+
+```bash
+# Option 1: Pre-index from the CLI
+cd /path/to/your/rust/project
+ferrograph index . --output .ferrograph
+
+# Option 2: Skip this step — use the reindex MCP tool from your AI agent
+```
+
+The `FERROGRAPH_DB` env var is optional if you run the MCP server from the project root (it defaults to `.ferrograph` in the current directory).
 
 ### MCP tools
 
