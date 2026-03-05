@@ -10,6 +10,9 @@ use serde::Serialize;
 use crate::graph::schema::{EdgeType, NodeType};
 use crate::graph::{unquote_datavalue, Store};
 
+/// (id, `node_type`, optional payload) -- lightweight triple returned by graph queries.
+pub type NodeTriple = (String, String, Option<String>);
+
 /// Endpoint of an edge (the other node) for `node_info`.
 #[derive(Debug, Clone, Serialize)]
 pub struct EdgeEndpoint {
@@ -31,6 +34,15 @@ pub struct NodeInfo {
     pub incoming_edges: Vec<EdgeEndpoint>,
 }
 
+/// One edge in the module containment graph (Contains between `file`/`module`/`crate_root`).
+#[derive(Debug, Clone, Serialize)]
+pub struct ModuleEdge {
+    pub from_id: String,
+    pub to_id: String,
+    pub from_type: String,
+    pub to_type: String,
+}
+
 /// Extract optional string from a Cozo payload cell (Null → None).
 fn optional_payload(v: &DataValue) -> Option<String> {
     if matches!(v, DataValue::Null) {
@@ -41,7 +53,7 @@ fn optional_payload(v: &DataValue) -> Option<String> {
 }
 
 /// Extract (id, type, payload) from a row of at least 3 columns (node table shape).
-fn extract_node_triple(row: &[DataValue]) -> (String, String, Option<String>) {
+fn extract_node_triple(row: &[DataValue]) -> NodeTriple {
     let id = row.first().map(unquote_datavalue).unwrap_or_default();
     let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
     let payload = row.get(2).and_then(optional_payload);
@@ -145,10 +157,7 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn blast_radius(
-        store: &Store,
-        from_id: &str,
-    ) -> Result<Vec<(String, String, Option<String>)>> {
+    pub fn blast_radius(store: &Store, from_id: &str) -> Result<Vec<NodeTriple>> {
         const BLAST_RADIUS_LIMIT: u64 = 500;
         let edge_calls = EdgeType::Calls.to_string();
         let edge_contains = EdgeType::Contains.to_string();
@@ -156,18 +165,21 @@ impl Query {
         let edge_changes = EdgeType::ChangesWith.to_string();
         let mut params = BTreeMap::new();
         params.insert("from".to_string(), DataValue::from(from_id));
+        // Seed: immediate neighbors via calls, contains, references, changes_with (both directions).
+        // Recursion: only follow calls, references, changes_with so we don't pull in all siblings
+        // when starting from a function (contains is parent->child; following it from file would add every node in the file).
         let script = format!(
             r#"
             seed[to] := *edges[from, to, et], from = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
             seed[from] := *edges[from, to, et], to = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
             reachable[id] := seed[id]
-            reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
+            reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_refs}", "{edge_changes}"]
             ?[id, type, payload] := reachable[id], *nodes[id, type, payload], id != $from
             :limit {BLAST_RADIUS_LIMIT}
             "#
         );
         let rows = store.run_query(script.trim(), params)?;
-        let results: Vec<(String, String, Option<String>)> = rows
+        let results: Vec<NodeTriple> = rows
             .rows
             .iter()
             .map(|row| extract_node_triple(row))
@@ -181,46 +193,31 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn callers(
-        store: &Store,
-        target_id: &str,
-        depth: u32,
-    ) -> Result<Vec<(String, String, Option<String>)>> {
+    pub fn callers(store: &Store, target_id: &str, depth: u32) -> Result<Vec<NodeTriple>> {
+        const CALLERS_LIMIT: u64 = 500;
         let edge_calls = EdgeType::Calls.to_string();
-        let mut frontier: Vec<String> = vec![target_id.to_string()];
-        let mut seen = std::collections::HashSet::new();
-        seen.insert(target_id.to_string());
-        let mut all_callers: Vec<(String, String, Option<String>)> = Vec::new();
-        let max_rounds = usize::try_from(depth.max(1)).unwrap_or(1);
-
-        for _ in 0..max_rounds {
-            if frontier.is_empty() {
-                break;
-            }
-            let frontier_values: Vec<DataValue> = frontier
-                .iter()
-                .map(|s| DataValue::from(s.as_str()))
-                .collect();
-            let mut params = BTreeMap::new();
-            params.insert("frontier".to_string(), DataValue::List(frontier_values));
-            let script = format!(
-                r#"
-                ?[caller_id, type, payload] := *edges[caller_id, callee_id, "{edge_calls}"],
-                  callee_id in $frontier,
-                  *nodes[caller_id, type, payload]
-                "#
-            );
-            let rows = store.run_query(script.trim(), params)?;
-            frontier = Vec::new();
-            for row in &rows.rows {
-                let (id, type_val, payload) = extract_node_triple(row);
-                if seen.insert(id.clone()) {
-                    frontier.push(id.clone());
-                    all_callers.push((id, type_val, payload));
-                }
-            }
-        }
-        Ok(all_callers)
+        let max_depth = i64::from(depth.max(1)).min(100);
+        let mut params = BTreeMap::new();
+        params.insert("target".to_string(), DataValue::from(target_id));
+        params.insert("max_depth".to_string(), DataValue::from(max_depth));
+        let script = format!(
+            r#"
+            callers[caller, depth] := *edges[caller, callee, "{edge_calls}"], callee = $target, depth = 1
+            callers[caller, d_plus_1] := *edges[caller, prev, "{edge_calls}"],
+              callers[prev, d],
+              d_plus_1 = d + 1,
+              d_plus_1 <= $max_depth
+            ?[id, type, payload] := callers[id, _], *nodes[id, type, payload], id != $target
+            :limit {CALLERS_LIMIT}
+            "#
+        );
+        let rows = store.run_query(script.trim(), params)?;
+        let results: Vec<NodeTriple> = rows
+            .rows
+            .iter()
+            .map(|row| extract_node_triple(row))
+            .collect();
+        Ok(results)
     }
 
     /// Return full info for a node: type, payload, and all outgoing/incoming edges with endpoint details.
@@ -289,22 +286,21 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn trait_implementors(
-        store: &Store,
-        trait_name: &str,
-    ) -> Result<Vec<(String, String, Option<String>)>> {
+    pub fn trait_implementors(store: &Store, trait_name: &str) -> Result<Vec<NodeTriple>> {
         let mut params = BTreeMap::new();
         params.insert("trait_name".to_string(), DataValue::from(trait_name));
+        // Guard against null payload so str_includes does not fail; implements_trait edges may not exist (stub).
         let script = r#"
             ?[impl_id, impl_type, impl_payload] := *nodes[trait_id, type, payload],
               type = "trait",
+              not(is_null(payload)),
               str_includes(payload, $trait_name),
               *edges[impl_id, trait_id, "implements_trait"],
               *nodes[impl_id, impl_type, impl_payload]
             :limit 500
         "#;
         let rows = store.run_query(script.trim(), params)?;
-        let results: Vec<(String, String, Option<String>)> = rows
+        let results: Vec<NodeTriple> = rows
             .rows
             .iter()
             .map(|row| extract_node_triple(row))
@@ -315,40 +311,40 @@ impl Query {
     /// Return the module containment graph: edges (`from_id`, `to_id`, `from_type`, `to_type`) for
     /// Contains relations between file, module, and `crate_root` nodes. Optional path prefix filter.
     ///
+    /// Node IDs are relative to the project root (e.g. `./src/main.rs`). Use a prefix that
+    /// matches that form, e.g. `"./src/"` to restrict to `src/`; include a trailing `/` to avoid
+    /// matching unrelated paths (e.g. `"./src2/"`).
+    ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn module_graph(
-        store: &Store,
-        path_prefix: Option<&str>,
-    ) -> Result<Vec<(String, String, String, String)>> {
-        let script = r#"
-            ?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
+    pub fn module_graph(store: &Store, path_prefix: Option<&str>) -> Result<Vec<ModuleEdge>> {
+        let mut params = BTreeMap::new();
+        let filter = match path_prefix {
+            Some(prefix) if !prefix.is_empty() => {
+                params.insert("prefix".to_string(), DataValue::from(prefix));
+                ",\n      (starts_with(from_id, $prefix) or starts_with(to_id, $prefix))"
+            }
+            _ => "",
+        };
+        let script = format!(
+            r#"?[from_id, to_id, from_type, to_type] := *edges[from_id, to_id, "contains"],
               *nodes[from_id, from_type, _],
               *nodes[to_id, to_type, _],
               from_type in ["file", "module", "crate_root"],
-              to_type in ["file", "module"]
-            :limit 10000
-        "#;
-        let rows = store.run_query(script.trim(), BTreeMap::new())?;
-        let mut results: Vec<(String, String, String, String)> = rows
+              to_type in ["file", "module"]{filter}
+            :limit 10000"#
+        );
+        let rows = store.run_query(script.trim(), params)?;
+        let results: Vec<ModuleEdge> = rows
             .rows
             .iter()
-            .map(|row| {
-                (
-                    row.first().map(unquote_datavalue).unwrap_or_default(),
-                    row.get(1).map(unquote_datavalue).unwrap_or_default(),
-                    row.get(2).map(unquote_datavalue).unwrap_or_default(),
-                    row.get(3).map(unquote_datavalue).unwrap_or_default(),
-                )
+            .map(|row| ModuleEdge {
+                from_id: row.first().map(unquote_datavalue).unwrap_or_default(),
+                to_id: row.get(1).map(unquote_datavalue).unwrap_or_default(),
+                from_type: row.get(2).map(unquote_datavalue).unwrap_or_default(),
+                to_type: row.get(3).map(unquote_datavalue).unwrap_or_default(),
             })
             .collect();
-        if let Some(prefix) = path_prefix {
-            if !prefix.is_empty() {
-                results.retain(|(from_id, to_id, _, _)| {
-                    from_id.starts_with(prefix) || to_id.starts_with(prefix)
-                });
-            }
-        }
         Ok(results)
     }
 }
@@ -502,6 +498,75 @@ mod tests {
     }
 
     #[test]
+    fn blast_radius_does_not_include_siblings_via_contains() {
+        // File "f" contains three functions: f#1:1 calls f#2:1; f#3:1 is uncalled.
+        // Blast radius from f#1:1 must include f#2:1 (callee) but NOT f#3:1 (sibling).
+        let store = Store::new_memory().unwrap();
+        store
+            .put_node(&NodeId("f".to_string()), &NodeType::File, None)
+            .unwrap();
+        store
+            .put_node(
+                &NodeId("f#1:1".to_string()),
+                &NodeType::Function,
+                Some("caller"),
+            )
+            .unwrap();
+        store
+            .put_node(
+                &NodeId("f#2:1".to_string()),
+                &NodeType::Function,
+                Some("callee"),
+            )
+            .unwrap();
+        store
+            .put_node(
+                &NodeId("f#3:1".to_string()),
+                &NodeType::Function,
+                Some("sibling"),
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId("f".to_string()),
+                &NodeId("f#1:1".to_string()),
+                &EdgeType::Contains,
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId("f".to_string()),
+                &NodeId("f#2:1".to_string()),
+                &EdgeType::Contains,
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId("f".to_string()),
+                &NodeId("f#3:1".to_string()),
+                &EdgeType::Contains,
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId("f#1:1".to_string()),
+                &NodeId("f#2:1".to_string()),
+                &EdgeType::Calls,
+            )
+            .unwrap();
+        let from_f1 = Query::blast_radius(&store, "f#1:1").unwrap();
+        let ids: Vec<String> = from_f1.iter().map(|(id, _, _)| id.clone()).collect();
+        assert!(
+            ids.contains(&"f#2:1".to_string()),
+            "blast radius from f#1:1 should include callee f#2:1, got {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"f#3:1".to_string()),
+            "blast radius from f#1:1 must not include sibling f#3:1 (no call edge), got {ids:?}"
+        );
+    }
+
+    #[test]
     fn callers_direct_only_depth1() {
         let store = Store::new_memory().unwrap();
         store
@@ -606,7 +671,7 @@ mod tests {
             .unwrap();
         let edges = Query::module_graph(&store, None).unwrap();
         assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].0, "file://a");
-        assert_eq!(edges[0].1, "mod://b");
+        assert_eq!(edges[0].from_id, "file://a");
+        assert_eq!(edges[0].to_id, "mod://b");
     }
 }

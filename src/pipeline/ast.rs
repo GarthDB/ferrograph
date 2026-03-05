@@ -10,10 +10,11 @@ use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::Store;
 
 /// Extract graph nodes and edges from Rust source and write them to the store.
+/// Node IDs use paths relative to `root` (e.g. `./src/main.rs`) for portability.
 ///
 /// # Errors
 /// Fails if parsing fails, the language cannot be loaded, or store writes fail.
-pub fn extract_ast(store: &Store, path: &Path, content: &str) -> Result<()> {
+pub fn extract_ast(store: &Store, path: &Path, content: &str, root: &Path) -> Result<()> {
     let mut parser = Parser::new();
     parser.set_language(&LANGUAGE.into())?;
     let tree = parser
@@ -25,7 +26,8 @@ pub fn extract_ast(store: &Store, path: &Path, content: &str) -> Result<()> {
             path.display()
         );
     }
-    let file_id = NodeId::new(path.to_string_lossy().to_string());
+    let rel = path.strip_prefix(root).unwrap_or(path);
+    let file_id = NodeId::new(format!("./{}", rel.to_string_lossy()));
     let mut nodes = vec![(file_id.clone(), NodeType::File, None)];
     let mut edges = Vec::new();
 
@@ -90,6 +92,10 @@ fn traverse(
                     edges.push((from.clone(), callee_id, EdgeType::Calls));
                 }
             }
+            (None, None)
+        }
+        "macro_invocation" => {
+            scan_macro_for_calls(&node, source, file_id, parent.as_ref(), edges);
             (None, None)
         }
         _ => (None, None),
@@ -183,8 +189,9 @@ fn has_attribute(node: &tree_sitter::Node, source: &str, name: &str) -> bool {
     false
 }
 
-/// Check a single node (and its descendants) for attribute match. Called from `has_attribute` on direct children and recursively for nested attribute lists.
-/// For `attribute_item`/`outer_attribute_list` we only check identifier and text; for other nodes we recurse into children to find nested attribute lists.
+/// Check a single node for attribute match. For `attribute_item`/`outer_attribute_list`, checks
+/// identifier content and raw text (does not recurse further). For other node types, recurses
+/// into children to find nested attribute nodes.
 fn has_attribute_node(n: &tree_sitter::Node, source: &str, name: &str) -> bool {
     let kind = n.kind();
     if kind == "attribute_item" || kind == "outer_attribute_list" {
@@ -215,6 +222,8 @@ fn has_attribute_node(n: &tree_sitter::Node, source: &str, name: &str) -> bool {
 }
 
 /// Returns true if any descendant of `node` is an identifier with the given text.
+/// Skips `token_tree` (e.g. `(test)` in `#[cfg(test)]`) except when `name == "test"`, so
+/// `#[cfg(bench)]` does not match "bench" (not a benchmark entry point).
 fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &str) -> bool {
     let mut cursor = node.walk();
     if !cursor.goto_first_child() {
@@ -224,6 +233,10 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
         let n = cursor.node();
         if n.kind() == "identifier" {
             if source.get(n.byte_range()) == Some(name) {
+                return true;
+            }
+        } else if n.kind() == "token_tree" {
+            if name == "test" && attribute_contains_identifier(&n, source, name) {
                 return true;
             }
         } else if attribute_contains_identifier(&n, source, name) {
@@ -237,6 +250,10 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
 }
 
 /// Payload for a function node: "`pub::name`" if public, "`test::name`" if test, "`bench::name`" if bench, else "name". Used for dead-code entry point detection.
+///
+/// Note: `test` detection recurses into `#[cfg(test)]` token trees, but `bench`
+/// does not recurse into `#[cfg(bench)]` (conditional compilation, not a benchmark).
+/// See `attribute_contains_identifier` for the distinction.
 fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let name = name_of_node(node, source)?;
     let is_pub = node
@@ -316,6 +333,72 @@ fn resolve_method_call_target(
     None
 }
 
+/// Returns true if the `token_tree` node's source text starts with `(` (parenthesized group).
+fn token_tree_starts_with_paren(node: &tree_sitter::Node, source: &str) -> bool {
+    let r = node.byte_range();
+    source
+        .get(r.start..r.end)
+        .is_some_and(|s| s.starts_with('('))
+}
+
+/// Scan a macro invocation's body for call-like patterns (identifier followed by `( ... )`).
+/// Creates placeholder call edges so the calls phase can resolve them.
+fn scan_macro_for_calls(
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    parent: Option<&NodeId>,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let Some(parent_id) = parent else {
+        return;
+    };
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        if child.kind() == "token_tree" && token_tree_starts_with_paren(&child, source) {
+            scan_token_tree_for_calls(&child, source, file_id, parent_id, edges);
+        }
+        i += 1;
+    }
+}
+
+/// Recursively scan a `token_tree` for identifier followed by parenthesized `token_tree`.
+/// Skips method calls (previous sibling `.`) and nested macros (next sibling `!`).
+fn scan_token_tree_for_calls(
+    tt: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    parent: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let mut i = 0;
+    let mut prev_kind: Option<String> = None;
+    while let Some(child) = tt.child(i) {
+        let kind = child.kind().to_string();
+        let next = tt.child(i + 1);
+        if kind == "identifier" {
+            let prev_is_dot = prev_kind.as_deref() == Some(".");
+            if !prev_is_dot {
+                if let Some(next_tt) = next {
+                    if next_tt.kind() == "token_tree"
+                        && token_tree_starts_with_paren(&next_tt, source)
+                    {
+                        if let Some(name) = source.get(child.byte_range()) {
+                            let callee_id = NodeId::new(format!("{}::{}", file_id.as_str(), name));
+                            edges.push((parent.clone(), callee_id, EdgeType::Calls));
+                        }
+                    }
+                }
+            }
+        }
+        if kind == "token_tree" {
+            scan_token_tree_for_calls(&child, source, file_id, parent, edges);
+        }
+        prev_kind = Some(kind);
+        i += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -328,9 +411,10 @@ mod tests {
     #[test]
     fn extract_ast_single_function() {
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/test.rs");
         let content = "fn foo() {}";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         assert!(rows.rows.len() >= 2, "expected file + function nodes");
         let types: Vec<String> = rows
@@ -346,10 +430,11 @@ mod tests {
     #[test]
     fn extract_ast_invalid_rust_partial_ast() {
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/test.rs");
         let content = "not valid rust {{{";
         // We tolerate parse errors and continue with partial AST instead of bailing.
-        let result = extract_ast(&store, path, content);
+        let result = extract_ast(&store, path, content, root);
         assert!(result.is_ok(), "partial AST should be accepted: {result:?}");
         let rows = Query::all_nodes(&store).unwrap();
         assert!(!rows.rows.is_empty(), "expected at least file node");
@@ -358,9 +443,10 @@ mod tests {
     #[test]
     fn extract_ast_trait_has_name_payload() {
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/test.rs");
         let content = "trait Draw { fn draw(&self); }";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         let trait_rows: Vec<_> = rows
             .rows
@@ -384,9 +470,10 @@ mod tests {
     #[test]
     fn extract_ast_bench_function_has_bench_prefix() {
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/benches/foo.rs");
         let content = "#[bench] fn my_bench(_: &mut Bencher) {}";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         let fn_rows: Vec<_> = rows
             .rows
@@ -413,9 +500,10 @@ mod tests {
     fn extract_ast_multi_attr_bench_after_other() {
         // #[bench] is not the immediate prev sibling; we walk back and still detect it.
         let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
         let path = Path::new("/multi.rs");
         let content = "#[allow(dead_code)]\n#[bench]\nfn multi_bench(b: &mut Bencher) {}";
-        extract_ast(&store, path, content).unwrap();
+        extract_ast(&store, path, content, root).unwrap();
         let rows = Query::all_nodes(&store).unwrap();
         let fn_rows: Vec<_> = rows
             .rows
@@ -435,6 +523,69 @@ mod tests {
                 .as_ref()
                 .is_some_and(|p| p.contains("bench::multi_bench")),
             "expected bench:: prefix when #[bench] follows another attribute, got {payload:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_cfg_bench_not_bench_entry_point() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/cfg_bench.rs");
+        let content = "#[cfg(bench)]\nfn not_a_bench() {}";
+        extract_ast(&store, path, content, root).unwrap();
+        let rows = Query::all_nodes(&store).unwrap();
+        let fn_rows: Vec<_> = rows
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(1)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "function")
+            })
+            .collect();
+        assert!(
+            !fn_rows.is_empty(),
+            "expected at least one function node, got {rows:?}"
+        );
+        let payload = fn_rows[0].get(2).map(std::string::ToString::to_string);
+        assert!(
+            payload
+                .as_ref()
+                .is_some_and(|p| p.contains("not_a_bench") && !p.contains("bench::")),
+            "#[cfg(bench)] fn should not get bench:: prefix, got {payload:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_call_inside_macro() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = "fn caller() { format!(\"{}\", callee()); }\nfn callee() {}";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let calls: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "calls")
+            })
+            .collect();
+        assert!(
+            !calls.is_empty(),
+            "expected at least one Calls edge from macro body, got {} edges total",
+            edges.rows.len()
+        );
+        let to_vals: Vec<String> = calls
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        assert!(
+            to_vals.iter().any(|t| t.contains("callee")),
+            "expected a call edge to callee (placeholder or resolved), got {to_vals:?}"
         );
     }
 }

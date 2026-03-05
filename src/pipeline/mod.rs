@@ -37,7 +37,7 @@ pub struct PipelineConfig {
 pub fn run_pipeline(store: &Store, root: &Path, config: &PipelineConfig) -> Result<()> {
     let files = discover_files(root)?;
     for (path, content) in &files {
-        extract_ast(store, path, content)?;
+        extract_ast(store, path, content, root)?;
     }
     resolve_modules(store, root)?; // Imports edges must exist before call resolution
     build_call_graph(store)?;

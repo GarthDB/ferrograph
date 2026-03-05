@@ -222,8 +222,8 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
     let mut module_path_to_file_id = BTreeMap::new();
 
     for file_id in &file_id_to_path {
-        let path = Path::new(file_id.as_str());
-        if let Some(module_path) = file_to_module_path(root, path) {
+        let path = root.join(file_id.as_str());
+        if let Some(module_path) = file_to_module_path(root, &path) {
             file_id_to_module_path.insert(file_id.clone(), module_path.clone());
             let prefer = module_path == "crate"
                 && module_path_to_file_id
@@ -271,7 +271,7 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
                 let target_canon = target_path.canonicalize().ok();
                 if let Some(sub_file_id) = file_id_to_path
                     .iter()
-                    .find(|fid| Path::new(fid.as_str()).canonicalize().ok() == target_canon)
+                    .find(|fid| root.join(fid.as_str()).canonicalize().ok() == target_canon)
                 {
                     module_path_to_file_id.insert(sub_path, sub_file_id.clone());
                 }
@@ -286,13 +286,17 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
     }
 }
 
-fn collect_imports_to_add(maps: &ModuleMaps, store: &Store) -> Vec<(NodeId, NodeId, EdgeType)> {
+fn collect_imports_to_add(
+    maps: &ModuleMaps,
+    store: &Store,
+    root: &Path,
+) -> Vec<(NodeId, NodeId, EdgeType)> {
     let mut out = Vec::new();
     for file_id in &maps.file_id_to_path {
         let Some(module_path) = maps.file_id_to_module_path.get(file_id) else {
             continue;
         };
-        let Ok(content) = std::fs::read_to_string(Path::new(file_id.as_str())) else {
+        let Ok(content) = std::fs::read_to_string(root.join(file_id.as_str())) else {
             continue;
         };
         for use_path in collect_use_paths(&content) {
@@ -331,7 +335,7 @@ pub fn resolve_modules(store: &Store, root: &Path) -> Result<()> {
     )?;
 
     let maps = build_module_maps(&root, &nodes, &edges);
-    let imports_to_add = collect_imports_to_add(&maps, store);
+    let imports_to_add = collect_imports_to_add(&maps, store, &root);
 
     for (from, to, et) in imports_to_add {
         store.put_edge(&from, &to, &et)?;
@@ -391,7 +395,7 @@ mod tests {
         std::fs::write(src.join("utils.rs"), "pub fn add() {}").unwrap();
         let files = crate::pipeline::discovery::discover_files(root).unwrap();
         for (path, content) in &files {
-            crate::pipeline::ast::extract_ast(&store, path, content).unwrap();
+            crate::pipeline::ast::extract_ast(&store, path, content, root).unwrap();
         }
         resolve_modules(&store, root).unwrap();
         let edges = crate::graph::Query::all_edges(&store).unwrap();
