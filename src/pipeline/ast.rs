@@ -571,8 +571,7 @@ mod tests {
             .iter()
             .filter(|r| {
                 r.get(2)
-                    .map(|v| v.to_string().trim_matches('"') == "calls")
-                    .unwrap_or(false)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "calls")
             })
             .collect();
         assert!(

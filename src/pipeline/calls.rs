@@ -296,17 +296,17 @@ mod tests {
         // Edge with to_id = bare "callee" (no ::) should resolve via same-file lookup.
         let store = Store::new_memory().unwrap();
         let path = "./src/lib.rs";
-        let callee_id = NodeId::new(format!("{path}#10:1"));
+        let target = NodeId::new(format!("{path}#10:1"));
         store
-            .put_node(&callee_id, &NodeType::Function, Some("callee"))
+            .put_node(&target, &NodeType::Function, Some("callee"))
             .unwrap();
-        let caller_id = NodeId::new(format!("{path}#5:1"));
+        let origin = NodeId::new(format!("{path}#5:1"));
         store
-            .put_node(&caller_id, &NodeType::Function, Some("caller"))
+            .put_node(&origin, &NodeType::Function, Some("caller"))
             .unwrap();
         let placeholder = NodeId::new("callee".to_string());
         store
-            .put_edge(&caller_id, &placeholder, &EdgeType::Calls)
+            .put_edge(&origin, &placeholder, &EdgeType::Calls)
             .unwrap();
         build_call_graph(&store).unwrap();
         let edges = Query::all_edges(&store).unwrap();

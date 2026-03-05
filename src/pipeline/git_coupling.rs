@@ -90,9 +90,7 @@ fn analyze_git_coupling_impl(store: &Store, root: &Path) -> Result<()> {
                 let path = std::path::Path::new(path_str.as_ref());
                 let full = root.join(path);
                 if let Ok(canon) = full.canonicalize() {
-                    let rel = canon
-                        .strip_prefix(&root)
-                        .unwrap_or_else(|_| canon.as_path());
+                    let rel = canon.strip_prefix(&root).unwrap_or(canon.as_path());
                     rs_files.insert(format!("./{}", rel.to_string_lossy()));
                 } else {
                     rs_files.insert(format!("./{}", path.to_string_lossy()));
