@@ -158,7 +158,7 @@ fn run_search(db: Option<&PathBuf>, query: &str, case_insensitive: bool) -> Resu
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let rows = crate::search::text_search(&store, query, case_insensitive)?;
+    let (rows, _total) = crate::search::text_search(&store, query, case_insensitive, 10_000, 0)?;
     for (id, node_type, payload) in rows {
         let payload_display = payload.as_deref().unwrap_or("—");
         println!("{id}\t{node_type}\t{payload_display}");
