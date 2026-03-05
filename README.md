@@ -4,7 +4,7 @@ Graph-powered Rust code intelligence. Indexes Rust codebases into a queryable kn
 
 ## Status
 
-Implements file discovery, tree-sitter AST extraction (functions, structs, enums, traits, impls, consts, statics, macros, modules), `mod`/`use` resolution with Imports edges, call graph construction (same-file and cross-file via imports), dead code detection (`pub`, `main`, and `#[test]` entry points), CozoDB graph storage, CLI (index, query, search, status, watch), MCP server (`dead_code` and `blast_radius` tools), and optional git change-coupling analysis. Trait/ownership resolution is stubbed for future rust-analyzer integration.
+Implements file discovery, tree-sitter AST extraction (functions, structs, enums, traits, impls, consts, statics, macros, modules), `mod`/`use` resolution with Imports edges, call graph construction (same-file and cross-file via imports; includes calls inside macro invocations such as `format!()` and `println!()`), dead code detection (`pub`, `main`, `#[test]`, and `#[bench]` entry points), CozoDB graph storage, CLI (index, query, search, status, watch), MCP server with 10 tools (`reindex`, `status`, `search`, `node_info`, `dead_code`, `blast_radius`, `callers`, `query`, `trait_implementors`, `module_graph`), and optional git change-coupling analysis. Node IDs are relative to the project root (e.g. `./src/main.rs#10:1`). Trait/ownership resolution is stubbed for future rust-analyzer integration.
 
 ## Build
 
@@ -43,7 +43,24 @@ cargo run -- watch . --output .ferrograph
 cargo run -- mcp
 ```
 
-**MCP configuration:** Point the MCP server at your graph by either running it from the project root (after `ferrograph index --output .ferrograph`) or setting the `FERROGRAPH_DB` environment variable to the path of your `.ferrograph` (or other) database file.
+**MCP configuration:** The MCP server looks for a graph at `FERROGRAPH_DB` or `.ferrograph` in the project directory. You can bootstrap an index from scratch using the `reindex` tool (no CLI step required), or run `ferrograph index --output .ferrograph` first. Set `FERROGRAPH_DB` to the path of your database file to use a specific graph.
+
+### MCP tools
+
+Node IDs use the format `./path/to/file.rs#line:col` (relative to the project root).
+
+| Tool | Description |
+|------|-------------|
+| `reindex` | Re-index the project; can bootstrap from scratch (no pre-existing DB needed). |
+| `status` | Node/edge counts, DB path, `indexed_at` timestamp. |
+| `search` | Text search over node payloads; supports limit/offset pagination. |
+| `node_info` | Type, payload, and incoming/outgoing edges for a node ID. |
+| `dead_code` | Functions not reachable from entry points; optional `node_type` and `file_glob` filters. |
+| `blast_radius` | Transitive impact set via calls, references, and changes_with edges. |
+| `callers` | Direct and transitive callers up to a given depth. |
+| `query` | Raw Datalog queries (read-only; mutations rejected). |
+| `trait_implementors` | Find implementations of a named trait (stub; returns empty with note). |
+| `module_graph` | File-to-module containment edges; optional relative path prefix filter (e.g. `./src/`). |
 
 ## Graph schema (edge types)
 
