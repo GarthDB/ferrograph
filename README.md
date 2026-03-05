@@ -2,6 +2,12 @@
   <img src="assets/logo-stacked.svg" alt="Ferrograph" width="320" />
 </p>
 
+<p align="center">
+  <a href="https://crates.io/crates/ferrograph"><img src="https://img.shields.io/crates/v/ferrograph" alt="crates.io"></a>
+  <a href="https://github.com/GarthDB/ferrograph/actions/workflows/ci.yml"><img src="https://github.com/GarthDB/ferrograph/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/GarthDB/ferrograph/blob/main/LICENSE"><img src="https://img.shields.io/crates/l/ferrograph" alt="License"></a>
+</p>
+
 Graph-powered Rust code intelligence. Indexes Rust codebases into a queryable knowledge graph with CLI and MCP interfaces.
 
 ## Status
