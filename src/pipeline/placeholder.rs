@@ -43,7 +43,7 @@ pub fn resolve_placeholder_edges(
         if payload.is_empty() {
             continue;
         }
-        let node_id = NodeId(id_str.clone());
+        let node_id = NodeId::new(id_str.clone());
         let file_path = id_str.split('#').next().unwrap_or(&id_str).to_string();
         local
             .entry((file_path.clone(), payload.clone()))
@@ -88,8 +88,8 @@ pub fn resolve_placeholder_edges(
             &imports_map,
             &global_by_name,
         );
-        let from_id = NodeId(from_str.clone());
-        let placeholder_to = NodeId(to_str.clone());
+        let from_id = NodeId::new(from_str.clone());
+        let placeholder_to = NodeId::new(to_str.clone());
         store.remove_edge(&from_id, &placeholder_to, edge_type)?;
         if let Some(target_id) = resolved {
             store.put_edge(&from_id, &target_id, edge_type)?;
