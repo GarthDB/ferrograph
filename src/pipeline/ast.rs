@@ -230,6 +230,7 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
                 return true;
             }
         } else if n.kind() == "token_tree" {
+            // Recurse only for "test": #[cfg(test)] marks a test context. For "bench", #[cfg(bench)] is conditional compilation, not a benchmark.
             if name == "test" && attribute_contains_identifier(&n, source, name) {
                 return true;
             }

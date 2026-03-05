@@ -620,7 +620,6 @@ impl FerrographMcp {
             .collect();
         Ok(CallToolResult::structured(serde_json::json!({
             "results": results,
-            "count": results.len(),
             "total": total,
             "offset": offset,
             "limit": limit
@@ -643,17 +642,18 @@ impl FerrographMcp {
         let script = get_str_arg(request, "script").ok_or_else(|| {
             rmcp::ErrorData::invalid_params("missing required parameter: script", None)
         })?;
-        let script_lower = script.to_lowercase();
-        // Store::run_query uses ScriptMutability::Immutable; Cozo rejects mutations. This blocklist gives a clearer error before hitting the DB.
-        let mut normalized = script_lower;
+        let mut normalized = script.to_lowercase();
         while normalized.contains(": ") {
             normalized = normalized.replace(": ", ":");
         }
-        for line in normalized.lines() {
-            let trimmed = line.trim();
+        // Store::run_query uses ScriptMutability::Immutable; Cozo rejects mutations. This blocklist gives a clearer error before hitting the DB.
+        // Single pass: check mutation directives and build script with existing :limit lines stripped.
+        let mut stripped_lines: Vec<&str> = Vec::new();
+        for (line_orig, line_norm) in script.lines().zip(normalized.lines()) {
+            let trimmed_norm = line_norm.trim();
             for directive in MUTATION_DIRECTIVES {
-                if trimmed.starts_with(directive) {
-                    let rest = trimmed.get(directive.len()..).unwrap_or_default();
+                if trimmed_norm.starts_with(directive) {
+                    let rest = trimmed_norm.get(directive.len()..).unwrap_or_default();
                     let is_directive = rest.is_empty()
                         || rest
                             .chars()
@@ -667,14 +667,12 @@ impl FerrographMcp {
                     }
                 }
             }
+            if !trimmed_norm.starts_with(":limit") {
+                stripped_lines.push(line_orig);
+            }
         }
         let limit = parse_limit(request, 100, 10_000);
-        let stripped: String = script
-            .lines()
-            .filter(|line| !line.trim().to_lowercase().starts_with(":limit"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let script_with_limit = format!("{}\n:limit {limit}", stripped.trim());
+        let script_with_limit = format!("{}\n:limit {limit}", stripped_lines.join("\n").trim());
         let params = std::collections::BTreeMap::new();
         let result = store
             .run_query(&script_with_limit, params)
@@ -813,16 +811,23 @@ impl FerrographMcp {
             })));
         }
         let path_buf = store_path.to_path_buf();
-        let mut cache_guard = self.cached.lock().await;
-        let store = match &*cache_guard {
-            Some((ref cached_path, ref s)) if *cached_path == path_buf => Arc::clone(s),
-            _ => {
-                let new_store = crate::graph::Store::new_persistent(store_path).map_err(|e| {
-                    rmcp::ErrorData::internal_error(format!("Failed to open graph: {e}"), None)
-                })?;
-                let new_store = Arc::new(new_store);
-                *cache_guard = Some((path_buf, Arc::clone(&new_store)));
-                new_store
+        // Resolve store under lock, then drop lock so other tools can run during reindex.
+        let store = {
+            let mut cache_guard = self.cached.lock().await;
+            match &*cache_guard {
+                Some((ref cached_path, ref s)) if *cached_path == path_buf => Arc::clone(s),
+                _ => {
+                    let new_store =
+                        crate::graph::Store::new_persistent(store_path).map_err(|e| {
+                            rmcp::ErrorData::internal_error(
+                                format!("Failed to open graph: {e}"),
+                                None,
+                            )
+                        })?;
+                    let new_store = Arc::new(new_store);
+                    *cache_guard = Some((path_buf, Arc::clone(&new_store)));
+                    new_store
+                }
             }
         };
         let root_clone = root.clone();
@@ -846,10 +851,7 @@ impl FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Reindex (edge_count) failed: {e}"), None)
         })?;
-        let indexed_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()
-            .map(|d| d.as_secs());
+        let indexed_at = indexed_at_epoch(store_path);
         Ok(CallToolResult::structured(serde_json::json!({
             "ok": true,
             "message": "Reindex complete",
@@ -1141,6 +1143,7 @@ mod tests {
     #[test]
     fn handle_query_accepts_line_starting_with_rmcp() {
         // A line starting with ":rmcp" must not be rejected as mutation directive ":rm".
+        // Cozo may reject ":rmcp" as an unknown directive; that is acceptable. This test only verifies the blocklist does not fire.
         let store = Store::new_memory().unwrap();
         let mut args = serde_json::Map::new();
         args.insert(
@@ -1149,11 +1152,15 @@ mod tests {
         );
         let request = tool_request("query", Some(args));
         let result = FerrographMcp::handle_query(&request, &store);
-        if let Err(e) = &result {
-            assert!(
-                !e.to_string().contains("mutation directive"),
-                "line starting with :rmcp should not be rejected as mutation directive, got {e}"
-            );
+        match &result {
+            Ok(_) => {}
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    !msg.contains("mutation directive"),
+                    "line starting with :rmcp should not be rejected as mutation directive, got {msg}"
+                );
+            }
         }
     }
 
@@ -1223,7 +1230,6 @@ mod tests {
         let request = tool_request("search", Some(args));
         let result = FerrographMcp::handle_search(&request, &store).unwrap();
         let json = result_json(result);
-        assert_eq!(json.get("count").unwrap().as_u64().unwrap(), 2);
         assert_eq!(json.get("total").unwrap().as_u64().unwrap(), 3);
         assert_eq!(json.get("offset").unwrap().as_u64().unwrap(), 1);
         assert_eq!(json.get("limit").unwrap().as_u64().unwrap(), 2);
