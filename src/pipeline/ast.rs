@@ -688,10 +688,10 @@ mod tests {
         let store = Store::new_memory().unwrap();
         let root = Path::new("/");
         let path = Path::new("/test.rs");
-        let content = r#"
+        let content = r"
             unsafe fn unsafe_fn() {}
             fn with_unsafe_block() { unsafe { } }
-        "#;
+        ";
         extract_ast(&store, path, content, root).unwrap();
         let edges = Query::all_edges(&store).unwrap();
         let uses_unsafe: Vec<_> = edges
