@@ -372,7 +372,9 @@ impl ServerHandler for FerrographMcp {
                 uri: "ferrograph://status".to_string(),
                 name: "status".to_string(),
                 title: Some("Graph status".to_string()),
-                description: Some("Node count, edge count, and db path".to_string()),
+                description: Some(
+                    "Node count, edge count, db path, and indexed_at timestamp".to_string(),
+                ),
                 mime_type: Some("application/json".to_string()),
                 size: None,
                 icons: None,
@@ -454,7 +456,7 @@ impl ServerHandler for FerrographMcp {
             "node_info" => Self::handle_node_info(&request, &store)?,
             "trait_implementors" => Self::handle_trait_implementors(&request, &store)?,
             "module_graph" => Self::handle_module_graph(&request, &store)?,
-            "reindex" => Self::handle_reindex(self, &request, &store_path).await?,
+            "reindex" => self.handle_reindex(&request, &store, &store_path).await?,
             _ => {
                 return Err(rmcp::ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -678,7 +680,12 @@ impl FerrographMcp {
                     }
                 }
             }
-            if !trimmed_norm.starts_with(":limit") {
+            let is_limit_directive = if let Some(rest) = trimmed_norm.strip_prefix(":limit") {
+                rest.is_empty() || rest.chars().next().is_some_and(char::is_whitespace)
+            } else {
+                false
+            };
+            if !is_limit_directive {
                 stripped_lines.push(line_orig);
             }
         }
@@ -803,6 +810,7 @@ impl FerrographMcp {
     async fn handle_reindex(
         &self,
         request: &CallToolRequestParams,
+        store: &Arc<crate::graph::Store>,
         store_path: &Path,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let root = get_str_arg(request, "path").map_or_else(
@@ -821,9 +829,8 @@ impl FerrographMcp {
                 "path": root.display().to_string()
             })));
         }
-        let store = self.get_or_open_store(store_path).await?;
         let root_clone = root.clone();
-        let store_clone = Arc::clone(&store);
+        let store_clone = Arc::clone(store);
         // Note: between clear() and pipeline completion, concurrent tool calls will see
         // an empty or partial graph. Acceptable for v1; a future version could swap the
         // store atomically after reindex completes.
@@ -846,7 +853,10 @@ impl FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Reindex (edge_count) failed: {e}"), None)
         })?;
-        let indexed_at = indexed_at_epoch(store_path);
+        let indexed_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs());
         Ok(CallToolResult::structured(serde_json::json!({
             "ok": true,
             "message": "Reindex complete",
