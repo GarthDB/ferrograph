@@ -34,6 +34,15 @@ pub struct NodeInfo {
     pub incoming_edges: Vec<EdgeEndpoint>,
 }
 
+/// One edge in the module containment graph (Contains between `file`/`module`/`crate_root`).
+#[derive(Debug, Clone, Serialize)]
+pub struct ModuleEdge {
+    pub from_id: String,
+    pub to_id: String,
+    pub from_type: String,
+    pub to_type: String,
+}
+
 /// Extract optional string from a Cozo payload cell (Null → None).
 fn optional_payload(v: &DataValue) -> Option<String> {
     if matches!(v, DataValue::Null) {
@@ -302,10 +311,7 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn module_graph(
-        store: &Store,
-        path_prefix: Option<&str>,
-    ) -> Result<Vec<(String, String, String, String)>> {
+    pub fn module_graph(store: &Store, path_prefix: Option<&str>) -> Result<Vec<ModuleEdge>> {
         let (script, params) = match path_prefix {
             Some(prefix) if !prefix.is_empty() => {
                 let mut params = BTreeMap::new();
@@ -336,16 +342,14 @@ impl Query {
             ),
         };
         let rows = store.run_query(script.trim(), params)?;
-        let results: Vec<(String, String, String, String)> = rows
+        let results: Vec<ModuleEdge> = rows
             .rows
             .iter()
-            .map(|row| {
-                (
-                    row.first().map(unquote_datavalue).unwrap_or_default(),
-                    row.get(1).map(unquote_datavalue).unwrap_or_default(),
-                    row.get(2).map(unquote_datavalue).unwrap_or_default(),
-                    row.get(3).map(unquote_datavalue).unwrap_or_default(),
-                )
+            .map(|row| ModuleEdge {
+                from_id: row.first().map(unquote_datavalue).unwrap_or_default(),
+                to_id: row.get(1).map(unquote_datavalue).unwrap_or_default(),
+                from_type: row.get(2).map(unquote_datavalue).unwrap_or_default(),
+                to_type: row.get(3).map(unquote_datavalue).unwrap_or_default(),
             })
             .collect();
         Ok(results)
@@ -605,7 +609,7 @@ mod tests {
             .unwrap();
         let edges = Query::module_graph(&store, None).unwrap();
         assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].0, "file://a");
-        assert_eq!(edges[0].1, "mod://b");
+        assert_eq!(edges[0].from_id, "file://a");
+        assert_eq!(edges[0].to_id, "mod://b");
     }
 }

@@ -495,7 +495,7 @@ fn parse_depth(request: &CallToolRequestParams) -> u32 {
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(1)
         .min(100);
-    u32::try_from(n).unwrap_or(1).min(100)
+    u32::try_from(n).unwrap_or(1)
 }
 
 impl FerrographMcp {
@@ -646,7 +646,8 @@ impl FerrographMcp {
         while normalized.contains(": ") {
             normalized = normalized.replace(": ", ":");
         }
-        // Store::run_query uses ScriptMutability::Immutable; Cozo rejects mutations. This blocklist gives a clearer error before hitting the DB.
+        // Defense-in-depth: Cozo's ScriptMutability::Immutable is the real safety net;
+        // this line-start check provides clearer errors for common cases.
         // Single pass: check mutation directives and build script with existing :limit lines stripped.
         let mut stripped_lines: Vec<&str> = Vec::new();
         for (line_orig, line_norm) in script.lines().zip(normalized.lines()) {
@@ -774,12 +775,12 @@ impl FerrographMcp {
         })?;
         let results: Vec<serde_json::Value> = edges
             .into_iter()
-            .map(|(from_id, to_id, from_type, to_type)| {
+            .map(|e| {
                 serde_json::json!({
-                    "from_id": from_id,
-                    "to_id": to_id,
-                    "from_type": from_type,
-                    "to_type": to_type
+                    "from_id": e.from_id,
+                    "to_id": e.to_id,
+                    "from_type": e.from_type,
+                    "to_type": e.to_type
                 })
             })
             .collect();
@@ -832,6 +833,9 @@ impl FerrographMcp {
         };
         let root_clone = root.clone();
         let store_clone = Arc::clone(&store);
+        // Note: between clear() and pipeline completion, concurrent tool calls will see
+        // an empty or partial graph. Acceptable for v1; a future version could swap the
+        // store atomically after reindex completes.
         let blocking_result = tokio::task::spawn_blocking(move || {
             store_clone.clear().map_err(|e| {
                 rmcp::ErrorData::internal_error(format!("Reindex (clear) failed: {e}"), None)
@@ -851,7 +855,10 @@ impl FerrographMcp {
         let edge_count = store.edge_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Reindex (edge_count) failed: {e}"), None)
         })?;
-        let indexed_at = indexed_at_epoch(store_path);
+        let indexed_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs());
         Ok(CallToolResult::structured(serde_json::json!({
             "ok": true,
             "message": "Reindex complete",
