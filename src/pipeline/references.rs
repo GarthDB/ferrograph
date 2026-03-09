@@ -8,7 +8,7 @@ use crate::graph::Store;
 use super::placeholder;
 
 /// Resolve placeholder `References` edges (`from_id` → `file::TypeName`) to concrete type node IDs.
-/// Type nodes are `struct`, `enum`, `trait`, `type_alias`. Uses same-file and import-based resolution.
+/// Type nodes are `struct`, `enum`, `trait`, `type_alias`, and primitive. Uses same-file and import-based resolution.
 ///
 /// # Errors
 /// Fails if the store query or update fails.
@@ -21,6 +21,7 @@ pub fn resolve_reference_edges(store: &Store) -> Result<()> {
             NodeType::Enum,
             NodeType::Trait,
             NodeType::TypeAlias,
+            NodeType::Primitive,
         ],
     )
 }
