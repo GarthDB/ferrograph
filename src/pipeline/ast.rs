@@ -135,6 +135,10 @@ fn classify_node(
             push_owns_or_borrows_edge(parent, node, source, file_id, edges);
             (None, None, None)
         }
+        "ordered_field_declaration_list" => {
+            push_owns_or_borrows_edges_for_tuple_fields(parent, node, source, file_id, edges);
+            (None, None, None)
+        }
         _ => (None, None, None),
     }
 }
@@ -400,6 +404,52 @@ fn impl_trait_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
         i += 1;
     }
     None
+}
+
+/// Emit one `Owns` or `Borrows` placeholder edge per type in a tuple struct's `ordered_field_declaration_list`.
+/// The list may contain a repeat node (e.g. `ordered_field_declaration_list_repeat1`), so we recurse into
+/// non-punctuation children to find each field type.
+fn push_owns_or_borrows_edges_for_tuple_fields(
+    parent: Option<&NodeId>,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let Some(from) = parent else {
+        return;
+    };
+    collect_and_push_tuple_field_types(from, node, source, file_id, edges);
+}
+
+fn collect_and_push_tuple_field_types(
+    from: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    if let Some((type_name, is_borrow)) = find_type_name_and_ownership(node, source) {
+        let edge_type = if is_borrow {
+            EdgeType::Borrows
+        } else {
+            EdgeType::Owns
+        };
+        edges.push((
+            from.clone(),
+            NodeId::new(format!("{}::{}", file_id.as_str(), type_name)),
+            edge_type,
+        ));
+        return;
+    }
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        let k = child.kind();
+        if k != "(" && k != ")" && k != "," {
+            collect_and_push_tuple_field_types(from, &child, source, file_id, edges);
+        }
+        i += 1;
+    }
 }
 
 /// Emit `Owns` or `Borrows` placeholder edge from parent to type for `field_declaration` or `parameter` nodes.
@@ -919,6 +969,40 @@ mod tests {
         assert!(
             to_borrows.iter().any(|t| t.contains("str")),
             "borrows should include target str, got {to_borrows:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_tuple_struct_owns_placeholders() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = "pub struct Pair(Point, i32);";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let owns: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "owns")
+            })
+            .collect();
+        assert!(
+            !owns.is_empty(),
+            "tuple struct Pair(Point, i32) should emit at least one owns edge, got {}",
+            owns.len()
+        );
+        let to_vals: Vec<String> = owns
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        assert!(
+            to_vals.iter().any(|t| t.contains("Point")),
+            "owns should include Point (tuple field type), got {to_vals:?}"
         );
     }
 }

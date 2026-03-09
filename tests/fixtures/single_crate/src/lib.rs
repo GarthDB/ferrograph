@@ -48,6 +48,9 @@ pub fn borrow_ref(p: &Point) -> &Point {
     p
 }
 
+/// Tuple struct (exercises ordered_field_declaration_list owns edges).
+pub struct Pair(pub Point, pub i32);
+
 pub fn use_add() -> i32 {
     utils::add(1, 2)
 }
