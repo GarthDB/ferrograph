@@ -48,6 +48,15 @@ pub fn borrow_ref(p: &Point) -> &Point {
     p
 }
 
+/// Struct with explicit lifetime (exercises lifetime_scope edge).
+pub struct Wrapper<'a> {
+    pub inner: &'a str,
+}
+
+pub fn with_lifetime<'a>(s: &'a str) -> &'a str {
+    s
+}
+
 pub fn use_add() -> i32 {
     utils::add(1, 2)
 }

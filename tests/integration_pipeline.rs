@@ -140,6 +140,10 @@ fn pipeline_indexes_single_crate() {
         etypes.contains(&"borrows".to_string()),
         "expected Borrows edges (e.g. borrow_ref->Point), got: {etypes:?}"
     );
+    assert!(
+        etypes.contains(&"lifetime_scope".to_string()),
+        "expected LifetimeScope edges (e.g. self-loop on Wrapper, with_lifetime), got: {etypes:?}"
+    );
     let dead = ferrograph::graph::Query::stored_dead_functions(&store).unwrap();
     assert!(
         !dead.is_empty(),
