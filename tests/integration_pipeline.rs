@@ -71,6 +71,67 @@ fn assert_test_fns_not_dead(store: &Store) {
     }
 }
 
+/// Find a node ID by payload (substring match) and optional type. Prefers lib.rs for `single_crate`.
+fn find_node_id(
+    store: &Store,
+    payload_contains: &str,
+    node_type_filter: Option<&str>,
+) -> Option<String> {
+    let nodes = ferrograph::graph::Query::all_nodes(store).unwrap();
+    for row in &nodes.rows {
+        let id = row
+            .first()
+            .map(|v| v.to_string().trim_matches('"').to_string())?;
+        let typ = row
+            .get(1)
+            .map(|v| v.to_string().trim_matches('"').to_string())?;
+        let payload = row
+            .get(2)
+            .map(|v| v.to_string().trim_matches('"').to_string())?;
+        if payload.contains(payload_contains)
+            && node_type_filter.is_none_or(|t| typ == t)
+            && id.contains("lib.rs")
+        {
+            return Some(id);
+        }
+    }
+    None
+}
+
+/// Assert that an edge exists from a node (by payload) to another (by payload) with the given edge type.
+fn assert_has_edge(
+    store: &Store,
+    from_payload: &str,
+    from_type: &str,
+    to_payload: &str,
+    to_type: &str,
+    edge_type: &str,
+) {
+    let from_id = find_node_id(store, from_payload, Some(from_type))
+        .unwrap_or_else(|| panic!("node not found: {from_payload} ({from_type})"));
+    let to_id = find_node_id(store, to_payload, Some(to_type))
+        .unwrap_or_else(|| panic!("node not found: {to_payload} ({to_type})"));
+    let edges = ferrograph::graph::Query::all_edges(store).unwrap();
+    let has = edges.rows.iter().any(|r| {
+        r.get(2)
+            .map(|v| v.to_string().trim_matches('"').to_string())
+            .as_deref()
+            == Some(edge_type)
+            && r.first()
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .as_deref()
+                == Some(from_id.as_str())
+            && r.get(1)
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .as_deref()
+                == Some(to_id.as_str())
+    });
+    assert!(
+        has,
+        "expected {edge_type} edge from {from_payload} to {to_payload}, from_id={from_id}, to_id={to_id}"
+    );
+}
+
 fn assert_call_to_greet(store: &Store) {
     let edges = ferrograph::graph::Query::all_edges(store).unwrap();
     let nodes = ferrograph::graph::Query::all_nodes(store).unwrap();
@@ -132,6 +193,24 @@ fn pipeline_indexes_single_crate() {
         etypes.contains(&"calls".to_string()),
         "expected Calls edges (e.g. main -> bar), got: {etypes:?}"
     );
+    assert!(
+        etypes.contains(&"owns".to_string()),
+        "expected Owns edges (e.g. Container->Point, take_ownership->Point), got: {etypes:?}"
+    );
+    assert!(
+        etypes.contains(&"borrows".to_string()),
+        "expected Borrows edges (e.g. borrow_ref->Point), got: {etypes:?}"
+    );
+    assert_has_edge(&store, "Container", "struct", "Point", "struct", "owns");
+    assert_has_edge(
+        &store,
+        "borrow_ref",
+        "function",
+        "Point",
+        "struct",
+        "borrows",
+    );
+    assert_has_edge(&store, "Pair", "struct", "Point", "struct", "owns");
     let dead = ferrograph::graph::Query::stored_dead_functions(&store).unwrap();
     assert!(
         !dead.is_empty(),

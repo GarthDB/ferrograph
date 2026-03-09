@@ -131,6 +131,14 @@ fn classify_node(
             }
             (None, None, None)
         }
+        "field_declaration" | "parameter" => {
+            push_owns_or_borrows_edge(parent, node, source, file_id, edges);
+            (None, None, None)
+        }
+        "ordered_field_declaration_list" => {
+            push_owns_or_borrows_edges_for_tuple_fields(parent, node, source, file_id, edges);
+            (None, None, None)
+        }
         _ => (None, None, None),
     }
 }
@@ -392,6 +400,143 @@ fn impl_trait_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
             prev_type = Some(child);
         } else if k != "unsafe" && k != "impl" && !k.starts_with("type_parameters") && k != "!" {
             prev_type = None;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Emit one `Owns` or `Borrows` placeholder edge per type in a tuple struct's `ordered_field_declaration_list`.
+/// The list may contain a repeat node (e.g. `ordered_field_declaration_list_repeat1`), so we recurse into
+/// non-punctuation children to find each field type.
+fn push_owns_or_borrows_edges_for_tuple_fields(
+    parent: Option<&NodeId>,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let Some(from) = parent else {
+        return;
+    };
+    collect_and_push_tuple_field_types(from, node, source, file_id, edges);
+}
+
+fn collect_and_push_tuple_field_types(
+    from: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    if let Some((type_name, is_borrow)) = find_type_name_and_ownership(node, source) {
+        let edge_type = if is_borrow {
+            EdgeType::Borrows
+        } else {
+            EdgeType::Owns
+        };
+        edges.push((
+            from.clone(),
+            NodeId::new(format!("{}::{}", file_id.as_str(), type_name)),
+            edge_type,
+        ));
+        return;
+    }
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        let k = child.kind();
+        if k != "(" && k != ")" && k != "," {
+            collect_and_push_tuple_field_types(from, &child, source, file_id, edges);
+        }
+        i += 1;
+    }
+}
+
+/// Emit `Owns` or `Borrows` placeholder edge from parent to type for `field_declaration` or `parameter` nodes.
+fn push_owns_or_borrows_edge(
+    parent: Option<&NodeId>,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let Some(from) = parent else {
+        return;
+    };
+    let Some((type_name, is_borrow)) = type_and_ownership_from_type_node(node, source) else {
+        return;
+    };
+    let edge_type = if is_borrow {
+        EdgeType::Borrows
+    } else {
+        EdgeType::Owns
+    };
+    edges.push((
+        from.clone(),
+        NodeId::new(format!("{}::{}", file_id.as_str(), type_name)),
+        edge_type,
+    ));
+}
+
+/// Type and ownership from a `field_declaration` or `parameter` node.
+/// Returns (`type_name`, `is_borrow`). For `reference_type` (`&T`/`&mut T`) returns the referent type and true; otherwise the type name and false.
+fn type_and_ownership_from_type_node(
+    node: &tree_sitter::Node,
+    source: &str,
+) -> Option<(String, bool)> {
+    find_type_name_and_ownership(node, source)
+}
+
+/// Recursively find first type and whether it is a reference. Returns (`type_name`, `is_borrow`).
+/// We check `reference_type` before recursing so that we classify &T as borrow, not owns.
+fn find_type_name_and_ownership(node: &tree_sitter::Node, source: &str) -> Option<(String, bool)> {
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        let k = child.kind();
+        if k == "reference_type" {
+            let inner = type_identifier_or_scoped_inside(&child, source)?;
+            return Some((inner, true));
+        }
+        if k == "type_identifier" || k == "scoped_type_identifier" {
+            return type_name_from_node(&child, source).map(|n| (n, false));
+        }
+        if k == "primitive_type" {
+            let r = child.byte_range();
+            return source.get(r.start..r.end).map(|s| (s.to_string(), false));
+        }
+        if k != "identifier"
+            && k != "field_identifier"
+            && k != "visibility_modifier"
+            && k != "mutable_specifier"
+            && !k.starts_with("_pattern")
+            && k != ":"
+        {
+            if let Some(res) = find_type_name_and_ownership(&child, source) {
+                return Some(res);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Type name of the referent inside a `reference_type` node (e.g. `str` from `&str`).
+/// Handles `type_identifier`, `scoped_type_identifier`, and `primitive_type` (e.g. str, i32).
+fn type_identifier_or_scoped_inside(node: &tree_sitter::Node, source: &str) -> Option<String> {
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        let k = child.kind();
+        if k == "type_identifier" || k == "scoped_type_identifier" {
+            return type_name_from_node(&child, source);
+        }
+        if k == "primitive_type" {
+            let r = child.byte_range();
+            return source.get(r.start..r.end).map(String::from);
+        }
+        if k != "&" && k != "lifetime" && k != "mutable_specifier" {
+            if let Some(inner) = type_identifier_or_scoped_inside(&child, source) {
+                return Some(inner);
+            }
         }
         i += 1;
     }
@@ -759,6 +904,105 @@ mod tests {
         assert!(
             to_vals.iter().any(|t| t.contains("callee")),
             "expected a call edge to callee (placeholder or resolved), got {to_vals:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_owns_and_borrows_placeholder_edges() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = r"
+            pub struct Container {
+                owned_data: String,
+                borrowed_ref: &'static str,
+            }
+            pub fn take_ownership(val: String) -> String { val }
+            pub fn borrow_ref(val: &str) -> &str { val }
+        ";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let owns: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "owns")
+            })
+            .collect();
+        let borrows: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "borrows")
+            })
+            .collect();
+        assert!(
+            !owns.is_empty(),
+            "expected at least one owns edge (e.g. struct->String, fn param String), got {}",
+            owns.len()
+        );
+        assert!(
+            !borrows.is_empty(),
+            "expected at least one borrows edge (e.g. &str, &'static str), got {}",
+            borrows.len()
+        );
+        let to_owns: Vec<String> = owns
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        let to_borrows: Vec<String> = borrows
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        assert!(
+            to_owns.iter().any(|t| t.contains("String")),
+            "owns should include target String, got {to_owns:?}"
+        );
+        assert!(
+            to_borrows.iter().any(|t| t.contains("str")),
+            "borrows should include target str, got {to_borrows:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_tuple_struct_owns_placeholders() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = "pub struct Pair(Point, i32);";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let owns: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "owns")
+            })
+            .collect();
+        assert!(
+            !owns.is_empty(),
+            "tuple struct Pair(Point, i32) should emit at least one owns edge, got {}",
+            owns.len()
+        );
+        let to_vals: Vec<String> = owns
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        assert!(
+            to_vals.iter().any(|t| t.contains("Point")),
+            "owns should include Point (tuple field type), got {to_vals:?}"
         );
     }
 }
