@@ -71,7 +71,7 @@ fn assert_test_fns_not_dead(store: &Store) {
     }
 }
 
-/// Find a node ID by payload (substring match) and optional type. Prefers lib.rs for single_crate.
+/// Find a node ID by payload (substring match) and optional type. Prefers lib.rs for `single_crate`.
 fn find_node_id(
     store: &Store,
     payload_contains: &str,
@@ -89,7 +89,7 @@ fn find_node_id(
             .get(2)
             .map(|v| v.to_string().trim_matches('"').to_string())?;
         if payload.contains(payload_contains)
-            && node_type_filter.map_or(true, |t| typ == t)
+            && node_type_filter.is_none_or(|t| typ == t)
             && id.contains("lib.rs")
         {
             return Some(id);
