@@ -217,6 +217,15 @@ fn pipeline_indexes_single_crate() {
     assert_has_edge(&store, "Pair", "struct", "Point", "struct", "owns");
     assert_has_edge(&store, "Container", "struct", "str", "primitive", "borrows");
     assert_has_edge(&store, "Point", "struct", "i32", "primitive", "owns");
+    assert_has_edge(&store, "greet", "function", "str", "primitive", "borrows");
+    assert_has_edge(
+        &store,
+        "create_point",
+        "function",
+        "Point",
+        "struct",
+        "owns",
+    );
     let dead = ferrograph::graph::Query::stored_dead_functions(&store).unwrap();
     assert!(
         !dead.is_empty(),

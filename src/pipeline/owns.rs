@@ -9,7 +9,7 @@
 //! - **Generics, external types**: Edges to types that have no node in the graph (e.g. generic `T`,
 //!   or `Vec` from std) are removed during resolution. Only struct, enum, trait, `type_alias`, and
 //!   primitive nodes in the graph are kept.
-//! - **Return types**: Not included; only struct fields and function parameters drive owns edges.
+//! - **Return types**: Included; functions that return by-value types get an owns edge to that type.
 //! - **Tuple struct fields**: Supported via `ordered_field_declaration_list`.
 
 use anyhow::Result;
