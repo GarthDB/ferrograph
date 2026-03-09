@@ -50,7 +50,8 @@ mod tests {
             .rows
             .iter()
             .filter(|r| {
-                r.get(1).map(|v| v.to_string().trim_matches('"').to_string())
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
                     == Some("primitive".to_string())
             })
             .collect();
