@@ -145,8 +145,8 @@ The schema defines 11 edge types; all 11 are currently populated:
 | `calls`             | Yes         | Same-file and cross-file (via imports) calls. |
 | `references`        | Yes         | Type mentions in fields, params, return types. |
 | `implements_trait`  | Yes         | Trait impls (`impl Trait for Type`). |
-| `owns`              | Yes         | Owned fields/params (tree-sitter; no move analysis). |
-| `borrows`           | Yes         | Borrowed fields/params (`&T`, `&mut T`; tree-sitter only). |
+| `owns`              | Yes         | Struct fields and fn params; unresolvable types (primitives, generics, external) omitted. |
+| `borrows`           | Yes         | Struct fields and fn params (`&T`/`&mut T`); same resolution limits as owns. |
 | `expands_to`        | Yes         | Macro invocation to macro definition. |
 | `uses_unsafe`       | Yes         | Unsafe blocks and `unsafe fn`/`unsafe impl`. |
 | `lifetime_scope`    | Yes         | Self-loop on items with explicit lifetime params (tree-sitter only). |

@@ -2,6 +2,14 @@
 //!
 //! Tracks owned-value relationships (e.g. struct fields by value, function parameters by value).
 //! Tree-sitter only; no move/copy or closure analysis. Full ownership tracking would require rust-analyzer.
+//!
+//! # Limitations
+//!
+//! - **Primitives, generics, external types**: Edges to types that have no node in the graph
+//!   (e.g. `i32`, `str`, generic `T`, or `Vec` from std) are removed during resolution. Only
+//!   struct, enum, trait, and `type_alias` nodes in the indexed crate (or imported) are kept.
+//! - **Return types**: Not included; only struct fields and function parameters drive owns edges.
+//! - **Tuple struct fields**: Supported via `ordered_field_declaration_list`.
 
 use anyhow::Result;
 
@@ -61,5 +69,47 @@ mod tests {
             "edge should point to real type id (path#line:col), got {to_str}"
         );
         assert_eq!(to_str, format!("{path}#8:1"));
+    }
+
+    #[test]
+    fn resolve_owns_edges_removes_unresolved_placeholder() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let fn_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&fn_id, &NodeType::Function, Some("f"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::i32"));
+        store
+            .put_edge(&fn_id, &placeholder, &EdgeType::Owns)
+            .unwrap();
+        resolve_owns_edges(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(
+            edges.rows.len(),
+            0,
+            "unresolved placeholder (e.g. primitive i32) should be removed; no edge remains"
+        );
+    }
+
+    #[test]
+    fn resolve_owns_edges_removes_external_type_placeholder() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let fn_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&fn_id, &NodeType::Function, Some("f"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::Vec"));
+        store
+            .put_edge(&fn_id, &placeholder, &EdgeType::Owns)
+            .unwrap();
+        resolve_owns_edges(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(
+            edges.rows.len(),
+            0,
+            "owns edge to external type (e.g. Vec) with no node in graph should be removed"
+        );
     }
 }

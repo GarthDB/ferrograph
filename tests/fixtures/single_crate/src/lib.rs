@@ -57,6 +57,9 @@ pub fn with_lifetime<'a>(s: &'a str) -> &'a str {
     s
 }
 
+/// Tuple struct (exercises ordered_field_declaration_list owns edges).
+pub struct Pair(pub Point, pub i32);
+
 pub fn use_add() -> i32 {
     utils::add(1, 2)
 }
