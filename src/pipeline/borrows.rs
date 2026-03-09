@@ -91,4 +91,25 @@ mod tests {
             "unresolved placeholder (e.g. primitive str) should be removed; no edge remains"
         );
     }
+
+    #[test]
+    fn resolve_borrows_edges_removes_external_type_placeholder() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let fn_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&fn_id, &NodeType::Function, Some("f"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::HashMap"));
+        store
+            .put_edge(&fn_id, &placeholder, &EdgeType::Borrows)
+            .unwrap();
+        resolve_borrows_edges(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(
+            edges.rows.len(),
+            0,
+            "borrows edge to external type (e.g. HashMap) with no node in graph should be removed"
+        );
+    }
 }
