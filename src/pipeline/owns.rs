@@ -8,7 +8,7 @@
 //! - **Primitives**: Resolved to canonical `primitive::{name}` nodes (e.g. `primitive::i32`).
 //! - **Generics, external types**: Edges to types that have no node in the graph (e.g. generic `T`,
 //!   or `Vec` from std) are removed during resolution. Only struct, enum, trait, `type_alias`, and
-//!   `type_alias`, and primitive nodes in the graph are kept.
+//!   primitive nodes in the graph are kept.
 //! - **Return types**: Not included; only struct fields and function parameters drive owns edges.
 //! - **Tuple struct fields**: Supported via `ordered_field_declaration_list`.
 
