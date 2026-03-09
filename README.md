@@ -12,7 +12,7 @@ Graph-powered Rust code intelligence. Indexes Rust codebases into a queryable kn
 
 ## Status
 
-Implements file discovery, tree-sitter AST extraction (functions, structs, enums, traits, impls, consts, statics, macros, modules), `mod`/`use` resolution with Imports edges, call graph construction (same-file and cross-file via imports; includes calls inside macro invocations such as `format!()` and `println!()`), type reference edges, trait impl edges, macro expansion edges, unsafe usage edges, dead code detection (`pub`, `main`, `#[test]`, and `#[bench]` entry points), CozoDB graph storage, CLI (index, query, search, status, watch), MCP server with 10 tools (`reindex`, `status`, `search`, `node_info`, `dead_code`, `blast_radius`, `callers`, `query`, `trait_implementors`, `module_graph`), and optional git change-coupling analysis. Node IDs are relative to the project root (e.g. `./src/main.rs#10:1`). Ownership/borrowing resolution is stubbed for future rust-analyzer integration.
+Implements file discovery, tree-sitter AST extraction (functions, structs, enums, traits, impls, consts, statics, macros, modules), `mod`/`use` resolution with Imports edges, call graph construction (same-file and cross-file via imports; includes calls inside macro invocations such as `format!()` and `println!()`), type reference edges, trait impl edges, owns/borrows edges (syntactic; struct fields and function parameters), macro expansion edges, unsafe usage edges, dead code detection (`pub`, `main`, `#[test]`, and `#[bench]` entry points), CozoDB graph storage, CLI (index, query, search, status, watch), MCP server with 10 tools (`reindex`, `status`, `search`, `node_info`, `dead_code`, `blast_radius`, `callers`, `query`, `trait_implementors`, `module_graph`), and optional git change-coupling analysis. Node IDs are relative to the project root (e.g. `./src/main.rs#10:1`). Full ownership/borrow semantics (move analysis, lifetime validity) are planned for future rust-analyzer integration.
 
 ## Build
 
@@ -136,7 +136,7 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 
 ## Graph schema (edge types)
 
-The schema defines 11 edge types; 7 are currently populated:
+The schema defines 11 edge types; 10 are currently populated:
 
 | Edge type           | v1 populated | Notes |
 |---------------------|-------------|-------|
@@ -145,8 +145,8 @@ The schema defines 11 edge types; 7 are currently populated:
 | `calls`             | Yes         | Same-file and cross-file (via imports) calls. |
 | `references`        | Yes         | Type mentions in fields, params, return types. |
 | `implements_trait`  | Yes         | Trait impls (`impl Trait for Type`). |
-| `owns`              | No          | Planned. |
-| `borrows`           | No          | Planned. |
+| `owns`              | Yes         | Owned fields/params (tree-sitter; no move analysis). |
+| `borrows`           | Yes         | Borrowed fields/params (`&T`, `&mut T`; tree-sitter only). |
 | `expands_to`        | Yes         | Macro invocation to macro definition. |
 | `uses_unsafe`       | Yes         | Unsafe blocks and `unsafe fn`/`unsafe impl`. |
 | `lifetime_scope`    | No          | Planned. |

@@ -132,6 +132,14 @@ fn pipeline_indexes_single_crate() {
         etypes.contains(&"calls".to_string()),
         "expected Calls edges (e.g. main -> bar), got: {etypes:?}"
     );
+    assert!(
+        etypes.contains(&"owns".to_string()),
+        "expected Owns edges (e.g. Container->Point, take_ownership->Point), got: {etypes:?}"
+    );
+    assert!(
+        etypes.contains(&"borrows".to_string()),
+        "expected Borrows edges (e.g. borrow_ref->Point), got: {etypes:?}"
+    );
     let dead = ferrograph::graph::Query::stored_dead_functions(&store).unwrap();
     assert!(
         !dead.is_empty(),

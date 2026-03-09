@@ -34,6 +34,20 @@ impl Draw for Point {
     fn draw(&self) {}
 }
 
+/// Struct with owned and borrowed fields (exercises owns/borrows edges).
+pub struct Container {
+    pub owned_data: Point,
+    pub borrowed_ref: &'static str,
+}
+
+pub fn take_ownership(p: Point) -> Point {
+    p
+}
+
+pub fn borrow_ref(p: &Point) -> &Point {
+    p
+}
+
 pub fn use_add() -> i32 {
     utils::add(1, 2)
 }

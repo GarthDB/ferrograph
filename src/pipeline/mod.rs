@@ -1,23 +1,27 @@
 //! Analysis pipeline: file discovery, AST, modules, call graph, and downstream phases.
 
 mod ast;
+mod borrows;
 mod calls;
 mod dead_code;
 mod discovery;
 mod expands;
 mod git_coupling;
 mod modules;
+mod owns;
 mod placeholder;
 mod references;
 mod traits;
 
 pub use ast::extract_ast;
+pub use borrows::resolve_borrows_edges;
 pub use calls::build_call_graph;
 pub use dead_code::detect_dead_code;
 pub use discovery::discover_files;
 pub use expands::resolve_expands_to_edges;
 pub use git_coupling::analyze_git_coupling;
 pub use modules::resolve_modules;
+pub use owns::resolve_owns_edges;
 pub use references::resolve_reference_edges;
 pub use traits::{map_traits, resolve_impl_trait_edges};
 
@@ -48,6 +52,8 @@ pub fn run_pipeline(store: &Store, root: &Path, config: &PipelineConfig) -> Resu
     build_call_graph(store)?;
     resolve_impl_trait_edges(store)?; // Resolve placeholder impl→trait edges from AST
     resolve_reference_edges(store)?; // Resolve placeholder type reference edges from AST
+    resolve_owns_edges(store)?; // Resolve placeholder owns edges (item → type)
+    resolve_borrows_edges(store)?; // Resolve placeholder borrows edges (item → type)
     resolve_expands_to_edges(store)?; // Resolve placeholder macro invocation→definition edges from AST
     if config.enable_trait_mapping {
         map_traits(store, root)?;
