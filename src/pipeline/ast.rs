@@ -346,13 +346,23 @@ fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
 }
 
 /// Returns true if the node has explicit lifetime parameters (e.g. `fn foo<'a>`, `struct S<'a>`).
+/// Only checks the item's `type_parameters` child, not nested items (avoids false positives when
+/// a function body contains a struct with lifetimes).
 fn has_lifetime_parameters(node: &tree_sitter::Node) -> bool {
     let mut i = 0;
     while let Some(child) = node.child(i) {
-        if child.kind() == "lifetime_parameter" {
-            return true;
+        if child.kind() == "type_parameters" {
+            return child_contains_lifetime_parameter(&child);
         }
-        if has_lifetime_parameters(&child) {
+        i += 1;
+    }
+    false
+}
+
+fn child_contains_lifetime_parameter(node: &tree_sitter::Node) -> bool {
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        if child.kind() == "lifetime_parameter" {
             return true;
         }
         i += 1;
@@ -1036,6 +1046,34 @@ mod tests {
                 "lifetime_scope edge should be self-loop (from == to)"
             );
         }
+    }
+
+    #[test]
+    fn extract_ast_no_lifetime_scope_without_own_lifetime() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = r"
+            fn outer() {
+                struct Inner<'a> { x: &'a str }
+            }
+        ";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let lifetime_scope: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "lifetime_scope")
+            })
+            .collect();
+        // Only Inner should have lifetime_scope, not outer
+        assert_eq!(
+            lifetime_scope.len(),
+            1,
+            "only Inner<'a> should have lifetime_scope, outer() should not; got {lifetime_scope:?}"
+        );
     }
 
     #[test]
