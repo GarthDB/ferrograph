@@ -201,6 +201,10 @@ fn pipeline_indexes_single_crate() {
         etypes.contains(&"borrows".to_string()),
         "expected Borrows edges (e.g. borrow_ref->Point), got: {etypes:?}"
     );
+    assert!(
+        etypes.contains(&"lifetime_scope".to_string()),
+        "expected LifetimeScope edges (e.g. self-loop on Wrapper, with_lifetime), got: {etypes:?}"
+    );
     assert_has_edge(&store, "Container", "struct", "Point", "struct", "owns");
     assert_has_edge(
         &store,

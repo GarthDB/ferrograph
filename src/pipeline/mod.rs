@@ -7,6 +7,7 @@ mod dead_code;
 mod discovery;
 mod expands;
 mod git_coupling;
+mod lifetimes;
 mod modules;
 mod owns;
 mod placeholder;

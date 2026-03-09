@@ -171,6 +171,15 @@ fn traverse(
         if (kind == "function_item" || kind == "impl_item") && has_unsafe_modifier(&node) {
             edges.push((id.clone(), id.clone(), EdgeType::UsesUnsafe));
         }
+        if (kind == "function_item"
+            || kind == "struct_item"
+            || kind == "enum_item"
+            || kind == "impl_item"
+            || kind == "trait_item")
+            && has_lifetime_parameters(&node)
+        {
+            edges.push((id.clone(), id.clone(), EdgeType::LifetimeScope));
+        }
         if let Some((to_id, edge_type)) = extra {
             edges.push((id.clone(), to_id, edge_type));
         }
@@ -334,6 +343,31 @@ fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
         (false, false, false) => "",
     };
     Some(format!("{prefix}{name}"))
+}
+
+/// Returns true if the node has explicit lifetime parameters (e.g. `fn foo<'a>`, `struct S<'a>`).
+/// Only checks the item's `type_parameters` child, not nested items (avoids false positives when
+/// a function body contains a struct with lifetimes).
+fn has_lifetime_parameters(node: &tree_sitter::Node) -> bool {
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        if child.kind() == "type_parameters" {
+            return child_contains_lifetime_parameter(&child);
+        }
+        i += 1;
+    }
+    false
+}
+
+fn child_contains_lifetime_parameter(node: &tree_sitter::Node) -> bool {
+    let mut i = 0;
+    while let Some(child) = node.child(i) {
+        if child.kind() == "lifetime_parameter" {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 /// Returns true if the node has an `unsafe` modifier (e.g. `unsafe fn` or `unsafe impl`).
@@ -969,6 +1003,76 @@ mod tests {
         assert!(
             to_borrows.iter().any(|t| t.contains("str")),
             "borrows should include target str, got {to_borrows:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_lifetime_scope_self_loops() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = r"
+            pub struct Wrapper<'a> {
+                inner: &'a str,
+            }
+            pub fn with_lifetime<'a>(s: &'a str) -> &'a str { s }
+        ";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let lifetime_scope: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "lifetime_scope")
+            })
+            .collect();
+        assert!(
+            !lifetime_scope.is_empty(),
+            "expected at least one lifetime_scope edge (self-loop on item with lifetime params), got {}",
+            lifetime_scope.len()
+        );
+        for row in &lifetime_scope {
+            let from = row
+                .first()
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .unwrap_or_default();
+            let to = row
+                .get(1)
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .unwrap_or_default();
+            assert_eq!(
+                from, to,
+                "lifetime_scope edge should be self-loop (from == to)"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_ast_no_lifetime_scope_without_own_lifetime() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = r"
+            fn outer() {
+                struct Inner<'a> { x: &'a str }
+            }
+        ";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let lifetime_scope: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "lifetime_scope")
+            })
+            .collect();
+        // Only Inner should have lifetime_scope, not outer
+        assert_eq!(
+            lifetime_scope.len(),
+            1,
+            "only Inner<'a> should have lifetime_scope, outer() should not; got {lifetime_scope:?}"
         );
     }
 
