@@ -11,6 +11,7 @@ mod lifetimes;
 mod modules;
 mod owns;
 mod placeholder;
+mod primitives;
 mod references;
 mod traits;
 
@@ -49,6 +50,7 @@ pub fn run_pipeline(store: &Store, root: &Path, config: &PipelineConfig) -> Resu
     for (path, content) in &files {
         extract_ast(store, path, content, root)?;
     }
+    primitives::create_primitive_nodes(store)?;
     resolve_modules(store, root)?; // Imports edges must exist before call resolution
     build_call_graph(store)?;
     resolve_impl_trait_edges(store)?; // Resolve placeholder impl→trait edges from AST

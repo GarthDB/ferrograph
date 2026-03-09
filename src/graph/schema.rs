@@ -36,6 +36,7 @@ pub enum NodeType {
     Static,
     Macro,
     CrateRoot,
+    Primitive,
 }
 
 impl fmt::Display for NodeType {
@@ -53,6 +54,7 @@ impl fmt::Display for NodeType {
             Self::Static => write!(f, "static"),
             Self::Macro => write!(f, "macro"),
             Self::CrateRoot => write!(f, "crate_root"),
+            Self::Primitive => write!(f, "primitive"),
         }
     }
 }
@@ -74,6 +76,7 @@ impl FromStr for NodeType {
             "static" => Ok(Self::Static),
             "macro" => Ok(Self::Macro),
             "crate_root" => Ok(Self::CrateRoot),
+            "primitive" => Ok(Self::Primitive),
             _ => Err(format!("unknown node type: {s:?}")),
         }
     }
@@ -157,6 +160,7 @@ mod tests {
             NodeType::Static,
             NodeType::Macro,
             NodeType::CrateRoot,
+            NodeType::Primitive,
         ];
         for v in &variants {
             let s = v.to_string();

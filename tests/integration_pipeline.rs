@@ -90,7 +90,7 @@ fn find_node_id(
             .map(|v| v.to_string().trim_matches('"').to_string())?;
         if payload.contains(payload_contains)
             && node_type_filter.is_none_or(|t| typ == t)
-            && id.contains("lib.rs")
+            && (id.contains("lib.rs") || node_type_filter == Some("primitive"))
         {
             return Some(id);
         }
@@ -215,6 +215,8 @@ fn pipeline_indexes_single_crate() {
         "borrows",
     );
     assert_has_edge(&store, "Pair", "struct", "Point", "struct", "owns");
+    assert_has_edge(&store, "Container", "struct", "str", "primitive", "borrows");
+    assert_has_edge(&store, "Point", "struct", "i32", "primitive", "owns");
     let dead = ferrograph::graph::Query::stored_dead_functions(&store).unwrap();
     assert!(
         !dead.is_empty(),

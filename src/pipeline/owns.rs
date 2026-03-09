@@ -5,9 +5,10 @@
 //!
 //! # Limitations
 //!
-//! - **Primitives, generics, external types**: Edges to types that have no node in the graph
-//!   (e.g. `i32`, `str`, generic `T`, or `Vec` from std) are removed during resolution. Only
-//!   struct, enum, trait, and `type_alias` nodes in the indexed crate (or imported) are kept.
+//! - **Primitives**: Resolved to canonical `primitive::{name}` nodes (e.g. `primitive::i32`).
+//! - **Generics, external types**: Edges to types that have no node in the graph (e.g. generic `T`,
+//!   or `Vec` from std) are removed during resolution. Only struct, enum, trait, `type_alias`, and
+//!   primitive nodes in the graph are kept.
 //! - **Return types**: Not included; only struct fields and function parameters drive owns edges.
 //! - **Tuple struct fields**: Supported via `ordered_field_declaration_list`.
 
@@ -19,7 +20,7 @@ use crate::graph::Store;
 use super::placeholder;
 
 /// Resolve placeholder `Owns` edges (`from_id` → `file::TypeName`) to concrete type node IDs.
-/// Target nodes are struct, enum, trait, `type_alias`. Uses same-file and import-based resolution.
+/// Target nodes are struct, enum, trait, `type_alias`, and primitive. Uses same-file and import-based resolution.
 ///
 /// # Errors
 /// Fails if the store query or update fails.
@@ -32,6 +33,7 @@ pub fn resolve_owns_edges(store: &Store) -> Result<()> {
             NodeType::Enum,
             NodeType::Trait,
             NodeType::TypeAlias,
+            NodeType::Primitive,
         ],
     )
 }
@@ -41,6 +43,7 @@ mod tests {
     use crate::graph::query::Query;
     use crate::graph::schema::{EdgeType, NodeId, NodeType};
     use crate::graph::Store;
+    use crate::pipeline::primitives;
 
     use super::resolve_owns_edges;
 
@@ -72,8 +75,9 @@ mod tests {
     }
 
     #[test]
-    fn resolve_owns_edges_removes_unresolved_placeholder() {
+    fn resolve_owns_edges_resolves_primitive_placeholder() {
         let store = Store::new_memory().unwrap();
+        primitives::create_primitive_nodes(&store).unwrap();
         let path = "src/lib.rs";
         let fn_id = NodeId::new(format!("{path}#5:1"));
         store
@@ -87,8 +91,13 @@ mod tests {
         let edges = Query::all_edges(&store).unwrap();
         assert_eq!(
             edges.rows.len(),
-            0,
-            "unresolved placeholder (e.g. primitive i32) should be removed; no edge remains"
+            1,
+            "owns edge to i32 should resolve to primitive::i32"
+        );
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert_eq!(
+            to_str, "primitive::i32",
+            "edge should point to primitive::i32, got {to_str}"
         );
     }
 
