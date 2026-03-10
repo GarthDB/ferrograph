@@ -40,6 +40,11 @@ pub struct Container {
     pub borrowed_ref: &'static str,
 }
 
+/// Function that returns Point by value (exercises return-type owns edge).
+pub fn create_point() -> Point {
+    Point { x: 0, y: 0 }
+}
+
 pub fn take_ownership(p: Point) -> Point {
     p
 }

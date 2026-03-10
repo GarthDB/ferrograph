@@ -9,7 +9,7 @@
 //! - **Generics, external types**: Edges to types that have no node in the graph (e.g. generic `T`,
 //!   or `Vec` from std) are removed during resolution. Only struct, enum, trait, `type_alias`, and
 //!   primitive nodes in the graph are kept.
-//! - **Return types**: Not included; only struct fields and function parameters drive borrows edges.
+//! - **Return types**: Included; functions that return by-reference (`&T`, `&mut T`) get a borrows edge to that type.
 //! - **`&` vs `&mut`**: Not distinguished; both produce the same `Borrows` edge.
 
 use anyhow::Result;

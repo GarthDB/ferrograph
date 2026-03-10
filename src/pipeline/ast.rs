@@ -180,6 +180,9 @@ fn traverse(
         {
             edges.push((id.clone(), id.clone(), EdgeType::LifetimeScope));
         }
+        if kind == "function_item" {
+            push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
+        }
         if let Some((to_id, edge_type)) = extra {
             edges.push((id.clone(), to_id, edge_type));
         }
@@ -512,6 +515,61 @@ fn push_owns_or_borrows_edge(
     ));
 }
 
+/// Emit `Owns` or `Borrows` placeholder edge from function to its return type (for `function_item` nodes).
+fn push_return_type_owns_or_borrows_edge(
+    function_id: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    // Return type is optional(seq('->', field('return_type', $._type))). Find it by walking
+    // the function's children: skip until past the parameters node, then the next node (if not block) is the return type.
+    let return_type_node = node.child_by_field_name("return_type").or_else(|| {
+        let mut cursor = node.walk();
+        if !cursor.goto_first_child() {
+            return None;
+        }
+        // Advance until we're on the parameters node.
+        loop {
+            if cursor.node().kind() == "parameters" || cursor.node().kind() == "parameter_list" {
+                break;
+            }
+            if !cursor.goto_next_sibling() {
+                return None;
+            }
+        }
+        // After parameters come "->" and the return type (e.g. type_identifier or reference_type); then block.
+        while cursor.goto_next_sibling() {
+            let after_params = cursor.node();
+            if after_params.kind() == "block" {
+                return None;
+            }
+            if find_type_name_and_ownership(&after_params, source).is_some() {
+                return Some(after_params);
+            }
+        }
+        None
+    });
+    let Some(return_type_node) = return_type_node else {
+        return;
+    };
+    let Some((type_name, is_borrow)) = find_type_name_and_ownership(&return_type_node, source)
+    else {
+        return;
+    };
+    let edge_type = if is_borrow {
+        EdgeType::Borrows
+    } else {
+        EdgeType::Owns
+    };
+    edges.push((
+        function_id.clone(),
+        NodeId::new(format!("{}::{}", file_id.as_str(), type_name)),
+        edge_type,
+    ));
+}
+
 /// Type and ownership from a `field_declaration` or `parameter` node.
 /// Returns (`type_name`, `is_borrow`). For `reference_type` (`&T`/`&mut T`) returns the referent type and true; otherwise the type name and false.
 fn type_and_ownership_from_type_node(
@@ -522,8 +580,19 @@ fn type_and_ownership_from_type_node(
 }
 
 /// Recursively find first type and whether it is a reference. Returns (`type_name`, `is_borrow`).
-/// We check `reference_type` before recursing so that we classify &T as borrow, not owns.
+/// We check `reference_type` (including the node itself) before recursing so that we classify &T as borrow, not owns.
 fn find_type_name_and_ownership(node: &tree_sitter::Node, source: &str) -> Option<(String, bool)> {
+    if node.kind() == "reference_type" {
+        let inner = type_identifier_or_scoped_inside(node, source)?;
+        return Some((inner, true));
+    }
+    if node.kind() == "type_identifier" || node.kind() == "scoped_type_identifier" {
+        return type_name_from_node(node, source).map(|n| (n, false));
+    }
+    if node.kind() == "primitive_type" {
+        let r = node.byte_range();
+        return source.get(r.start..r.end).map(|s| (s.to_string(), false));
+    }
     let mut i = 0;
     while let Some(child) = node.child(i) {
         let k = child.kind();
@@ -1003,6 +1072,58 @@ mod tests {
         assert!(
             to_borrows.iter().any(|t| t.contains("str")),
             "borrows should include target str, got {to_borrows:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_return_type_owns_and_borrows_edges() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = r#"
+            pub struct Point { pub x: i32, pub y: i32 }
+            pub fn create_point() -> Point { Point { x: 0, y: 0 } }
+            pub fn get_str() -> &'static str { "hello" }
+        "#;
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let owns: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "owns")
+            })
+            .collect();
+        let borrows: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "borrows")
+            })
+            .collect();
+        let to_owns: Vec<String> = owns
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        let to_borrows: Vec<String> = borrows
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        assert!(
+            to_owns.iter().any(|t| t.contains("Point")),
+            "owns from return type (create_point -> Point) should be present, got {to_owns:?}"
+        );
+        assert!(
+            to_borrows.iter().any(|t| t.contains("str")),
+            "borrows from return type (get_str -> str) should be present, got {to_borrows:?}"
         );
     }
 
