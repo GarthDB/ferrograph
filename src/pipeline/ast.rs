@@ -1194,7 +1194,7 @@ mod tests {
             })
             .collect();
         assert!(
-            to_vals.iter().any(|t| t.contains("S") || t.contains("i32")),
+            to_vals.iter().any(|t| t.contains('S') || t.contains("i32")),
             "borrows_mut should include target S or i32, got {to_vals:?}"
         );
     }
