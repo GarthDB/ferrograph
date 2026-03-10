@@ -37,6 +37,8 @@ pub enum NodeType {
     Macro,
     CrateRoot,
     Primitive,
+    /// Synthetic node for types not in the graph (generics, external crates).
+    ExternalType,
 }
 
 impl fmt::Display for NodeType {
@@ -55,6 +57,7 @@ impl fmt::Display for NodeType {
             Self::Macro => write!(f, "macro"),
             Self::CrateRoot => write!(f, "crate_root"),
             Self::Primitive => write!(f, "primitive"),
+            Self::ExternalType => write!(f, "external_type"),
         }
     }
 }
@@ -77,6 +80,7 @@ impl FromStr for NodeType {
             "macro" => Ok(Self::Macro),
             "crate_root" => Ok(Self::CrateRoot),
             "primitive" => Ok(Self::Primitive),
+            "external_type" => Ok(Self::ExternalType),
             _ => Err(format!("unknown node type: {s:?}")),
         }
     }
@@ -93,6 +97,7 @@ pub enum EdgeType {
     ImplementsTrait,
     Owns,
     Borrows,
+    BorrowsMut,
     ExpandsTo,
     UsesUnsafe,
     LifetimeScope,
@@ -110,6 +115,7 @@ impl fmt::Display for EdgeType {
             Self::ImplementsTrait => write!(f, "implements_trait"),
             Self::Owns => write!(f, "owns"),
             Self::Borrows => write!(f, "borrows"),
+            Self::BorrowsMut => write!(f, "borrows_mut"),
             Self::ExpandsTo => write!(f, "expands_to"),
             Self::UsesUnsafe => write!(f, "uses_unsafe"),
             Self::LifetimeScope => write!(f, "lifetime_scope"),
@@ -130,6 +136,7 @@ impl FromStr for EdgeType {
             "implements_trait" => Ok(Self::ImplementsTrait),
             "owns" => Ok(Self::Owns),
             "borrows" => Ok(Self::Borrows),
+            "borrows_mut" => Ok(Self::BorrowsMut),
             "expands_to" => Ok(Self::ExpandsTo),
             "uses_unsafe" => Ok(Self::UsesUnsafe),
             "lifetime_scope" => Ok(Self::LifetimeScope),
@@ -161,6 +168,7 @@ mod tests {
             NodeType::Macro,
             NodeType::CrateRoot,
             NodeType::Primitive,
+            NodeType::ExternalType,
         ];
         for v in &variants {
             let s = v.to_string();
@@ -179,6 +187,7 @@ mod tests {
             EdgeType::ImplementsTrait,
             EdgeType::Owns,
             EdgeType::Borrows,
+            EdgeType::BorrowsMut,
             EdgeType::ExpandsTo,
             EdgeType::UsesUnsafe,
             EdgeType::LifetimeScope,

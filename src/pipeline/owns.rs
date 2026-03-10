@@ -6,9 +6,8 @@
 //! # Limitations
 //!
 //! - **Primitives**: Resolved to canonical `primitive::{name}` nodes (e.g. `primitive::i32`).
-//! - **Generics, external types**: Edges to types that have no node in the graph (e.g. generic `T`,
-//!   or `Vec` from std) are removed during resolution. Only struct, enum, trait, `type_alias`, and
-//!   primitive nodes in the graph are kept.
+//! - **Generics, external types**: Edges to types with no node in the graph are re-pointed to
+//!   synthetic `ExternalType` nodes (e.g. `external::Vec`) so the dependency is retained.
 //! - **Return types**: Included; functions that return by-value types get an owns edge to that type.
 //! - **Tuple struct fields**: Supported via `ordered_field_declaration_list`.
 
@@ -102,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_owns_edges_removes_external_type_placeholder() {
+    fn resolve_owns_edges_retains_unresolved_as_external_type() {
         let store = Store::new_memory().unwrap();
         let path = "src/lib.rs";
         let fn_id = NodeId::new(format!("{path}#5:1"));
@@ -117,8 +116,10 @@ mod tests {
         let edges = Query::all_edges(&store).unwrap();
         assert_eq!(
             edges.rows.len(),
-            0,
-            "owns edge to external type (e.g. Vec) with no node in graph should be removed"
+            1,
+            "edge should point to external_type node when type has no node in graph"
         );
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert_eq!(to_str, "external::Vec");
     }
 }

@@ -443,6 +443,14 @@ fn impl_trait_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
     None
 }
 
+/// Ownership classification for a type (owned value, shared borrow, or mutable borrow).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Ownership {
+    Owns,
+    Borrows,
+    BorrowsMut,
+}
+
 /// Emit one `Owns` or `Borrows` placeholder edge per type in a tuple struct's `ordered_field_declaration_list`.
 /// The list may contain a repeat node (e.g. `ordered_field_declaration_list_repeat1`), so we recurse into
 /// non-punctuation children to find each field type.
@@ -466,11 +474,11 @@ fn collect_and_push_tuple_field_types(
     file_id: &NodeId,
     edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
 ) {
-    if let Some((type_name, is_borrow)) = find_type_name_and_ownership(node, source) {
-        let edge_type = if is_borrow {
-            EdgeType::Borrows
-        } else {
-            EdgeType::Owns
+    if let Some((type_name, ownership)) = find_type_name_and_ownership(node, source) {
+        let edge_type = match ownership {
+            Ownership::Owns => EdgeType::Owns,
+            Ownership::Borrows => EdgeType::Borrows,
+            Ownership::BorrowsMut => EdgeType::BorrowsMut,
         };
         edges.push((
             from.clone(),
@@ -500,13 +508,13 @@ fn push_owns_or_borrows_edge(
     let Some(from) = parent else {
         return;
     };
-    let Some((type_name, is_borrow)) = type_and_ownership_from_type_node(node, source) else {
+    let Some((type_name, ownership)) = type_and_ownership_from_type_node(node, source) else {
         return;
     };
-    let edge_type = if is_borrow {
-        EdgeType::Borrows
-    } else {
-        EdgeType::Owns
+    let edge_type = match ownership {
+        Ownership::Owns => EdgeType::Owns,
+        Ownership::Borrows => EdgeType::Borrows,
+        Ownership::BorrowsMut => EdgeType::BorrowsMut,
     };
     edges.push((
         from.clone(),
@@ -554,14 +562,14 @@ fn push_return_type_owns_or_borrows_edge(
     let Some(return_type_node) = return_type_node else {
         return;
     };
-    let Some((type_name, is_borrow)) = find_type_name_and_ownership(&return_type_node, source)
+    let Some((type_name, ownership)) = find_type_name_and_ownership(&return_type_node, source)
     else {
         return;
     };
-    let edge_type = if is_borrow {
-        EdgeType::Borrows
-    } else {
-        EdgeType::Owns
+    let edge_type = match ownership {
+        Ownership::Owns => EdgeType::Owns,
+        Ownership::Borrows => EdgeType::Borrows,
+        Ownership::BorrowsMut => EdgeType::BorrowsMut,
     };
     edges.push((
         function_id.clone(),
@@ -571,41 +579,68 @@ fn push_return_type_owns_or_borrows_edge(
 }
 
 /// Type and ownership from a `field_declaration` or `parameter` node.
-/// Returns (`type_name`, `is_borrow`). For `reference_type` (`&T`/`&mut T`) returns the referent type and true; otherwise the type name and false.
+/// Returns (`type_name`, `ownership`). For `reference_type`, distinguishes `&T` (Borrows) from `&mut T` (`BorrowsMut`).
 fn type_and_ownership_from_type_node(
     node: &tree_sitter::Node,
     source: &str,
-) -> Option<(String, bool)> {
+) -> Option<(String, Ownership)> {
     find_type_name_and_ownership(node, source)
 }
 
-/// Recursively find first type and whether it is a reference. Returns (`type_name`, `is_borrow`).
-/// We check `reference_type` (including the node itself) before recursing so that we classify &T as borrow, not owns.
-fn find_type_name_and_ownership(node: &tree_sitter::Node, source: &str) -> Option<(String, bool)> {
+/// Recursively find first type and ownership. Returns (`type_name`, `ownership`).
+/// We check `reference_type` before recursing so that we classify &T / &mut T as Borrows / `BorrowsMut`, not owns.
+fn find_type_name_and_ownership(
+    node: &tree_sitter::Node,
+    source: &str,
+) -> Option<(String, Ownership)> {
     if node.kind() == "reference_type" {
         let inner = type_identifier_or_scoped_inside(node, source)?;
-        return Some((inner, true));
+        let is_mut = (0..node.child_count())
+            .filter_map(|j| node.child(j))
+            .any(|c| c.kind() == "mutable_specifier");
+        return Some((
+            inner,
+            if is_mut {
+                Ownership::BorrowsMut
+            } else {
+                Ownership::Borrows
+            },
+        ));
     }
     if node.kind() == "type_identifier" || node.kind() == "scoped_type_identifier" {
-        return type_name_from_node(node, source).map(|n| (n, false));
+        return type_name_from_node(node, source).map(|n| (n, Ownership::Owns));
     }
     if node.kind() == "primitive_type" {
         let r = node.byte_range();
-        return source.get(r.start..r.end).map(|s| (s.to_string(), false));
+        return source
+            .get(r.start..r.end)
+            .map(|s| (s.to_string(), Ownership::Owns));
     }
     let mut i = 0;
     while let Some(child) = node.child(i) {
         let k = child.kind();
         if k == "reference_type" {
             let inner = type_identifier_or_scoped_inside(&child, source)?;
-            return Some((inner, true));
+            let is_mut = (0..child.child_count())
+                .filter_map(|j| child.child(j))
+                .any(|c| c.kind() == "mutable_specifier");
+            return Some((
+                inner,
+                if is_mut {
+                    Ownership::BorrowsMut
+                } else {
+                    Ownership::Borrows
+                },
+            ));
         }
         if k == "type_identifier" || k == "scoped_type_identifier" {
-            return type_name_from_node(&child, source).map(|n| (n, false));
+            return type_name_from_node(&child, source).map(|n| (n, Ownership::Owns));
         }
         if k == "primitive_type" {
             let r = child.byte_range();
-            return source.get(r.start..r.end).map(|s| (s.to_string(), false));
+            return source
+                .get(r.start..r.end)
+                .map(|s| (s.to_string(), Ownership::Owns));
         }
         if k != "identifier"
             && k != "field_identifier"
@@ -1124,6 +1159,43 @@ mod tests {
         assert!(
             to_borrows.iter().any(|t| t.contains("str")),
             "borrows from return type (get_str -> str) should be present, got {to_borrows:?}"
+        );
+    }
+
+    #[test]
+    fn extract_ast_borrows_mut_emits_borrows_mut_edge() {
+        let store = Store::new_memory().unwrap();
+        let root = Path::new("/");
+        let path = Path::new("/test.rs");
+        let content = r"
+            pub struct S { x: i32 }
+            pub fn take_mut(r: &mut S) -> &mut i32 { &mut r.x }
+        ";
+        extract_ast(&store, path, content, root).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let borrows_mut: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(2)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "borrows_mut")
+            })
+            .collect();
+        assert!(
+            !borrows_mut.is_empty(),
+            "expected at least one borrows_mut edge for &mut S or &mut i32, got {}",
+            borrows_mut.len()
+        );
+        let to_vals: Vec<String> = borrows_mut
+            .iter()
+            .filter_map(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+            })
+            .collect();
+        assert!(
+            to_vals.iter().any(|t| t.contains("S") || t.contains("i32")),
+            "borrows_mut should include target S or i32, got {to_vals:?}"
         );
     }
 
