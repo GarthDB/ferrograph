@@ -166,6 +166,139 @@ mod tests {
     }
 
     #[test]
+    fn resolve_borrows_edges_external_node_id_uses_full_name_segment() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let fn_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&fn_id, &NodeType::Function, Some("f"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::std::vec::Vec"));
+        store
+            .put_edge(&fn_id, &placeholder, &EdgeType::Borrows)
+            .unwrap();
+        resolve_borrows_edges(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(edges.rows.len(), 1);
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert_eq!(to_str, "external::std::vec::Vec");
+        let nodes = Query::all_nodes(&store).unwrap();
+        let external_count = nodes
+            .rows
+            .iter()
+            .filter(|r| {
+                r.first()
+                    .map(|v| v.to_string().trim_matches('"') == "external::std::vec::Vec")
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            external_count, 1,
+            "exactly one external node for qualified name"
+        );
+    }
+
+    #[test]
+    fn resolve_borrows_edges_creates_single_external_node_for_shared_unresolved_type() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let fn_id1 = NodeId::new(format!("{path}#5:1"));
+        let fn_id2 = NodeId::new(format!("{path}#10:1"));
+        store
+            .put_node(&fn_id1, &NodeType::Function, Some("f1"))
+            .unwrap();
+        store
+            .put_node(&fn_id2, &NodeType::Function, Some("f2"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::Vec"));
+        store
+            .put_edge(&fn_id1, &placeholder.clone(), &EdgeType::Borrows)
+            .unwrap();
+        store
+            .put_edge(&fn_id2, &placeholder, &EdgeType::Borrows)
+            .unwrap();
+        resolve_borrows_edges(&store).unwrap();
+        let nodes = Query::all_nodes(&store).unwrap();
+        let external_vec_count = nodes
+            .rows
+            .iter()
+            .filter(|r| {
+                r.first()
+                    .map(|v| v.to_string().trim_matches('"') == "external::Vec")
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            external_vec_count, 1,
+            "exactly one ExternalType node for shared unresolved type"
+        );
+        let edges = Query::all_edges(&store).unwrap();
+        let to_external_vec = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"') == "external::Vec")
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            to_external_vec, 2,
+            "both edges should point to external::Vec"
+        );
+    }
+
+    #[test]
+    fn resolve_borrows_mut_edges_creates_single_external_node_for_shared_unresolved_type() {
+        let store = Store::new_memory().unwrap();
+        let path = "src/lib.rs";
+        let fn_id1 = NodeId::new(format!("{path}#5:1"));
+        let fn_id2 = NodeId::new(format!("{path}#10:1"));
+        store
+            .put_node(&fn_id1, &NodeType::Function, Some("f1"))
+            .unwrap();
+        store
+            .put_node(&fn_id2, &NodeType::Function, Some("f2"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::Vec"));
+        store
+            .put_edge(&fn_id1, &placeholder.clone(), &EdgeType::BorrowsMut)
+            .unwrap();
+        store
+            .put_edge(&fn_id2, &placeholder, &EdgeType::BorrowsMut)
+            .unwrap();
+        resolve_borrows_mut_edges(&store).unwrap();
+        let nodes = Query::all_nodes(&store).unwrap();
+        let external_vec_count = nodes
+            .rows
+            .iter()
+            .filter(|r| {
+                r.first()
+                    .map(|v| v.to_string().trim_matches('"') == "external::Vec")
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            external_vec_count, 1,
+            "exactly one ExternalType node for shared unresolved type"
+        );
+        let edges = Query::all_edges(&store).unwrap();
+        let to_external_vec = edges
+            .rows
+            .iter()
+            .filter(|r| {
+                r.get(1)
+                    .map(|v| v.to_string().trim_matches('"') == "external::Vec")
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            to_external_vec, 2,
+            "both edges should point to external::Vec"
+        );
+    }
+
+    #[test]
     fn resolve_borrows_mut_edges_resolves_same_file_placeholder() {
         let store = Store::new_memory().unwrap();
         let path = "src/lib.rs";
@@ -190,6 +323,33 @@ mod tests {
             "edge should point to real type id (path#line:col), got {to_str}"
         );
         assert_eq!(to_str, format!("{path}#8:1"));
+    }
+
+    #[test]
+    fn resolve_borrows_mut_edges_resolves_primitive_placeholder() {
+        let store = Store::new_memory().unwrap();
+        primitives::create_primitive_nodes(&store).unwrap();
+        let path = "src/lib.rs";
+        let fn_id = NodeId::new(format!("{path}#5:1"));
+        store
+            .put_node(&fn_id, &NodeType::Function, Some("f"))
+            .unwrap();
+        let placeholder = NodeId::new(format!("{path}::str"));
+        store
+            .put_edge(&fn_id, &placeholder, &EdgeType::BorrowsMut)
+            .unwrap();
+        resolve_borrows_mut_edges(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        assert_eq!(
+            edges.rows.len(),
+            1,
+            "borrows_mut edge to str should resolve to primitive::str"
+        );
+        let to_str = edges.rows[0][1].to_string().trim_matches('"').to_string();
+        assert_eq!(
+            to_str, "primitive::str",
+            "edge should point to primitive::str, got {to_str}"
+        );
     }
 
     #[test]

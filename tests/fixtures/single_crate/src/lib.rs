@@ -53,6 +53,18 @@ pub fn borrow_ref(p: &Point) -> &Point {
     p
 }
 
+/// Function with exclusive borrow (exercises BorrowsMut edge).
+pub fn borrow_mut_ref(p: &mut Point) -> &mut Point {
+    p
+}
+
+/// Return-type-only &mut (exercises BorrowsMut edge from return type).
+static mut STASH: Option<Point> = None;
+
+pub fn get_mut_point() -> &'static mut Point {
+    unsafe { (*std::ptr::addr_of_mut!(STASH)).get_or_insert(Point { x: 0, y: 0 }) }
+}
+
 /// Struct with explicit lifetime (exercises lifetime_scope edge).
 pub struct Wrapper<'a> {
     pub inner: &'a str,

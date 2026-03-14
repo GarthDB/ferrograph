@@ -16,6 +16,10 @@ use crate::graph::{query::Query, unquote_datavalue, Store};
 /// import-based, then global name lookup. Unresolved placeholders are re-pointed to
 /// synthetic `ExternalType` nodes (e.g. `external::Vec`) so the graph retains the dependency.
 ///
+/// The external node id is `external::{name}` where `name` is the segment after the first
+/// `::` in the placeholder target; if the AST emits a qualified name there, the external id
+/// will contain multiple segments (e.g. `external::std::vec::Vec`).
+///
 /// # Errors
 /// Fails if the store query or update fails.
 pub fn resolve_placeholder_edges(

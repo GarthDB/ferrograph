@@ -202,6 +202,10 @@ fn pipeline_indexes_single_crate() {
         "expected Borrows edges (e.g. borrow_ref->Point), got: {etypes:?}"
     );
     assert!(
+        etypes.contains(&"borrows_mut".to_string()),
+        "expected BorrowsMut edges (e.g. borrow_mut_ref->Point), got: {etypes:?}"
+    );
+    assert!(
         etypes.contains(&"lifetime_scope".to_string()),
         "expected LifetimeScope edges (e.g. self-loop on Wrapper, with_lifetime), got: {etypes:?}"
     );
@@ -213,6 +217,22 @@ fn pipeline_indexes_single_crate() {
         "Point",
         "struct",
         "borrows",
+    );
+    assert_has_edge(
+        &store,
+        "borrow_mut_ref",
+        "function",
+        "Point",
+        "struct",
+        "borrows_mut",
+    );
+    assert_has_edge(
+        &store,
+        "get_mut_point",
+        "function",
+        "Point",
+        "struct",
+        "borrows_mut",
     );
     assert_has_edge(&store, "Pair", "struct", "Point", "struct", "owns");
     assert_has_edge(&store, "Container", "struct", "str", "primitive", "borrows");
