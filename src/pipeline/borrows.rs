@@ -188,8 +188,7 @@ mod tests {
             .iter()
             .filter(|r| {
                 r.first()
-                    .map(|v| v.to_string().trim_matches('"') == "external::std::vec::Vec")
-                    .unwrap_or(false)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "external::std::vec::Vec")
             })
             .count();
         assert_eq!(
@@ -224,8 +223,7 @@ mod tests {
             .iter()
             .filter(|r| {
                 r.first()
-                    .map(|v| v.to_string().trim_matches('"') == "external::Vec")
-                    .unwrap_or(false)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "external::Vec")
             })
             .count();
         assert_eq!(
@@ -238,8 +236,7 @@ mod tests {
             .iter()
             .filter(|r| {
                 r.get(1)
-                    .map(|v| v.to_string().trim_matches('"') == "external::Vec")
-                    .unwrap_or(false)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "external::Vec")
             })
             .count();
         assert_eq!(
@@ -274,8 +271,7 @@ mod tests {
             .iter()
             .filter(|r| {
                 r.first()
-                    .map(|v| v.to_string().trim_matches('"') == "external::Vec")
-                    .unwrap_or(false)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "external::Vec")
             })
             .count();
         assert_eq!(
@@ -288,8 +284,7 @@ mod tests {
             .iter()
             .filter(|r| {
                 r.get(1)
-                    .map(|v| v.to_string().trim_matches('"') == "external::Vec")
-                    .unwrap_or(false)
+                    .is_some_and(|v| v.to_string().trim_matches('"') == "external::Vec")
             })
             .count();
         assert_eq!(
