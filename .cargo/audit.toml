@@ -1,0 +1,21 @@
+[advisories]
+# All suppressions below are transitive dependencies of cozo 0.7.6,
+# the latest stable release. There is no cozo upgrade available on
+# crates.io that resolves these; suppressed until cozo publishes a fix.
+ignore = [
+    # fxhash 0.2.1 unmaintained — via jieba-rs / graph_builder → cozo
+    "RUSTSEC-2025-0057",
+
+    # adler 1.0.2 unmaintained — via miniz_oxide → swapvec → cozo
+    "RUSTSEC-2025-0056",
+
+    # bincode 1.3.3 unmaintained — via swapvec / fast2s → cozo
+    "RUSTSEC-2025-0141",
+
+    # lz4_flex 0.10.0 memory disclosure (high) — via swapvec → cozo
+    # Fix requires lz4_flex >=0.11.6; cozo 0.7.6 pins 0.10.0
+    "RUSTSEC-2026-0041",
+
+    # rand 0.8.5 unsound with custom logger — via cozo
+    "RUSTSEC-2026-0097",
+]
