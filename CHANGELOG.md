@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0](https://github.com/GarthDB/ferrograph/compare/v1.3.0...v1.4.0) - 2026-04-14
+
+### Added
+
+- *(cli)* named subcommands, --json flag, richer status, dead code symbols (#41, #42, #43, #44)
+
+### Fixed
+
+- *(ops)* propagate trait_implementors errors, use typed JSON in query results
+
+### Other
+
+- *(cli)* add integration tests for new subcommands and --json flag
+
 ## [1.3.0](https://github.com/GarthDB/ferrograph/compare/v1.2.0...v1.3.0) - 2026-04-14
 
 ### Added
