@@ -205,7 +205,14 @@ fn run_query(db: Option<&PathBuf>, query: &str, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         for row in &result.rows {
-            println!("{}", row.join("\t"));
+            let cols: Vec<String> = row
+                .iter()
+                .map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .collect();
+            println!("{}", cols.join("\t"));
         }
     }
     Ok(())

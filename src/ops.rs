@@ -42,7 +42,7 @@ pub struct SearchResult {
 #[derive(Debug, Serialize)]
 pub struct QueryResult {
     pub headers: Vec<String>,
-    pub rows: Vec<Vec<String>>,
+    pub rows: Vec<Vec<serde_json::Value>>,
     pub count: usize,
 }
 
@@ -243,7 +243,7 @@ pub fn node_info(store: &Store, node_id: &str) -> Result<Option<NodeInfo>> {
 /// # Errors
 /// Returns an error if the store query fails.
 pub fn trait_implementors(store: &Store, trait_name: &str) -> Result<TraitImplementorsResult> {
-    let nodes = Query::trait_implementors(store, trait_name).unwrap_or_default();
+    let nodes = Query::trait_implementors(store, trait_name)?;
     let implementors: Vec<NodeSummary> = nodes
         .into_iter()
         .map(|(id, node_type, payload)| NodeSummary {
@@ -283,10 +283,10 @@ pub fn query(store: &Store, script: &str) -> Result<QueryResult> {
     };
     let named_rows = store.run_query(&script, params)?;
     let headers = named_rows.headers.clone();
-    let rows: Vec<Vec<String>> = named_rows
+    let rows: Vec<Vec<serde_json::Value>> = named_rows
         .rows
         .iter()
-        .map(|row| row.iter().map(std::string::ToString::to_string).collect())
+        .map(|row| row.iter().map(crate::graph::datavalue_to_json).collect())
         .collect();
     let count = rows.len();
     Ok(QueryResult {
