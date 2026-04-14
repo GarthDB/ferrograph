@@ -13,7 +13,12 @@ use crate::graph::{query::Query, unquote_datavalue, Store};
 ///
 /// Indexes nodes whose type is in `target_node_types`, then for each edge of `edge_type`
 /// whose target is a placeholder (no `#` in the target id), resolves it via same-file,
-/// import-based, then global name lookup. Unresolved placeholders are removed.
+/// import-based, then global name lookup. Unresolved placeholders are re-pointed to
+/// synthetic `ExternalType` nodes (e.g. `external::Vec`) so the graph retains the dependency.
+///
+/// The external node id is `external::{name}` where `name` is the segment after the first
+/// `::` in the placeholder target; if the AST emits a qualified name there, the external id
+/// will contain multiple segments (e.g. `external::std::vec::Vec`).
 ///
 /// # Errors
 /// Fails if the store query or update fails.
@@ -93,6 +98,10 @@ pub fn resolve_placeholder_edges(
         store.remove_edge(&from_id, &placeholder_to, edge_type)?;
         if let Some(target_id) = resolved {
             store.put_edge(&from_id, &target_id, edge_type)?;
+        } else {
+            let ext_id = NodeId::new(format!("external::{name}"));
+            store.put_node(&ext_id, &NodeType::ExternalType, Some(name.as_str()))?;
+            store.put_edge(&from_id, &ext_id, edge_type)?;
         }
     }
     Ok(())

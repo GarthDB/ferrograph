@@ -16,7 +16,7 @@ mod references;
 mod traits;
 
 pub use ast::extract_ast;
-pub use borrows::resolve_borrows_edges;
+pub use borrows::{resolve_borrows_edges, resolve_borrows_mut_edges};
 pub use calls::build_call_graph;
 pub use dead_code::detect_dead_code;
 pub use discovery::discover_files;
@@ -57,6 +57,7 @@ pub fn run_pipeline(store: &Store, root: &Path, config: &PipelineConfig) -> Resu
     resolve_reference_edges(store)?; // Resolve placeholder type reference edges from AST
     resolve_owns_edges(store)?; // Resolve placeholder owns edges (item → type)
     resolve_borrows_edges(store)?; // Resolve placeholder borrows edges (item → type)
+    resolve_borrows_mut_edges(store)?; // Resolve placeholder borrows_mut edges (item → type)
     resolve_expands_to_edges(store)?; // Resolve placeholder macro invocation→definition edges from AST
     if config.enable_trait_mapping {
         map_traits(store, root)?;
