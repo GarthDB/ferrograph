@@ -61,5 +61,5 @@ No changes yet.
 - MCP server with tools: `reindex`, `status`, `search`, `node_info`, `dead_code`, `blast_radius`, `callers`, `query`, `trait_implementors`, `module_graph`.
 - Optional git change-coupling analysis (`git` feature).
 
-[Unreleased]: https://github.com/GarthDB/ferrograph/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/GarthDB/ferrograph/compare/v1.3.0...HEAD
 [1.0.0]: https://github.com/GarthDB/ferrograph/releases/tag/v1.0.0
