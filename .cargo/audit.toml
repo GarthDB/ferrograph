@@ -1,0 +1,10 @@
+[advisories]
+ignore = [
+    # fxhash is unmaintained — transitive dep via cozo 0.7.6 (jieba-rs, graph_builder).
+    # No cozo upgrade available on stable crates.io; upstream must fix.
+    "RUSTSEC-2025-0057",
+
+    # rand 0.8.5 unsound with custom logger — transitive dep via cozo 0.7.6.
+    # No cozo upgrade available on stable crates.io; upstream must fix.
+    "RUSTSEC-2026-0097",
+]
