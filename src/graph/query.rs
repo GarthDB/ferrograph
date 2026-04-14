@@ -64,6 +64,55 @@ fn extract_node_triple(row: &[DataValue]) -> NodeTriple {
 pub struct Query;
 
 impl Query {
+    /// Count nodes grouped by type. Returns `(type_name, count)` pairs sorted by type name.
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn count_nodes_by_type(store: &Store) -> Result<Vec<(String, usize)>> {
+        let rows = store.run_query("?[type, count(id)] := *nodes[id, type, _]", BTreeMap::new())?;
+        let mut counts: Vec<(String, usize)> = rows
+            .rows
+            .iter()
+            .map(|row| {
+                let type_name = row.first().map(unquote_datavalue).unwrap_or_default();
+                let count = row
+                    .get(1)
+                    .and_then(DataValue::get_int)
+                    .and_then(|n| usize::try_from(n).ok())
+                    .unwrap_or(0);
+                (type_name, count)
+            })
+            .collect();
+        counts.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(counts)
+    }
+
+    /// Count edges grouped by type. Returns `(type_name, count)` pairs sorted by type name.
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn count_edges_by_type(store: &Store) -> Result<Vec<(String, usize)>> {
+        let rows = store.run_query(
+            "?[edge_type, count(from_id)] := *edges[from_id, _, edge_type]",
+            BTreeMap::new(),
+        )?;
+        let mut counts: Vec<(String, usize)> = rows
+            .rows
+            .iter()
+            .map(|row| {
+                let type_name = row.first().map(unquote_datavalue).unwrap_or_default();
+                let count = row
+                    .get(1)
+                    .and_then(DataValue::get_int)
+                    .and_then(|n| usize::try_from(n).ok())
+                    .unwrap_or(0);
+                (type_name, count)
+            })
+            .collect();
+        counts.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(counts)
+    }
+
     /// Return all nodes.
     ///
     /// # Errors
@@ -84,6 +133,45 @@ impl Query {
             "?[from_id, to_id, edge_type] := *edges[from_id, to_id, edge_type]",
             BTreeMap::new(),
         )
+    }
+
+    /// Return dead function node ids with payloads from the stored relation.
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn stored_dead_functions_with_payload(store: &Store) -> Result<Vec<NodeTriple>> {
+        let rows = store.run_query(
+            "?[id, type, payload] := *dead_functions[id], *nodes[id, type, payload]",
+            BTreeMap::new(),
+        )?;
+        Ok(rows
+            .rows
+            .iter()
+            .map(|row| extract_node_triple(row))
+            .collect())
+    }
+
+    /// Compute dead functions with payloads (join with nodes table).
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn compute_dead_functions_with_payload(store: &Store) -> Result<Vec<NodeTriple>> {
+        let ids = Self::compute_dead_functions(store)?;
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let id_list: Vec<DataValue> = ids.into_iter().map(DataValue::from).collect();
+        let mut params = BTreeMap::new();
+        params.insert("ids".to_string(), DataValue::List(id_list));
+        let rows = store.run_query(
+            "?[id, type, payload] := *nodes[id, type, payload], id in $ids",
+            params,
+        )?;
+        Ok(rows
+            .rows
+            .iter()
+            .map(|row| extract_node_triple(row))
+            .collect())
     }
 
     /// Return dead function node ids from the stored relation (populated by the pipeline).

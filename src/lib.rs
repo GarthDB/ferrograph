@@ -5,6 +5,7 @@
 pub mod config;
 pub mod graph;
 pub mod mcp;
+pub mod ops;
 pub mod pipeline;
 pub mod search;
 pub mod watch;

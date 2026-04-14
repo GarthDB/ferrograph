@@ -11,9 +11,13 @@ use clap::{Parser, Subcommand};
     name = "ferrograph",
     version,
     about,
-    long_version = include_str!("../assets/ascii-banner.txt")
+    long_version = concat!(include_str!("../assets/ascii-banner.txt"), "\n  v", env!("CARGO_PKG_VERSION"))
 )]
 pub struct Cli {
+    /// Output JSON instead of human-readable text.
+    #[arg(long, global = true)]
+    pub json: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -63,6 +67,59 @@ pub enum Command {
         #[arg(short, long, required = true)]
         output: Option<PathBuf>,
     },
+    /// Find dead (unreachable) code.
+    Dead {
+        /// Path to the graph database.
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+        /// Filter results by file glob pattern.
+        #[arg(short, long)]
+        file: Option<String>,
+    },
+    /// Show blast radius (transitive impact) of a node.
+    Blast {
+        /// Path to the graph database.
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+        /// Node ID to compute blast radius from.
+        node_id: String,
+    },
+    /// Show callers of a node (reverse call graph).
+    Callers {
+        /// Path to the graph database.
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+        /// Node ID to find callers for.
+        node_id: String,
+        /// Maximum call depth (default: 1 = direct callers only).
+        #[arg(long, default_value = "1")]
+        depth: u32,
+    },
+    /// Show full info for a node (type, payload, edges).
+    Info {
+        /// Path to the graph database.
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+        /// Node ID to inspect.
+        node_id: String,
+    },
+    /// Show module containment graph.
+    Modules {
+        /// Path to the graph database.
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+        /// Filter to modules under this path prefix (e.g. "./src/").
+        #[arg(short, long)]
+        root: Option<String>,
+    },
+    /// Show trait implementors.
+    Traits {
+        /// Path to the graph database.
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+        /// Trait name to search for.
+        trait_name: String,
+    },
     /// Run the MCP server over stdio (for AI agents and IDEs).
     Mcp,
 }
@@ -72,16 +129,23 @@ pub enum Command {
 /// # Errors
 /// Returns an error if the selected command fails (e.g. I/O or graph errors).
 pub fn run(cli: Cli) -> Result<()> {
+    let json = cli.json;
     match cli.command {
         Command::Index { path, output } => run_index(&path, output.as_ref()),
-        Command::Query { db, query } => run_query(db.as_ref(), &query),
+        Command::Query { db, query } => run_query(db.as_ref(), &query, json),
         Command::Search {
             db,
             query,
             case_insensitive,
-        } => run_search(db.as_ref(), &query, case_insensitive),
-        Command::Status { path } => run_status(&path),
+        } => run_search(db.as_ref(), &query, case_insensitive, json),
+        Command::Status { path } => run_status(&path, json),
         Command::Watch { path, output } => run_watch(&path, output.as_ref()),
+        Command::Dead { db, file } => run_dead(db.as_ref(), file.as_deref(), json),
+        Command::Blast { db, node_id } => run_blast(db.as_ref(), &node_id, json),
+        Command::Callers { db, node_id, depth } => run_callers(db.as_ref(), &node_id, depth, json),
+        Command::Info { db, node_id } => run_info(db.as_ref(), &node_id, json),
+        Command::Modules { db, root } => run_modules(db.as_ref(), root.as_deref(), json),
+        Command::Traits { db, trait_name } => run_traits(db.as_ref(), &trait_name, json),
         Command::Mcp => run_mcp(),
     }
 }
@@ -125,7 +189,7 @@ fn run_index(path: &Path, output: Option<&PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn run_query(db: Option<&PathBuf>, query: &str) -> Result<()> {
+fn run_query(db: Option<&PathBuf>, query: &str, json: bool) -> Result<()> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -136,23 +200,25 @@ fn run_query(db: Option<&PathBuf>, query: &str) -> Result<()> {
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let params = std::collections::BTreeMap::new();
-    let script = if query.contains(":limit") {
-        query.trim().to_string()
+    let result = crate::ops::query(&store, query).context("Query execution failed")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        format!("{}\n:limit 10000", query.trim())
-    };
-    let rows = store
-        .run_query(&script, params)
-        .context("Query execution failed")?;
-    for row in &rows.rows {
-        let line: Vec<String> = row.iter().map(std::string::ToString::to_string).collect();
-        println!("{}", line.join("\t"));
+        for row in &result.rows {
+            let cols: Vec<String> = row
+                .iter()
+                .map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .collect();
+            println!("{}", cols.join("\t"));
+        }
     }
     Ok(())
 }
 
-fn run_search(db: Option<&PathBuf>, query: &str, case_insensitive: bool) -> Result<()> {
+fn run_search(db: Option<&PathBuf>, query: &str, case_insensitive: bool, json: bool) -> Result<()> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -163,10 +229,14 @@ fn run_search(db: Option<&PathBuf>, query: &str, case_insensitive: bool) -> Resu
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let (rows, _total) = crate::search::text_search(&store, query, case_insensitive, 10_000, 0)?;
-    for (id, node_type, payload) in rows {
-        let payload_display = payload.as_deref().unwrap_or("—");
-        println!("{id}\t{node_type}\t{payload_display}");
+    let result = crate::ops::search(&store, query, case_insensitive, 10_000, 0)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        for item in &result.results {
+            let payload_display = item.payload.as_deref().unwrap_or("—");
+            println!("{}\t{}\t{payload_display}", item.id, item.node_type);
+        }
     }
     Ok(())
 }
@@ -180,7 +250,185 @@ fn run_watch(path: &Path, output: Option<&PathBuf>) -> Result<()> {
     crate::watch::watch_and_reindex(&store, path, &config)
 }
 
-fn run_status(path: &Path) -> Result<()> {
+fn run_dead(db: Option<&PathBuf>, file: Option<&str>, json: bool) -> Result<()> {
+    let db_path = resolve_db_path(db)?;
+    if !db_path.exists() {
+        anyhow::bail!(
+            "Graph database not found at {}. Run 'ferrograph index --output {}' first.",
+            db_path.display(),
+            db_path.display()
+        );
+    }
+    let store = crate::graph::Store::new_persistent(&db_path)
+        .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
+    let result = crate::ops::dead_code(&store, file)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        for node in &result.dead_nodes {
+            let payload = node.payload.as_deref().unwrap_or("—");
+            println!("{}\t{}\t{payload}", node.id, node.node_type);
+        }
+        println!(
+            "\n{} dead nodes found (source: {})",
+            result.count, result.source
+        );
+        println!("\n{}", crate::ops::DEAD_CODE_CAVEAT);
+    }
+    Ok(())
+}
+
+fn run_blast(db: Option<&PathBuf>, node_id: &str, json: bool) -> Result<()> {
+    let db_path = resolve_db_path(db)?;
+    if !db_path.exists() {
+        anyhow::bail!(
+            "Graph database not found at {}. Run 'ferrograph index --output {}' first.",
+            db_path.display(),
+            db_path.display()
+        );
+    }
+    let store = crate::graph::Store::new_persistent(&db_path)
+        .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
+    let result = crate::ops::blast_radius(&store, node_id)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        for node in &result.reachable_nodes {
+            let payload = node.payload.as_deref().unwrap_or("—");
+            println!("{}\t{}\t{payload}", node.id, node.node_type);
+        }
+        println!("\n{} nodes in blast radius of {}", result.count, node_id);
+    }
+    Ok(())
+}
+
+fn run_callers(db: Option<&PathBuf>, node_id: &str, depth: u32, json: bool) -> Result<()> {
+    let db_path = resolve_db_path(db)?;
+    if !db_path.exists() {
+        anyhow::bail!(
+            "Graph database not found at {}. Run 'ferrograph index --output {}' first.",
+            db_path.display(),
+            db_path.display()
+        );
+    }
+    let store = crate::graph::Store::new_persistent(&db_path)
+        .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
+    let result = crate::ops::callers(&store, node_id, depth)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        for node in &result.callers {
+            let payload = node.payload.as_deref().unwrap_or("—");
+            println!("{}\t{}\t{payload}", node.id, node.node_type);
+        }
+        println!("\n{} callers of {}", result.count, node_id);
+    }
+    Ok(())
+}
+
+fn run_info(db: Option<&PathBuf>, node_id: &str, json: bool) -> Result<()> {
+    let db_path = resolve_db_path(db)?;
+    if !db_path.exists() {
+        anyhow::bail!(
+            "Graph database not found at {}. Run 'ferrograph index --output {}' first.",
+            db_path.display(),
+            db_path.display()
+        );
+    }
+    let store = crate::graph::Store::new_persistent(&db_path)
+        .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
+    let info = crate::ops::node_info(&store, node_id)?;
+    match info {
+        Some(n) => {
+            if json {
+                println!("{}", serde_json::to_string_pretty(&n)?);
+            } else {
+                let payload = n.payload.as_deref().unwrap_or("—");
+                println!("{}\t{}\t{payload}", n.id, n.node_type);
+                if !n.outgoing_edges.is_empty() {
+                    println!("\n  Outgoing edges:");
+                    for e in &n.outgoing_edges {
+                        let p = e.payload.as_deref().unwrap_or("—");
+                        println!("    --[{}]--> {}\t{}\t{p}", e.edge_type, e.id, e.node_type);
+                    }
+                }
+                if !n.incoming_edges.is_empty() {
+                    println!("\n  Incoming edges:");
+                    for e in &n.incoming_edges {
+                        let p = e.payload.as_deref().unwrap_or("—");
+                        println!("    <--[{}]-- {}\t{}\t{p}", e.edge_type, e.id, e.node_type);
+                    }
+                }
+            }
+        }
+        None => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "error": "Node not found",
+                        "node_id": node_id
+                    }))?
+                );
+            } else {
+                println!("Node not found: {node_id}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_modules(db: Option<&PathBuf>, root: Option<&str>, json: bool) -> Result<()> {
+    let db_path = resolve_db_path(db)?;
+    if !db_path.exists() {
+        anyhow::bail!(
+            "Graph database not found at {}. Run 'ferrograph index --output {}' first.",
+            db_path.display(),
+            db_path.display()
+        );
+    }
+    let store = crate::graph::Store::new_persistent(&db_path)
+        .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
+    let result = crate::ops::module_graph(&store, root)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        for edge in &result.edges {
+            println!(
+                "{} ({}) --> {} ({})",
+                edge.from_id, edge.from_type, edge.to_id, edge.to_type
+            );
+        }
+        println!("\n{} containment edges", result.count);
+    }
+    Ok(())
+}
+
+fn run_traits(db: Option<&PathBuf>, trait_name: &str, json: bool) -> Result<()> {
+    let db_path = resolve_db_path(db)?;
+    if !db_path.exists() {
+        anyhow::bail!(
+            "Graph database not found at {}. Run 'ferrograph index --output {}' first.",
+            db_path.display(),
+            db_path.display()
+        );
+    }
+    let store = crate::graph::Store::new_persistent(&db_path)
+        .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
+    let result = crate::ops::trait_implementors(&store, trait_name)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        for node in &result.implementors {
+            let payload = node.payload.as_deref().unwrap_or("—");
+            println!("{}\t{}\t{payload}", node.id, node.node_type);
+        }
+        println!("\n{} implementors of \"{}\"", result.count, trait_name);
+    }
+    Ok(())
+}
+
+fn run_status(path: &Path, json: bool) -> Result<()> {
     let db_path = if path.is_dir() {
         path.join(".ferrograph")
     } else {
@@ -196,10 +444,24 @@ fn run_status(path: &Path) -> Result<()> {
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let node_count = store.node_count()?;
-    let edge_count = store.edge_count()?;
-    println!("Graph: {}", db_path.display());
-    println!("  nodes: {node_count}");
-    println!("  edges: {edge_count}");
+    let result = crate::ops::status(&store, &db_path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("Graph: {}", result.db_path);
+        if let Some(ts) = result.indexed_at {
+            println!("  indexed_at: {ts}");
+        }
+        println!();
+        println!("  Nodes ({} total):", result.node_count);
+        for (type_name, count) in &result.nodes_by_type {
+            println!("    {type_name:<20} {count:>6}");
+        }
+        println!();
+        println!("  Edges ({} total):", result.edge_count);
+        for (type_name, count) in &result.edges_by_type {
+            println!("    {type_name:<20} {count:>6}");
+        }
+    }
     Ok(())
 }
