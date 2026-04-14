@@ -10,10 +10,11 @@ SKILL_DIR="$HOME/.claude/skills/ferrograph"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
 REMOTE_SKILL="https://raw.githubusercontent.com/GarthDB/ferrograph/main/.claude/skills/ferrograph/SKILL.md"
 
-# Only resolve a local repo path when NOT piped (stdin is a terminal).
-# When piped (curl | sh), $0 is the shell binary, so dirname would resolve
-# relative to the caller's cwd and could pick up a stale local copy.
-if [ -t 0 ]; then
+# Only resolve a local repo path when $0 points to an actual file (i.e., we
+# were invoked as a script). When piped (curl | sh), $0 is the shell binary
+# (e.g. /bin/sh) or a stdin placeholder, not our script, so dirname would
+# resolve relative to the wrong directory.
+if [ -f "$0" ]; then
   REPO_SKILL="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/.claude/skills/ferrograph/SKILL.md"
 else
   REPO_SKILL=""
