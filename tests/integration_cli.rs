@@ -13,15 +13,16 @@ fn fixture_path(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-/// Parse node count from `status` stdout (line containing "nodes: N").
+/// Parse node count from `status` stdout (line containing "Nodes (N total)").
 fn parse_node_count(stdout: &str) -> u32 {
     stdout
         .lines()
-        .find(|l| l.contains("nodes:"))
+        .find(|l| l.contains("Nodes ("))
         .and_then(|l| {
-            l.split(':')
-                .nth(1)
-                .and_then(|s| s.trim().parse::<u32>().ok())
+            // Extract number from "  Nodes (42 total):"
+            let start = l.find('(')? + 1;
+            let end = l.find(" total")?;
+            l[start..end].trim().parse::<u32>().ok()
         })
         .expect("failed to parse node count from status output")
 }
@@ -82,11 +83,11 @@ fn cli_index_and_status_and_query() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("nodes:"),
+        stdout.contains("Nodes ("),
         "status should report nodes: {stdout}"
     );
     assert!(
-        stdout.contains("edges:"),
+        stdout.contains("Edges ("),
         "status should report edges: {stdout}"
     );
     let node_count = parse_node_count(&stdout);
