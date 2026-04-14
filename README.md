@@ -53,24 +53,23 @@ cargo run -- mcp
 
 ### Setup with Claude Code
 
-A Claude Code skill lives at `.claude/skills/ferrograph/SKILL.md` in this repo. It gives Claude a full workflow for indexing, exploring, and querying ferrograph graphs via the `/ferrograph` slash command.
+A Claude Code skill gives Claude a full workflow for indexing, exploring, and querying ferrograph graphs via the `/ferrograph` slash command.
 
-Install it by symlinking to your user skill directory (so it stays in sync with repo updates):
+**Install (any method):**
 
 ```bash
-mkdir -p ~/.claude/skills/ferrograph
-ln -sf "$(pwd)/.claude/skills/ferrograph/SKILL.md" ~/.claude/skills/ferrograph/SKILL.md
+# From GitHub (no clone needed)
+curl -fsSL https://raw.githubusercontent.com/GarthDB/ferrograph/main/install-claude-skill.sh | sh
+
+# From a local clone
+sh install-claude-skill.sh
 ```
 
-Then add to your `~/.claude/CLAUDE.md`:
-
-```markdown
-### ferrograph
-- **ferrograph** (`~/.claude/skills/ferrograph/SKILL.md`) - Rust code intelligence via knowledge graph. Trigger: `/ferrograph`
-When the user types `/ferrograph`, invoke the Skill tool with `skill: "ferrograph"` before doing anything else.
-```
+The script writes the skill to `~/.claude/skills/ferrograph/SKILL.md` and patches `~/.claude/CLAUDE.md` automatically.
 
 Once installed, use `/ferrograph <path>` in any Claude Code session to index and explore a Rust project.
+
+> **Coming soon**: `ferrograph claude install` will handle this in a single command with no script required ([#47](https://github.com/GarthDB/ferrograph/issues/47)).
 
 A `CLAUDE.md` in the repo root covers project-specific rules for working on ferrograph itself (Rust standards, commit format, architecture notes).
 
