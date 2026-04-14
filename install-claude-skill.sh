@@ -8,8 +8,16 @@ set -e
 
 SKILL_DIR="$HOME/.claude/skills/ferrograph"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
-REPO_SKILL="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/.claude/skills/ferrograph/SKILL.md"
 REMOTE_SKILL="https://raw.githubusercontent.com/GarthDB/ferrograph/main/.claude/skills/ferrograph/SKILL.md"
+
+# Only resolve a local repo path when NOT piped (stdin is a terminal).
+# When piped (curl | sh), $0 is the shell binary, so dirname would resolve
+# relative to the caller's cwd and could pick up a stale local copy.
+if [ -t 0 ]; then
+  REPO_SKILL="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/.claude/skills/ferrograph/SKILL.md"
+else
+  REPO_SKILL=""
+fi
 
 SKILL_ENTRY='### ferrograph
 - **ferrograph** (`~/.claude/skills/ferrograph/SKILL.md`) - Rust code intelligence via knowledge graph. Trigger: `/ferrograph`
@@ -19,7 +27,7 @@ When the user types `/ferrograph`, invoke the Skill tool with `skill: "ferrograp
 
 mkdir -p "$SKILL_DIR"
 
-if [ -f "$REPO_SKILL" ]; then
+if [ -n "$REPO_SKILL" ] && [ -f "$REPO_SKILL" ]; then
   cp "$REPO_SKILL" "$SKILL_DIR/SKILL.md"
   echo "✓ Copied skill from local repo"
 elif command -v curl >/dev/null 2>&1; then
@@ -42,9 +50,14 @@ if [ ! -f "$CLAUDE_MD" ]; then
 elif grep -q "skill: \"ferrograph\"" "$CLAUDE_MD" 2>/dev/null; then
   echo "✓ Skill entry already present in $CLAUDE_MD"
 else
-  # Append under existing ## Skills section if present, else append at end
+  # Insert after ## Skills heading if present, else append new section at end
   if grep -q "^## Skills" "$CLAUDE_MD" 2>/dev/null; then
-    printf '\n%s\n' "$SKILL_ENTRY" >> "$CLAUDE_MD"
+    SKILLS_LINE=$(grep -n "^## Skills" "$CLAUDE_MD" | head -1 | cut -d: -f1)
+    TMPFILE="$(mktemp)"
+    head -n "$SKILLS_LINE" "$CLAUDE_MD" > "$TMPFILE"
+    printf '\n%s\n' "$SKILL_ENTRY" >> "$TMPFILE"
+    tail -n +"$((SKILLS_LINE + 1))" "$CLAUDE_MD" >> "$TMPFILE"
+    mv "$TMPFILE" "$CLAUDE_MD"
   else
     printf '\n## Skills\n\n%s\n' "$SKILL_ENTRY" >> "$CLAUDE_MD"
   fi
