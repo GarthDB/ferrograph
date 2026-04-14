@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0](https://github.com/GarthDB/ferrograph/compare/v1.2.0...v1.3.0) - 2026-04-14
+
+### Added
+
+- *(pipeline)* add BorrowsMut, ExternalType, retain edges to unresolved types
+- *(pipeline)* emit owns/borrows edges for function return types ([#39](https://github.com/GarthDB/ferrograph/pull/39))
+- *(pipeline)* add primitive type nodes to the graph ([#37](https://github.com/GarthDB/ferrograph/pull/37))
+
+### Fixed
+
+- *(ci)* use is_some_and in borrows tests for clippy map_unwrap_or
+- *(ci)* use char 'S' in borrows_mut test for clippy single_char_pattern
+
+### Other
+
+- *(docs)* PR #40 — idempotence, qualified names, return &mut, README
+
 ## [1.2.0](https://github.com/GarthDB/ferrograph/compare/v1.1.0...v1.2.0) - 2026-03-09
 
 ### Added
