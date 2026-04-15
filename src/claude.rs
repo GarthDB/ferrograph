@@ -413,4 +413,22 @@ mod tests {
         let second = fs::read_to_string(&path).unwrap();
         assert_eq!(first, second, "patch should be idempotent");
     }
+
+    #[test]
+    fn stale_block_detected_as_not_up_to_date() {
+        let stale = "### ferrograph\n- old description from v1.0\n";
+        assert!(has_skill_block(stale), "block should be detected");
+        let extracted = extract_skill_block(stale).unwrap();
+        assert_ne!(extracted, SKILL_ENTRY, "stale block should not match current entry");
+    }
+
+    #[test]
+    fn stray_marker_outside_block_not_detected() {
+        // The marker string appears in prose but there is no ### ferrograph block.
+        let content = "## Notes\n\nWe use skill: \"ferrograph\" in our workflow.\n";
+        assert!(
+            !has_skill_block(content),
+            "stray marker without ### ferrograph heading should not be detected as a block"
+        );
+    }
 }
