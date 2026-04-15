@@ -51,6 +51,28 @@ cargo run -- watch . --output .ferrograph
 cargo run -- mcp
 ```
 
+### Setup with Claude Code
+
+A Claude Code skill gives Claude a full workflow for indexing, exploring, and querying ferrograph graphs via the `/ferrograph` slash command.
+
+**Install (any method):**
+
+```bash
+# From GitHub (no clone needed)
+curl -fsSL https://raw.githubusercontent.com/GarthDB/ferrograph/main/install-claude-skill.sh | sh
+
+# From a local clone
+sh install-claude-skill.sh
+```
+
+The script writes the skill to `~/.claude/skills/ferrograph/SKILL.md` and patches `~/.claude/CLAUDE.md` automatically.
+
+Once installed, use `/ferrograph <path>` in any Claude Code session to index and explore a Rust project.
+
+> **Coming soon**: `ferrograph claude install` will handle this in a single command with no script required ([#47](https://github.com/GarthDB/ferrograph/issues/47)).
+
+A `CLAUDE.md` in the repo root covers project-specific rules for working on ferrograph itself (Rust standards, commit format, architecture notes).
+
 ### Setup with Cursor
 
 Add to `.cursor/mcp.json` in your project (or global settings):
