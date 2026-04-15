@@ -17,8 +17,16 @@ const SKILL_ENTRY: &str = "\
 - **ferrograph** (`~/.claude/skills/ferrograph/SKILL.md`) - Rust code intelligence via knowledge graph. Trigger: `/ferrograph`
 When the user types `/ferrograph`, invoke the Skill tool with `skill: \"ferrograph\"` before doing anything else.";
 
-/// Marker used to detect whether our entry is already present.
-const MARKER: &str = "skill: \"ferrograph\"";
+/// Check whether content contains a `### ferrograph` skill block.
+fn has_skill_block(content: &str) -> bool {
+    find_skill_block(content).is_some()
+}
+
+/// Extract the `### ferrograph` block content (without trailing newline).
+fn extract_skill_block(content: &str) -> Option<&str> {
+    let (start, end) = find_skill_block(content)?;
+    Some(content[start..end].trim_end())
+}
 
 fn home_dir() -> Result<PathBuf> {
     std::env::var("HOME")
@@ -83,7 +91,7 @@ fn run_uninstall() -> Result<()> {
     // Step 2: Remove entry from CLAUDE.md
     if claude_md.exists() {
         let content = fs::read_to_string(&claude_md)?;
-        if content.contains(MARKER) {
+        if has_skill_block(&content) {
             let new_content = remove_skill_block(&content);
             fs::write(&claude_md, new_content)?;
             println!("Removed ferrograph entry from {}", claude_md.display());
@@ -113,8 +121,19 @@ fn run_status(json: bool) -> Result<()> {
     let claude_md = claude_md_path()?;
 
     let skill_file = skill_path.exists();
-    let claude_md_entry = claude_md.exists() && fs::read_to_string(&claude_md)?.contains(MARKER);
-    let up_to_date = skill_file && fs::read_to_string(&skill_path)? == SKILL_CONTENT;
+    let skill_up_to_date = skill_file && fs::read_to_string(&skill_path)? == SKILL_CONTENT;
+
+    let claude_md_content = if claude_md.exists() {
+        Some(fs::read_to_string(&claude_md)?)
+    } else {
+        None
+    };
+    let claude_md_entry = claude_md_content.as_deref().is_some_and(has_skill_block);
+    let entry_up_to_date = claude_md_content
+        .as_deref()
+        .and_then(extract_skill_block)
+        .is_some_and(|block| block == SKILL_ENTRY);
+    let up_to_date = skill_up_to_date && entry_up_to_date;
     let installed = skill_file && claude_md_entry;
 
     let status_label = if installed && up_to_date {
@@ -171,7 +190,7 @@ fn patch_claude_md(path: &std::path::Path) -> Result<()> {
 
     let content = fs::read_to_string(path)?;
 
-    if content.contains(MARKER) {
+    if has_skill_block(&content) {
         // Already present — replace block for idempotent upgrade.
         let new_content = replace_skill_block(&content);
         fs::write(path, new_content)?;
@@ -339,9 +358,9 @@ mod tests {
         let original = "# Rules\n\n## Skills\n\n### other\n- stuff\n\n## Config\nfoo\n";
         let pos = find_skills_heading_end(original).unwrap();
         let installed = insert_after_position(original, pos);
-        assert!(installed.contains(MARKER));
+        assert!(has_skill_block(&installed));
         let uninstalled = remove_skill_block(&installed);
-        assert!(!uninstalled.contains(MARKER));
+        assert!(!has_skill_block(&uninstalled));
         assert!(uninstalled.contains("### other\n- stuff\n"));
         assert!(uninstalled.contains("## Config\nfoo\n"));
     }
@@ -353,7 +372,7 @@ mod tests {
         patch_claude_md(&path).unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("## Skills"));
-        assert!(content.contains(MARKER));
+        assert!(has_skill_block(&content));
     }
 
     #[test]
@@ -364,7 +383,7 @@ mod tests {
         patch_claude_md(&path).unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("## Skills"));
-        assert!(content.contains(MARKER));
+        assert!(has_skill_block(&content));
         assert!(content.contains("## Other\nstuff\n"));
     }
 
@@ -375,7 +394,7 @@ mod tests {
         fs::write(&path, "# Rules\n\n## Skills\n\n### other\n\n## Config\n").unwrap();
         patch_claude_md(&path).unwrap();
         let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains(MARKER));
+        assert!(has_skill_block(&content));
         // Entry should be between Skills and other
         let skills_pos = content.find("## Skills").unwrap();
         let entry_pos = content.find("### ferrograph").unwrap();
