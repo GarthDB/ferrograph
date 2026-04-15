@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0](https://github.com/GarthDB/ferrograph/compare/v1.4.0...v1.5.0) - 2026-04-15
+
+### Added
+
+- *(cli)* ferrograph claude install/uninstall/status ([#47](https://github.com/GarthDB/ferrograph/pull/47))
+
+### Fixed
+
+- *(claude)* use block-based detection for all CLAUDE.md operations
+- *(claude)* replace excessive bools with status string field
+- *(installer)* use file check on \$0 instead of tty check for local detection
+- *(installer)* always download from GitHub when piped, insert skill under correct heading
+
+### Other
+
+- fix rustfmt formatting in claude tests
+- *(claude)* add tests for stale block and stray marker detection
+- add install-claude-skill.sh and simplify Claude Code README section
+- add Claude Code skill and CLAUDE.md integration
+
 ## [1.4.0](https://github.com/GarthDB/ferrograph/compare/v1.3.0...v1.4.0) - 2026-04-14
 
 ### Added
