@@ -419,7 +419,10 @@ mod tests {
         let stale = "### ferrograph\n- old description from v1.0\n";
         assert!(has_skill_block(stale), "block should be detected");
         let extracted = extract_skill_block(stale).unwrap();
-        assert_ne!(extracted, SKILL_ENTRY, "stale block should not match current entry");
+        assert_ne!(
+            extracted, SKILL_ENTRY,
+            "stale block should not match current entry"
+        );
     }
 
     #[test]
