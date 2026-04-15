@@ -2,6 +2,7 @@
 //!
 //! Indexes Rust codebases into a queryable knowledge graph with CLI and MCP interfaces.
 
+pub mod claude;
 pub mod config;
 pub mod graph;
 pub mod mcp;
