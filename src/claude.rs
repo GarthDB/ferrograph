@@ -98,9 +98,9 @@ fn run_uninstall() -> Result<()> {
 
 /// Status result for `--json` output.
 #[derive(Debug, Serialize)]
-#[allow(clippy::struct_excessive_bools)]
 struct SkillStatus {
-    installed: bool,
+    /// `"installed"`, `"outdated"`, or `"not_installed"`
+    status: String,
     skill_file: bool,
     claude_md_entry: bool,
     up_to_date: bool,
@@ -117,9 +117,17 @@ fn run_status(json: bool) -> Result<()> {
     let up_to_date = skill_file && fs::read_to_string(&skill_path)? == SKILL_CONTENT;
     let installed = skill_file && claude_md_entry;
 
+    let status_label = if installed && up_to_date {
+        "installed"
+    } else if installed {
+        "outdated"
+    } else {
+        "not_installed"
+    };
+
     if json {
         let status = SkillStatus {
-            installed,
+            status: status_label.to_string(),
             skill_file,
             claude_md_entry,
             up_to_date,
