@@ -32,7 +32,9 @@ fn cli_help() {
     let out = ferrograph_cmd().arg("--help").output().unwrap();
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    for sub in ["index", "query", "status", "search", "watch", "mcp"] {
+    for sub in [
+        "index", "query", "status", "search", "watch", "claude", "mcp",
+    ] {
         assert!(
             stdout.contains(sub),
             "help should list subcommand '{sub}', got: {stdout}"
@@ -528,6 +530,64 @@ fn cli_help_lists_new_subcommands() {
         stdout.contains("--json"),
         "help should list --json flag: {stdout}"
     );
+}
+
+#[test]
+fn cli_claude_status() {
+    let out = ferrograph_cmd()
+        .args(["claude", "status"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "claude status failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Skill file:"),
+        "claude status should report skill file: {stdout}"
+    );
+}
+
+#[test]
+fn cli_claude_status_json() {
+    let out = ferrograph_cmd()
+        .args(["--json", "claude", "status"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "claude status --json failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("claude status --json not valid JSON: {e}\n{stdout}"));
+    assert!(
+        parsed["skill_file"].is_boolean(),
+        "should have skill_file boolean: {stdout}"
+    );
+    assert!(
+        parsed["up_to_date"].is_boolean(),
+        "should have up_to_date boolean: {stdout}"
+    );
+}
+
+#[test]
+fn cli_claude_help() {
+    let out = ferrograph_cmd()
+        .args(["claude", "--help"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for sub in ["install", "uninstall", "status"] {
+        assert!(
+            stdout.contains(sub),
+            "claude help should list '{sub}': {stdout}"
+        );
+    }
 }
 
 #[test]

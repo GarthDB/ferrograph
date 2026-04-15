@@ -120,8 +120,24 @@ pub enum Command {
         /// Trait name to search for.
         trait_name: String,
     },
+    /// Manage the Claude Code skill (install/uninstall/status).
+    Claude {
+        #[command(subcommand)]
+        action: ClaudeAction,
+    },
     /// Run the MCP server over stdio (for AI agents and IDEs).
     Mcp,
+}
+
+/// Actions for the `ferrograph claude` subcommand.
+#[derive(Debug, Subcommand)]
+pub enum ClaudeAction {
+    /// Install the ferrograph skill into Claude Code.
+    Install,
+    /// Remove the ferrograph skill from Claude Code.
+    Uninstall,
+    /// Check whether the skill is installed and up to date.
+    Status,
 }
 
 /// Run the CLI command.
@@ -146,6 +162,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Info { db, node_id } => run_info(db.as_ref(), &node_id, json),
         Command::Modules { db, root } => run_modules(db.as_ref(), root.as_deref(), json),
         Command::Traits { db, trait_name } => run_traits(db.as_ref(), &trait_name, json),
+        Command::Claude { ref action } => crate::claude::run(action, json),
         Command::Mcp => run_mcp(),
     }
 }
