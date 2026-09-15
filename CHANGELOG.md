@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1](https://github.com/GarthDB/ferrograph/compare/v1.5.0...v1.5.1) - 2026-09-15
+
+### Fixed
+
+- upgrade rmcp 0.16 -> 3.4 to fix Copilot CLI handshake crash
+
+### Other
+
+- *(release-plz)* use stable Rust toolchain instead of MSRV pin
+- *(audit)* ignore new transitive RUSTSEC advisories
+
 ## [1.5.0](https://github.com/GarthDB/ferrograph/compare/v1.4.0...v1.5.0) - 2026-04-15
 
 ### Added
