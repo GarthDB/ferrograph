@@ -201,7 +201,7 @@ impl Query {
         let edge_refs = EdgeType::References.to_string();
         // Compute entry point ids in Rust (Cozo has no str_starts_with); then pass to Datalog.
         let all_fns = store.run_query(
-            &format!("?[id, payload] := *nodes[id, type, payload], type = \"{type_function}\"",),
+            &format!("?[id, payload] := *nodes[id, type, payload], type = \"{type_function}\""),
             BTreeMap::new(),
         )?;
         let entry_ids: Vec<DataValue> = all_fns

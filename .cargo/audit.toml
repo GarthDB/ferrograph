@@ -18,4 +18,19 @@ ignore = [
 
     # rand 0.8.5 unsound with custom logger — via cozo
     "RUSTSEC-2026-0097",
+
+    # crossbeam-epoch 0.9.18 invalid pointer deref in fmt::Pointer impl —
+    # via crossbeam → cozo. No cozo release pins a newer crossbeam.
+    "RUSTSEC-2026-0204",
+
+    # rustls-webpki 0.101.7 — via minreq → cozo. cozo 0.7.6 pins minreq
+    # 2.14.1, which has no release upgrading rustls-webpki.
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+
+    # thin-vec 0.2.14 use-after-free/double-free in IntoIter::drop — via
+    # ra_ap_* (rust-analyzer) crates pulled in by the optional `ra`
+    # feature. No ra_ap_* release upgrades thin-vec.
+    "RUSTSEC-2026-0103",
 ]

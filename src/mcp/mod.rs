@@ -9,9 +9,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use rmcp::model::{
-    Annotated, CallToolRequestParams, CallToolResult, Implementation, ListResourcesResult,
-    ListToolsResult, RawResource, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
-    ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, ListResourcesResult,
+    ListToolsResult, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
+    ResourceContents, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::serve_server;
 use rmcp::transport::stdio;
@@ -218,17 +218,7 @@ fn tool(
     description: &'static str,
     input_schema: serde_json::Map<String, serde_json::Value>,
 ) -> Tool {
-    Tool {
-        name: Cow::Borrowed(name),
-        title: None,
-        description: Some(Cow::Borrowed(description)),
-        input_schema: Arc::new(input_schema),
-        output_schema: None,
-        annotations: None,
-        execution: None,
-        icons: None,
-        meta: None,
-    }
+    Tool::new_with_raw(name, Some(Cow::Borrowed(description)), input_schema)
 }
 
 fn all_tools() -> Vec<Tool> {
@@ -339,21 +329,20 @@ impl Default for FerrographMcp {
 }
 
 impl ServerHandler for FerrographMcp {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            server_info: Implementation {
-                name: "ferrograph".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                ..Default::default()
-            },
-            capabilities: ServerCapabilities::builder()
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
+            ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
                 .build(),
-            ..Default::default()
-        }
+        )
+        .with_server_info(Implementation::new("ferrograph", env!("CARGO_PKG_VERSION")))
     }
 
+    #[allow(
+        clippy::unused_async_trait_impl,
+        reason = "trait requires an async fn; body is currently synchronous"
+    )]
     async fn list_tools(
         &self,
         _request: Option<rmcp::model::PaginatedRequestParams>,
@@ -362,26 +351,19 @@ impl ServerHandler for FerrographMcp {
         Ok(ListToolsResult::with_all_items(all_tools()))
     }
 
+    #[allow(
+        clippy::unused_async_trait_impl,
+        reason = "trait requires an async fn; body is currently synchronous"
+    )]
     async fn list_resources(
         &self,
         _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, rmcp::ErrorData> {
-        let resource = Annotated::new(
-            RawResource {
-                uri: "ferrograph://status".to_string(),
-                name: "status".to_string(),
-                title: Some("Graph status".to_string()),
-                description: Some(
-                    "Node count, edge count, db path, and indexed_at timestamp".to_string(),
-                ),
-                mime_type: Some("application/json".to_string()),
-                size: None,
-                icons: None,
-                meta: None,
-            },
-            None,
-        );
+        let resource = Resource::new("ferrograph://status", "status")
+            .with_title("Graph status")
+            .with_description("Node count, edge count, db path, and indexed_at timestamp")
+            .with_mime_type("application/json");
         Ok(ListResourcesResult::with_all_items(vec![resource]))
     }
 
@@ -389,7 +371,7 @@ impl ServerHandler for FerrographMcp {
         &self,
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, rmcp::ErrorData> {
+    ) -> Result<ReadResourceResponse, rmcp::ErrorData> {
         const STATUS_URI: &str = "ferrograph://status";
         if request.uri != STATUS_URI {
             return Err(rmcp::ErrorData::invalid_params(
@@ -404,9 +386,11 @@ impl ServerHandler for FerrographMcp {
                 "edge_count": null,
                 "db_path": null
             });
-            return Ok(ReadResourceResult {
-                contents: vec![ResourceContents::text(empty.to_string(), STATUS_URI)],
-            });
+            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                empty.to_string(),
+                STATUS_URI,
+            )])
+            .into());
         };
         if !store_path.exists() {
             let no_db = serde_json::json!({
@@ -416,22 +400,25 @@ impl ServerHandler for FerrographMcp {
                 "edge_count": null,
                 "db_path": store_path.display().to_string()
             });
-            return Ok(ReadResourceResult {
-                contents: vec![ResourceContents::text(no_db.to_string(), STATUS_URI)],
-            });
+            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                no_db.to_string(),
+                STATUS_URI,
+            )])
+            .into());
         }
         let store = self.get_or_open_store(&store_path).await?;
         let status = status_json(&store, &store_path)?;
-        Ok(ReadResourceResult {
-            contents: vec![ResourceContents::text(status.to_string(), STATUS_URI)],
-        })
+        Ok(
+            ReadResourceResult::new(vec![ResourceContents::text(status.to_string(), STATUS_URI)])
+                .into(),
+        )
     }
 
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, rmcp::ErrorData> {
+    ) -> Result<CallToolResponse, rmcp::ErrorData> {
         let name = request.name.as_ref();
         let store_path = resolve_store_path().ok_or_else(|| {
             rmcp::ErrorData::invalid_params(
@@ -445,7 +432,8 @@ impl ServerHandler for FerrographMcp {
             return Ok(CallToolResult::structured_error(serde_json::json!({
                 "error": "No graph database found",
                 "hint": "Run 'ferrograph index --output .ferrograph' in the project root, or use the reindex tool to create one, or set FERROGRAPH_DB to the graph path."
-            })));
+            }))
+            .into());
         }
         // Reindex uses a fresh store so we get exclusive write access (avoids "readonly database" when cache was opened for reads).
         if name == "reindex" {
@@ -466,7 +454,7 @@ impl ServerHandler for FerrographMcp {
                 let mut guard = self.cached.lock().await;
                 *guard = Some((store_path.clone(), store));
             }
-            return Ok(result);
+            return Ok(result.into());
         }
         let store = self.get_or_open_store(&store_path).await?;
         let result = match name {
@@ -487,7 +475,7 @@ impl ServerHandler for FerrographMcp {
                 ));
             }
         };
-        Ok(result)
+        Ok(result.into())
     }
 }
 
@@ -935,8 +923,6 @@ pub async fn run_stdio() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-
     use rmcp::model::{CallToolRequestParams, CallToolResult};
 
     use crate::graph::schema::{EdgeType, NodeId, NodeType};
@@ -953,12 +939,9 @@ mod tests {
         name: &'static str,
         arguments: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> CallToolRequestParams {
-        CallToolRequestParams {
-            meta: None,
-            name: Cow::Borrowed(name),
-            arguments,
-            task: None,
-        }
+        let mut params = CallToolRequestParams::new(name);
+        params.arguments = arguments;
+        params
     }
 
     #[test]
