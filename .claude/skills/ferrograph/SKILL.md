@@ -1,3 +1,11 @@
+---
+name: ferrograph
+description: >-
+  Index and query Rust codebases with Ferrograph. Use for Rust symbol search,
+  call graphs, impact analysis, dead code detection, and Datalog queries,
+  or when the user invokes /ferrograph.
+---
+
 # /ferrograph
 
 Graph-powered Rust code intelligence. Indexes Rust codebases into a queryable knowledge graph via tree-sitter AST extraction, then exposes CLI and MCP interfaces for search, impact analysis, dead code detection, and raw Datalog queries.
