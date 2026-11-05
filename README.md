@@ -139,6 +139,12 @@ ferrograph index . --output .ferrograph
 
 The `FERROGRAPH_DB` env var is optional if you run the MCP server from the project root (it defaults to `.ferrograph` in the current directory).
 
+### Keeping the graph current
+
+The MCP server keeps an existing graph up to date on its own. Before answering a tool call it checks the project's `.rs` files (the server's working directory, with the same `.gitignore` rules as indexing): if a file was edited after the graph was written, or files were added, removed or renamed, it reindexes first. The first call after a pull or branch switch therefore takes as long as a reindex. Set `FERROGRAPH_AUTO_REINDEX=0` to turn this off and reindex only on request.
+
+`ferrograph index --output`, the `reindex` tool and the automatic refresh build the graph in memory and replace the database file in one rename. A server or CLI that has the database open is not blocked and never reads a half-written graph; servers reopen the file when it changes, so several agents can share one `.ferrograph`.
+
 ### MCP tools
 
 Node IDs use the format `./path/to/file.rs#line:col` (relative to the project root).

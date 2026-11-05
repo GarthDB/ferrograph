@@ -311,19 +311,53 @@ fn status_json(
     }))
 }
 
-/// Cache: path and store handle so we do not reopen the database on every tool call.
-type StoreCache = Arc<Mutex<Option<(PathBuf, Arc<crate::graph::Store>)>>>;
+/// Cache: path, store handle and the file's mtime when opened, so we do not reopen the
+/// database on every tool call but do reopen it after another process replaced the file.
+type StoreCache = Arc<Mutex<Option<CachedStore>>>;
+
+struct CachedStore {
+    path: PathBuf,
+    store: Arc<crate::graph::Store>,
+    opened_mtime: Option<std::time::SystemTime>,
+}
+
+/// The sources and database mtime the graph was last known to match (see `refresh_if_stale`).
+type Seen = Arc<Mutex<Option<(u64, std::time::SystemTime)>>>;
+
+fn db_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Whether tool calls reindex a stale graph first (`FERROGRAPH_AUTO_REINDEX=0` turns it off).
+fn auto_reindex_enabled() -> bool {
+    std::env::var("FERROGRAPH_AUTO_REINDEX").map_or(true, |v| v != "0")
+}
+
+/// Whether the graph at `db` (last modified `db_mtime`) is older than `sources`. `seen` is
+/// what this process last saw: the sources' path hash and the database mtime then. A file
+/// edited after the database was written makes it stale; so does an added, removed or
+/// renamed file, unless the database was rewritten since (another process reindexed).
+fn is_stale(
+    sources: &crate::pipeline::Sources,
+    db_mtime: std::time::SystemTime,
+    seen: Option<&(u64, std::time::SystemTime)>,
+) -> bool {
+    sources.newest.is_some_and(|n| n > db_mtime)
+        || seen.is_some_and(|(hash, at)| *hash != sources.paths_hash && db_mtime <= *at)
+}
 
 /// MCP server handler exposing Ferrograph tools.
 #[derive(Clone)]
 pub struct FerrographMcp {
     cached: StoreCache,
+    seen: Seen,
 }
 
 impl Default for FerrographMcp {
     fn default() -> Self {
         Self {
             cached: Arc::new(Mutex::new(None)),
+            seen: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -435,26 +469,11 @@ impl ServerHandler for FerrographMcp {
             }))
             .into());
         }
-        // Reindex uses a fresh store so we get exclusive write access (avoids "readonly database" when cache was opened for reads).
         if name == "reindex" {
-            {
-                let mut guard = self.cached.lock().await;
-                *guard = None;
-            }
-            let store = Arc::new(crate::graph::Store::new_persistent(&store_path).map_err(
-                |e| {
-                    rmcp::ErrorData::internal_error(
-                        format!("Failed to open graph for reindex: {e}"),
-                        None,
-                    )
-                },
-            )?);
-            let result = self.handle_reindex(&request, &store, &store_path).await?;
-            {
-                let mut guard = self.cached.lock().await;
-                *guard = Some((store_path.clone(), store));
-            }
-            return Ok(result.into());
+            return Ok(self.handle_reindex(&request, &store_path).await?.into());
+        }
+        if auto_reindex_enabled() {
+            self.refresh_if_stale(&store_path).await;
         }
         let store = self.get_or_open_store(&store_path).await?;
         let result = match name {
@@ -467,7 +486,6 @@ impl ServerHandler for FerrographMcp {
             "node_info" => Self::handle_node_info(&request, &store)?,
             "trait_implementors" => Self::handle_trait_implementors(&request, &store)?,
             "module_graph" => Self::handle_module_graph(&request, &store)?,
-            "reindex" => self.handle_reindex(&request, &store, &store_path).await?,
             _ => {
                 return Err(rmcp::ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -829,7 +847,6 @@ impl FerrographMcp {
     async fn handle_reindex(
         &self,
         request: &CallToolRequestParams,
-        store: &Arc<crate::graph::Store>,
         store_path: &Path,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let root = get_str_arg(request, "path").map_or_else(
@@ -848,24 +865,8 @@ impl FerrographMcp {
                 "path": root.display().to_string()
             })));
         }
-        let root_clone = root.clone();
-        let store_clone = Arc::clone(store);
-        // Note: between clear() and pipeline completion, concurrent tool calls will see
-        // an empty or partial graph. Acceptable for v1; a future version could swap the
-        // store atomically after reindex completes.
-        let blocking_result = tokio::task::spawn_blocking(move || {
-            store_clone.clear().map_err(|e| {
-                rmcp::ErrorData::internal_error(format!("Reindex (clear) failed: {e}"), None)
-            })?;
-            let config = crate::pipeline::PipelineConfig::default();
-            crate::pipeline::run_pipeline(&store_clone, &root_clone, &config).map_err(|e| {
-                rmcp::ErrorData::internal_error(format!("Reindex (pipeline) failed: {e}"), None)
-            })?;
-            Ok::<(), rmcp::ErrorData>(())
-        })
-        .await
-        .map_err(|e| rmcp::ErrorData::internal_error(format!("Reindex task failed: {e}"), None))?;
-        blocking_result?;
+        self.reindex_into(store_path, &root).await?;
+        let store = self.get_or_open_store(store_path).await?;
         let node_count = store.node_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Reindex (node_count) failed: {e}"), None)
         })?;
@@ -887,25 +888,74 @@ impl FerrographMcp {
         })))
     }
 
+    /// Index `root` into a new database file that replaces `store_path` (see
+    /// [`crate::pipeline::index_to_path`]), then record what it was built from.
+    async fn reindex_into(&self, store_path: &Path, root: &Path) -> Result<(), rmcp::ErrorData> {
+        let (db, dir) = (store_path.to_path_buf(), root.to_path_buf());
+        let sources = tokio::task::spawn_blocking(move || {
+            let sources = crate::pipeline::scan_sources(&dir);
+            let config = crate::pipeline::PipelineConfig::default();
+            crate::pipeline::index_to_path(&db, &dir, &config).map(|()| sources)
+        })
+        .await
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Reindex task failed: {e}"), None))?
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Reindex failed: {e:#}"), None))?;
+        *self.cached.lock().await = None;
+        if let Some(at) = db_mtime(store_path) {
+            *self.seen.lock().await = Some((sources.paths_hash, at));
+        }
+        Ok(())
+    }
+
+    /// Reindex the project (the server's working directory, like `reindex`) when its Rust
+    /// sources changed since the graph was written. Failures are logged and the existing
+    /// graph is used.
+    async fn refresh_if_stale(&self, store_path: &Path) {
+        let (Ok(root), Some(at)) = (std::env::current_dir(), db_mtime(store_path)) else {
+            return;
+        };
+        let dir = root.clone();
+        let Ok(sources) =
+            tokio::task::spawn_blocking(move || crate::pipeline::scan_sources(&dir)).await
+        else {
+            return;
+        };
+        let stale = is_stale(&sources, at, self.seen.lock().await.as_ref());
+        if !stale {
+            *self.seen.lock().await = Some((sources.paths_hash, at));
+            return;
+        }
+        eprintln!(
+            "ferrograph: sources changed since the graph was written; reindexing {}",
+            root.display()
+        );
+        if let Err(e) = self.reindex_into(store_path, &root).await {
+            eprintln!("ferrograph: automatic reindex failed, using the existing graph: {e:?}");
+        }
+    }
+
     async fn get_or_open_store(
         &self,
         store_path: &Path,
     ) -> Result<Arc<crate::graph::Store>, rmcp::ErrorData> {
         let path_buf = store_path.to_path_buf();
-        {
-            let mut guard = self.cached.lock().await;
-            if let Some((ref cached_path, ref store)) = *guard {
-                if *cached_path == path_buf {
-                    return Ok(Arc::clone(store));
-                }
+        let mut guard = self.cached.lock().await;
+        if let Some(c) = guard.as_ref() {
+            // A replaced file (another process reindexed) has a new mtime: reopen it.
+            if c.path == path_buf && c.opened_mtime == db_mtime(store_path) {
+                return Ok(Arc::clone(&c.store));
             }
-            let store = crate::graph::Store::new_persistent(&path_buf).map_err(|e| {
-                rmcp::ErrorData::internal_error(format!("Failed to open graph: {e}"), None)
-            })?;
-            let store = Arc::new(store);
-            *guard = Some((path_buf, Arc::clone(&store)));
-            Ok(store)
         }
+        let store = crate::graph::Store::new_persistent(&path_buf).map_err(|e| {
+            rmcp::ErrorData::internal_error(format!("Failed to open graph: {e}"), None)
+        })?;
+        let store = Arc::new(store);
+        *guard = Some(CachedStore {
+            path: path_buf,
+            store: Arc::clone(&store),
+            opened_mtime: db_mtime(store_path),
+        });
+        Ok(store)
     }
 }
 
@@ -923,6 +973,28 @@ pub async fn run_stdio() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn stale_when_a_source_is_newer_than_the_graph_or_files_changed() {
+        use std::time::{Duration, SystemTime};
+        let t = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+        let src = |hash, newest: u64| crate::pipeline::Sources {
+            paths_hash: hash,
+            newest: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(newest)),
+        };
+        // Edited after the graph was written.
+        assert!(super::is_stale(&src(1, 1_001), t, None));
+        assert!(!super::is_stale(&src(1, 999), t, None));
+        // A file added or removed since this process last looked.
+        assert!(super::is_stale(&src(2, 999), t, Some(&(1, t))));
+        // ... unless another process rewrote the graph since.
+        assert!(!super::is_stale(
+            &src(2, 999),
+            t + Duration::from_secs(5),
+            Some(&(1, t))
+        ));
+        assert!(!super::is_stale(&src(1, 999), t, Some(&(1, t))));
+    }
     use rmcp::model::{CallToolRequestParams, CallToolResult};
 
     use crate::graph::schema::{EdgeType, NodeId, NodeType};

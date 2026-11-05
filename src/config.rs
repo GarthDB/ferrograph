@@ -185,17 +185,16 @@ fn resolve_db_path(db: Option<&PathBuf>) -> Result<PathBuf> {
 }
 
 fn run_index(path: &Path, output: Option<&PathBuf>) -> Result<()> {
-    let store = if let Some(out) = output {
-        crate::graph::Store::new_persistent(out)
-            .with_context(|| format!("Failed to create persistent store at {}", out.display()))?
-    } else {
-        crate::graph::Store::new_memory()?
-    };
     let config = crate::pipeline::PipelineConfig::default();
-    crate::pipeline::run_pipeline(&store, path, &config)?;
     if let Some(out) = output {
+        // Replaces the database file whole, so a running MCP server is not blocked and no
+        // graph from an earlier run is left behind.
+        crate::pipeline::index_to_path(out, path, &config)
+            .with_context(|| format!("Failed to write graph to {}", out.display()))?;
         println!("Indexed {} into {}", path.display(), out.display());
     } else {
+        let store = crate::graph::Store::new_memory()?;
+        crate::pipeline::run_pipeline(&store, path, &config)?;
         let nodes = store.node_count()?;
         let edges = store.edge_count()?;
         println!(
