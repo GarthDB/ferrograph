@@ -738,7 +738,7 @@ mod tests {
     fn trait_implementors_empty_when_no_trait() {
         let store = Store::new_memory().unwrap();
         let impls = Query::trait_implementors(&store, "NoSuchTrait").unwrap();
-        assert!(impls.is_empty());
+        assert_eq!(impls, Vec::new());
     }
 
     #[test]

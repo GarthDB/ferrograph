@@ -69,7 +69,48 @@ impl Store {
                 ScriptMutability::Mutable,
             )
             .map_err(|e| cozo_err(&e))?;
+        // Index metadata (project root, source fingerprint) written by `index_to_path`
+        self.db
+            .run_script(
+                "%ignore_error { :create meta { key: String => value: String } }",
+                BTreeMap::new(),
+                ScriptMutability::Mutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
         Ok(())
+    }
+
+    /// Set an index metadata value.
+    ///
+    /// # Errors
+    /// Fails if the Cozo script fails.
+    pub fn put_meta(&self, key: &str, value: &str) -> Result<()> {
+        let mut params = BTreeMap::new();
+        params.insert("key".to_string(), DataValue::from(key));
+        params.insert("value".to_string(), DataValue::from(value));
+        self.db
+            .run_script(
+                "?[key, value] <- [[$key, $value]] :put meta { key => value }",
+                params,
+                ScriptMutability::Mutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
+        Ok(())
+    }
+
+    /// Get an index metadata value, if set.
+    ///
+    /// # Errors
+    /// Fails if the Cozo query fails.
+    pub fn get_meta(&self, key: &str) -> Result<Option<String>> {
+        let mut params = BTreeMap::new();
+        params.insert("key".to_string(), DataValue::from(key));
+        let rows = self.run_query("?[value] := *meta{key: $key, value}", params)?;
+        Ok(rows
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|v| v.get_str().map(str::to_string)))
     }
 
     /// Insert a node.
@@ -411,7 +452,7 @@ mod tests {
             .unwrap();
         store.clear().unwrap();
         let rows = Query::all_nodes(&store).unwrap();
-        assert!(rows.rows.is_empty());
+        assert_eq!(rows.rows, Vec::<Vec<cozo::DataValue>>::new());
     }
 
     #[test]

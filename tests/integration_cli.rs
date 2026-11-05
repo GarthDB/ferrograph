@@ -448,6 +448,10 @@ fn cli_status_json() {
         "status --json should have nodes_by_type: {stdout}"
     );
     assert!(
+        parsed["root"].is_string(),
+        "status --json should report the project root: {stdout}"
+    );
+    assert!(
         parsed["edges_by_type"].is_array(),
         "status --json should have edges_by_type: {stdout}"
     );
@@ -619,4 +623,57 @@ fn cli_query_invalid_datalog_fails() {
         .output()
         .unwrap();
     assert!(!out.status.success(), "invalid Datalog should fail");
+}
+
+/// Re-indexing into an existing database replaces the graph: nodes of a deleted file go,
+/// and the database is replaced even while another handle has it open.
+#[test]
+fn cli_reindex_replaces_the_previous_graph() {
+    let src = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(src.path().join("src")).unwrap();
+    std::fs::write(
+        src.path().join("src/main.rs"),
+        "fn main() { keep(); }\nfn keep() {}\n",
+    )
+    .unwrap();
+    std::fs::write(src.path().join("src/gone.rs"), "pub fn gone_fn() {}\n").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join(".ferrograph");
+    let index = || {
+        let out = ferrograph_cmd()
+            .args([
+                "index",
+                "--output",
+                db.to_str().unwrap(),
+                src.path().to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "index failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    let search = || {
+        let out = ferrograph_cmd()
+            .args(["search", "--db", db.to_str().unwrap(), "gone_fn"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    index();
+    assert!(search().contains("gone_fn"));
+    // A reader holding the old file must not block the rewrite.
+    let reader = ferrograph::graph::Store::new_persistent(&db).unwrap();
+    std::fs::remove_file(src.path().join("src/gone.rs")).unwrap();
+    index();
+    assert!(!search().contains("gone_fn"), "{}", search());
+    drop(reader);
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
+        .collect();
+    assert!(leftovers.is_empty());
 }

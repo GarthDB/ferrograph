@@ -23,12 +23,6 @@ ignore = [
     # via crossbeam → cozo. No cozo release pins a newer crossbeam.
     "RUSTSEC-2026-0204",
 
-    # rustls-webpki 0.101.7 — via minreq → cozo. cozo 0.7.6 pins minreq
-    # 2.14.1, which has no release upgrading rustls-webpki.
-    "RUSTSEC-2026-0104",
-    "RUSTSEC-2026-0098",
-    "RUSTSEC-2026-0099",
-
     # thin-vec 0.2.14 use-after-free/double-free in IntoIter::drop — via
     # ra_ap_* (rust-analyzer) crates pulled in by the optional `ra`
     # feature. No ra_ap_* release upgrades thin-vec.

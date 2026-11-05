@@ -185,17 +185,16 @@ fn resolve_db_path(db: Option<&PathBuf>) -> Result<PathBuf> {
 }
 
 fn run_index(path: &Path, output: Option<&PathBuf>) -> Result<()> {
-    let store = if let Some(out) = output {
-        crate::graph::Store::new_persistent(out)
-            .with_context(|| format!("Failed to create persistent store at {}", out.display()))?
-    } else {
-        crate::graph::Store::new_memory()?
-    };
     let config = crate::pipeline::PipelineConfig::default();
-    crate::pipeline::run_pipeline(&store, path, &config)?;
     if let Some(out) = output {
+        // Replaces the database file whole, so a running MCP server is not blocked and no
+        // graph from an earlier run is left behind.
+        crate::pipeline::index_to_path(out, path, &config)
+            .with_context(|| format!("Failed to write graph to {}", out.display()))?;
         println!("Indexed {} into {}", path.display(), out.display());
     } else {
+        let store = crate::graph::Store::new_memory()?;
+        crate::pipeline::run_pipeline(&store, path, &config)?;
         let nodes = store.node_count()?;
         let edges = store.edge_count()?;
         println!(
@@ -261,10 +260,8 @@ fn run_search(db: Option<&PathBuf>, query: &str, case_insensitive: bool, json: b
 fn run_watch(path: &Path, output: Option<&PathBuf>) -> Result<()> {
     let out = output
         .ok_or_else(|| anyhow::anyhow!("Watch requires --output (path to graph database)"))?;
-    let store = crate::graph::Store::new_persistent(out)
-        .with_context(|| format!("Failed to open graph at {}", out.display()))?;
     let config = crate::pipeline::PipelineConfig::default();
-    crate::watch::watch_and_reindex(&store, path, &config)
+    crate::watch::watch_and_reindex(out, path, &config)
 }
 
 fn run_dead(db: Option<&PathBuf>, file: Option<&str>, json: bool) -> Result<()> {
@@ -468,6 +465,9 @@ fn run_status(path: &Path, json: bool) -> Result<()> {
         println!("Graph: {}", result.db_path);
         if let Some(ts) = result.indexed_at {
             println!("  indexed_at: {ts}");
+        }
+        if let Some(root) = &result.root {
+            println!("  root: {root}");
         }
         println!();
         println!("  Nodes ({} total):", result.node_count);
