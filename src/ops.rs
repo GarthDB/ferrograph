@@ -16,6 +16,9 @@ pub struct StatusResult {
     pub edge_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub indexed_at: Option<u64>,
+    /// Project root the graph was built from (absent for graphs from 1.5.1 or earlier).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
     pub nodes_by_type: Vec<(String, usize)>,
     pub edges_by_type: Vec<(String, usize)>,
 }
@@ -65,6 +68,7 @@ pub fn status(store: &Store, store_path: &Path) -> Result<StatusResult> {
         node_count,
         edge_count,
         indexed_at,
+        root: store.get_meta("root")?,
         nodes_by_type,
         edges_by_type,
     })

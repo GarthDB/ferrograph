@@ -141,9 +141,11 @@ The `FERROGRAPH_DB` env var is optional if you run the MCP server from the proje
 
 ### Keeping the graph current
 
-The MCP server keeps an existing graph up to date on its own. Before answering a tool call it checks the project's `.rs` files (the server's working directory, with the same `.gitignore` rules as indexing): if a file was edited after the graph was written, or files were added, removed or renamed, it reindexes first. The first call after a pull or branch switch therefore takes as long as a reindex. Set `FERROGRAPH_AUTO_REINDEX=0` to turn this off and reindex only on request.
+The MCP server keeps an existing graph up to date on its own. Every graph records the project root it was built from and a fingerprint of that project's `.rs` files (paths, sizes and modification times, with the same `.gitignore` rules as indexing). Before answering a tool call the server recomputes the fingerprint for the recorded root, so it does not matter which directory the server was started in. If any file was edited, added, removed or renamed, it reindexes first. The first call after a pull or branch switch therefore takes as long as a reindex. Set `FERROGRAPH_AUTO_REINDEX=0` to turn this off and reindex only on request. Graphs written by ferrograph 1.5.1 or earlier do not record a root; run `reindex` (or `ferrograph index`) once to turn on automatic refresh for them.
 
-`ferrograph index --output`, the `reindex` tool and the automatic refresh build the graph in memory and replace the database file in one rename. A server or CLI that has the database open is not blocked and never reads a half-written graph; servers reopen the file when it changes, so several agents can share one `.ferrograph`.
+`ferrograph index --output`, `ferrograph watch`, the `reindex` tool and the automatic refresh build the graph in memory and replace the database file in one rename. A server or CLI that has the database open is not blocked and never reads a half-written graph; servers reopen the file when it changes, so several agents can share one `.ferrograph`.
+
+The graph is a local build artifact. Add `.ferrograph*` to your `.gitignore`; the pattern also covers the `.ferrograph.tmp-*` file left behind if an index run is killed partway through.
 
 ### MCP tools
 
@@ -152,7 +154,7 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 | Tool | Description |
 |------|-------------|
 | `reindex` | Re-index the project; can bootstrap from scratch (no pre-existing DB needed). |
-| `status` | Node/edge counts, DB path, `indexed_at` timestamp. |
+| `status` | Node/edge counts, DB path, `indexed_at` timestamp, project `root` the graph tracks. |
 | `search` | Text search over node payloads; supports limit/offset pagination. |
 | `node_info` | Type, payload, and incoming/outgoing edges for a node ID. |
 | `dead_code` | Functions not reachable from entry points; optional `node_type` and `file_glob` filters. |

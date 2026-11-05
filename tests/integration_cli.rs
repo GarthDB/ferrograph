@@ -448,6 +448,10 @@ fn cli_status_json() {
         "status --json should have nodes_by_type: {stdout}"
     );
     assert!(
+        parsed["root"].is_string(),
+        "status --json should report the project root: {stdout}"
+    );
+    assert!(
         parsed["edges_by_type"].is_array(),
         "status --json should have edges_by_type: {stdout}"
     );

@@ -72,21 +72,11 @@ Replace `INPUT_PATH`. If no Rust project is found, stop and tell the user.
 
 ### Step 3 — Index
 
-Check whether a fresh index already exists before re-indexing:
+Always (re)index. It replaces the database in one rename, so a running MCP server is not blocked, and it picks up edited, added, removed and renamed files:
 
 ```bash
 DB_PATH="INPUT_PATH/.ferrograph"
-if [ -f "$DB_PATH" ]; then
-    NEWEST_RS=$(find INPUT_PATH -name '*.rs' -newer "$DB_PATH" 2>/dev/null | head -1)
-    if [ -n "$NEWEST_RS" ]; then
-        echo "Index is stale — re-indexing..."
-        ferrograph index INPUT_PATH -o "$DB_PATH" 2>&1
-    else
-        echo "Index is up to date — skipping reindex"
-    fi
-else
-    ferrograph index INPUT_PATH -o "$DB_PATH" 2>&1
-fi
+ferrograph index INPUT_PATH -o "$DB_PATH" 2>&1
 ```
 
 Note any warnings from the indexer (ambiguous calls, duplicate names) — mention them in the report but don't treat them as errors.
@@ -217,12 +207,13 @@ Runs in the foreground — tell the user to run this in a separate terminal.
 
 ## CozoDB Datalog Cookbook
 
-Three relations underpin everything:
+Four relations underpin everything:
 
 ```
 *nodes[id, type, payload]          — all code entities
 *edges[from_id, to_id, edge_type]  — all relationships  
 *dead_functions[id]                — unreachable functions
+*meta[key, value]                  — index metadata: `root` (project root), `sources` (source fingerprint)
 ```
 
 **Node types**: `file`, `module`, `function`, `struct`, `enum`, `trait`, `impl`, `type_alias`, `const`, `static`, `macro`, `crate_root`, `primitive`, `external_type`

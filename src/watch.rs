@@ -8,19 +8,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::graph::Store;
-use crate::pipeline::{run_pipeline, PipelineConfig};
+use crate::pipeline::{index_to_path, PipelineConfig};
 
 /// Debounce interval before re-indexing after a change (seconds).
 const DEBOUNCE_SECS: u64 = 2;
 
-/// Run the pipeline once, then watch for filesystem changes and re-run (with debounce).
+/// Index into `db_path` once, then watch for filesystem changes and re-index (with debounce).
+/// Each run replaces the database file whole (see [`index_to_path`]).
 /// Exits gracefully on Ctrl+C.
 ///
 /// # Errors
-/// Fails if the store cannot be opened, the initial pipeline run fails, or the watcher cannot be created.
-pub fn watch_and_reindex(store: &Store, root: &Path, config: &PipelineConfig) -> Result<()> {
-    run_pipeline(store, root, config)?;
+/// Fails if the initial index fails or the watcher cannot be created.
+pub fn watch_and_reindex(db_path: &Path, root: &Path, config: &PipelineConfig) -> Result<()> {
+    index_to_path(db_path, root, config)?;
     println!(
         "Watching {} (re-index in {}s after changes). Ctrl+C to stop.",
         root.display(),
@@ -65,13 +65,8 @@ pub fn watch_and_reindex(store: &Store, root: &Path, config: &PipelineConfig) ->
             break;
         }
         if dirty.swap(false, Ordering::SeqCst) {
-            // Run pipeline into a temp store first; only replace on success to avoid data loss.
-            match Store::new_memory().and_then(|temp_store| {
-                run_pipeline(&temp_store, &root_path, config)?;
-                store.clear()?;
-                store.copy_from(&temp_store)?;
-                Ok(())
-            }) {
+            // index_to_path only replaces the database on success, so a failure loses nothing.
+            match index_to_path(db_path, &root_path, config) {
                 Ok(()) => println!("Re-indexed {}", root_path.display()),
                 Err(e) => eprintln!("Re-index failed: {e:#}"),
             }

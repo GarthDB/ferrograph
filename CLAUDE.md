@@ -44,13 +44,14 @@ Examples:
 
 ### CozoDB schema
 
-Three stored relations underpin the graph:
+Four stored relations underpin the graph:
 
 | Relation | Key | Columns |
 |---|---|---|
 | `nodes` | `id` (String) | `type` (String), `payload` (String?) |
 | `edges` | `from_id, to_id, edge_type` (all String) | — |
 | `dead_functions` | `id` (String) | — |
+| `meta` | `key` (String) | `value` (String) — `root` (canonical project root) and `sources` (source fingerprint), written by `pipeline::index_to_path` |
 
 Node IDs are relative to the project root: `./src/main.rs#line:col`
 

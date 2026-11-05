@@ -196,7 +196,7 @@ fn reindex_input_schema() -> serde_json::Map<String, serde_json::Value> {
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Project root to index (default: current working directory)"
+                "description": "Project root to index (default: the root the graph was built from, else the current working directory)"
             }
         }
     })
@@ -240,7 +240,7 @@ fn all_tools() -> Vec<Tool> {
         ),
         tool(
             "status",
-            "Graph stats: node count, edge count, db path. Verify the graph is indexed and healthy.",
+            "Graph stats: node count, edge count, db path, indexed_at and the project root the graph tracks. Verify the graph is indexed and healthy.",
             status_input_schema(),
         ),
         tool(
@@ -270,7 +270,7 @@ fn all_tools() -> Vec<Tool> {
         ),
         tool(
             "reindex",
-            "Re-run the index pipeline on the current graph database (clears and repopulates). Optional project root path; defaults to current working directory.",
+            "Re-run the index pipeline and replace the graph database. Optional project root path; defaults to the root the graph was built from, else the current working directory.",
             reindex_input_schema(),
         ),
     ]
@@ -283,7 +283,7 @@ fn resolve_store_path() -> Option<PathBuf> {
         .or_else(|| std::env::current_dir().ok().map(|p| p.join(".ferrograph")))
 }
 
-/// Database file mtime as Unix epoch seconds. May not reflect an in-process reindex until the DB flushes.
+/// Database file mtime as Unix epoch seconds (when the graph file was last written).
 fn indexed_at_epoch(store_path: &Path) -> Option<u64> {
     std::fs::metadata(store_path)
         .ok()
@@ -302,12 +302,16 @@ fn status_json(
     let edge_count = store
         .edge_count()
         .map_err(|e| rmcp::ErrorData::internal_error(format!("edge_count failed: {e}"), None))?;
+    let root = store
+        .get_meta("root")
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("root lookup failed: {e}"), None))?;
     let indexed_at = indexed_at_epoch(store_path);
     Ok(serde_json::json!({
         "node_count": node_count,
         "edge_count": edge_count,
         "db_path": store_path.display().to_string(),
-        "indexed_at": indexed_at
+        "indexed_at": indexed_at,
+        "root": root
     }))
 }
 
@@ -321,9 +325,6 @@ struct CachedStore {
     opened_mtime: Option<std::time::SystemTime>,
 }
 
-/// The sources and database mtime the graph was last known to match (see `refresh_if_stale`).
-type Seen = Arc<Mutex<Option<(u64, std::time::SystemTime)>>>;
-
 fn db_mtime(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
@@ -333,31 +334,22 @@ fn auto_reindex_enabled() -> bool {
     std::env::var("FERROGRAPH_AUTO_REINDEX").map_or(true, |v| v != "0")
 }
 
-/// Whether the graph at `db` (last modified `db_mtime`) is older than `sources`. `seen` is
-/// what this process last saw: the sources' path hash and the database mtime then. A file
-/// edited after the database was written makes it stale; so does an added, removed or
-/// renamed file, unless the database was rewritten since (another process reindexed).
-fn is_stale(
-    sources: &crate::pipeline::Sources,
-    db_mtime: std::time::SystemTime,
-    seen: Option<&(u64, std::time::SystemTime)>,
-) -> bool {
-    sources.newest.is_some_and(|n| n > db_mtime)
-        || seen.is_some_and(|(hash, at)| *hash != sources.paths_hash && db_mtime <= *at)
-}
-
 /// MCP server handler exposing Ferrograph tools.
 #[derive(Clone)]
 pub struct FerrographMcp {
     cached: StoreCache,
-    seen: Seen,
+    /// Held while reindexing, so concurrent tool calls do not reindex at the same time.
+    reindex_lock: Arc<Mutex<()>>,
+    /// Source fingerprint whose automatic reindex last failed; not retried until it changes.
+    failed: Arc<Mutex<Option<u64>>>,
 }
 
 impl Default for FerrographMcp {
     fn default() -> Self {
         Self {
             cached: Arc::new(Mutex::new(None)),
-            seen: Arc::new(Mutex::new(None)),
+            reindex_lock: Arc::new(Mutex::new(())),
+            failed: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -396,7 +388,9 @@ impl ServerHandler for FerrographMcp {
     ) -> Result<ListResourcesResult, rmcp::ErrorData> {
         let resource = Resource::new("ferrograph://status", "status")
             .with_title("Graph status")
-            .with_description("Node count, edge count, db path, and indexed_at timestamp")
+            .with_description(
+                "Node count, edge count, db path, indexed_at timestamp, and project root",
+            )
             .with_mime_type("application/json");
         Ok(ListResourcesResult::with_all_items(vec![resource]))
     }
@@ -849,23 +843,27 @@ impl FerrographMcp {
         request: &CallToolRequestParams,
         store_path: &Path,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let root = get_str_arg(request, "path").map_or_else(
-            || {
-                std::env::current_dir().unwrap_or_else(|_| {
+        let root = match get_str_arg(request, "path") {
+            Some(p) => PathBuf::from(p),
+            None => match self.recorded(store_path, "root").await {
+                Some(r) => PathBuf::from(r),
+                None => std::env::current_dir().unwrap_or_else(|_| {
                     store_path
                         .parent()
                         .map_or_else(|| store_path.to_path_buf(), Path::to_path_buf)
-                })
+                }),
             },
-            PathBuf::from,
-        );
+        };
         if !root.exists() {
             return Ok(CallToolResult::structured_error(serde_json::json!({
                 "error": "Project path does not exist",
                 "path": root.display().to_string()
             })));
         }
-        self.reindex_into(store_path, &root).await?;
+        {
+            let _reindexing = self.reindex_lock.lock().await;
+            self.reindex_into(store_path, &root).await?;
+        }
         let store = self.get_or_open_store(store_path).await?;
         let node_count = store.node_count().map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Reindex (node_count) failed: {e}"), None)
@@ -889,40 +887,52 @@ impl FerrographMcp {
     }
 
     /// Index `root` into a new database file that replaces `store_path` (see
-    /// [`crate::pipeline::index_to_path`]), then record what it was built from.
+    /// [`crate::pipeline::index_to_path`]). Callers hold `reindex_lock`.
     async fn reindex_into(&self, store_path: &Path, root: &Path) -> Result<(), rmcp::ErrorData> {
         let (db, dir) = (store_path.to_path_buf(), root.to_path_buf());
-        let sources = tokio::task::spawn_blocking(move || {
-            let sources = crate::pipeline::scan_sources(&dir);
+        tokio::task::spawn_blocking(move || {
             let config = crate::pipeline::PipelineConfig::default();
-            crate::pipeline::index_to_path(&db, &dir, &config).map(|()| sources)
+            crate::pipeline::index_to_path(&db, &dir, &config)
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Reindex task failed: {e}"), None))?
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Reindex failed: {e:#}"), None))?;
         *self.cached.lock().await = None;
-        if let Some(at) = db_mtime(store_path) {
-            *self.seen.lock().await = Some((sources.paths_hash, at));
-        }
         Ok(())
     }
 
-    /// Reindex the project (the server's working directory, like `reindex`) when its Rust
-    /// sources changed since the graph was written. Failures are logged and the existing
-    /// graph is used.
+    /// A metadata value recorded in the graph at `store_path` (see
+    /// [`crate::pipeline::index_to_path`]); `None` if there is no graph or no value.
+    async fn recorded(&self, store_path: &Path, key: &str) -> Option<String> {
+        if !store_path.exists() {
+            return None;
+        }
+        let store = self.get_or_open_store(store_path).await.ok()?;
+        store.get_meta(key).ok().flatten()
+    }
+
+    /// Reindex the project the graph was built from when its Rust sources changed since.
+    /// Graphs that do not record their root (written by older versions) are left alone.
+    /// Failures are logged and the existing graph is used.
     async fn refresh_if_stale(&self, store_path: &Path) {
-        let (Ok(root), Some(at)) = (std::env::current_dir(), db_mtime(store_path)) else {
+        let Some(root) = self.recorded(store_path, "root").await.map(PathBuf::from) else {
             return;
         };
         let dir = root.clone();
-        let Ok(sources) =
-            tokio::task::spawn_blocking(move || crate::pipeline::scan_sources(&dir)).await
+        let Ok(fingerprint) =
+            tokio::task::spawn_blocking(move || crate::pipeline::source_fingerprint(&dir)).await
         else {
             return;
         };
-        let stale = is_stale(&sources, at, self.seen.lock().await.as_ref());
-        if !stale {
-            *self.seen.lock().await = Some((sources.paths_hash, at));
+        let current = Some(fingerprint.to_string());
+        if self.recorded(store_path, "sources").await == current
+            || *self.failed.lock().await == Some(fingerprint)
+        {
+            return;
+        }
+        let _reindexing = self.reindex_lock.lock().await;
+        // Another call (or process) may have reindexed while this one waited.
+        if self.recorded(store_path, "sources").await == current {
             return;
         }
         eprintln!(
@@ -931,6 +941,7 @@ impl FerrographMcp {
         );
         if let Err(e) = self.reindex_into(store_path, &root).await {
             eprintln!("ferrograph: automatic reindex failed, using the existing graph: {e:?}");
+            *self.failed.lock().await = Some(fingerprint);
         }
     }
 
@@ -973,28 +984,46 @@ pub async fn run_stdio() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 
 #[cfg(test)]
 mod tests {
+    /// Auto-refresh reindexes the root recorded in the graph (not the working directory),
+    /// and concurrent calls do not race each other's temporary file.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn refresh_reindexes_the_recorded_root() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("a.rs"), "fn a() {}\n").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let db = out.path().join(".ferrograph");
+        let config = crate::pipeline::PipelineConfig::default();
+        crate::pipeline::index_to_path(&db, project.path(), &config).unwrap();
+        let mcp = super::FerrographMcp::default();
+        let before = mcp
+            .get_or_open_store(&db)
+            .await
+            .unwrap()
+            .node_count()
+            .unwrap();
 
-    #[test]
-    fn stale_when_a_source_is_newer_than_the_graph_or_files_changed() {
-        use std::time::{Duration, SystemTime};
-        let t = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
-        let src = |hash, newest: u64| crate::pipeline::Sources {
-            paths_hash: hash,
-            newest: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(newest)),
-        };
-        // Edited after the graph was written.
-        assert!(super::is_stale(&src(1, 1_001), t, None));
-        assert!(!super::is_stale(&src(1, 999), t, None));
-        // A file added or removed since this process last looked.
-        assert!(super::is_stale(&src(2, 999), t, Some(&(1, t))));
-        // ... unless another process rewrote the graph since.
-        assert!(!super::is_stale(
-            &src(2, 999),
-            t + Duration::from_secs(5),
-            Some(&(1, t))
-        ));
-        assert!(!super::is_stale(&src(1, 999), t, Some(&(1, t))));
+        std::fs::write(project.path().join("b.rs"), "fn b() {}\nfn c() {}\n").unwrap();
+        tokio::join!(
+            mcp.refresh_if_stale(&db),
+            mcp.refresh_if_stale(&db),
+            mcp.refresh_if_stale(&db)
+        );
+        let store = mcp.get_or_open_store(&db).await.unwrap();
+        assert!(store.node_count().unwrap() > before);
+        let fingerprint =
+            crate::pipeline::source_fingerprint(&project.path().canonicalize().unwrap());
+        assert_eq!(
+            store.get_meta("sources").unwrap(),
+            Some(fingerprint.to_string())
+        );
+        let leftovers = std::fs::read_dir(out.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
+            .count();
+        assert_eq!(leftovers, 0);
     }
+
     use rmcp::model::{CallToolRequestParams, CallToolResult};
 
     use crate::graph::schema::{EdgeType, NodeId, NodeType};

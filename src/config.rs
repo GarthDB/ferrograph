@@ -260,10 +260,8 @@ fn run_search(db: Option<&PathBuf>, query: &str, case_insensitive: bool, json: b
 fn run_watch(path: &Path, output: Option<&PathBuf>) -> Result<()> {
     let out = output
         .ok_or_else(|| anyhow::anyhow!("Watch requires --output (path to graph database)"))?;
-    let store = crate::graph::Store::new_persistent(out)
-        .with_context(|| format!("Failed to open graph at {}", out.display()))?;
     let config = crate::pipeline::PipelineConfig::default();
-    crate::watch::watch_and_reindex(&store, path, &config)
+    crate::watch::watch_and_reindex(out, path, &config)
 }
 
 fn run_dead(db: Option<&PathBuf>, file: Option<&str>, json: bool) -> Result<()> {
@@ -467,6 +465,9 @@ fn run_status(path: &Path, json: bool) -> Result<()> {
         println!("Graph: {}", result.db_path);
         if let Some(ts) = result.indexed_at {
             println!("  indexed_at: {ts}");
+        }
+        if let Some(root) = &result.root {
+            println!("  root: {root}");
         }
         println!();
         println!("  Nodes ({} total):", result.node_count);
