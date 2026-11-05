@@ -452,7 +452,7 @@ mod tests {
             .unwrap();
         store.clear().unwrap();
         let rows = Query::all_nodes(&store).unwrap();
-        assert!(rows.rows.is_empty());
+        assert_eq!(rows.rows, Vec::<Vec<cozo::DataValue>>::new());
     }
 
     #[test]

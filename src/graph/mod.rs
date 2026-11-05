@@ -128,6 +128,6 @@ mod tests {
     fn datavalue_to_json_bot_fallback_stringified() {
         let j = datavalue_to_json(&DataValue::Bot);
         assert!(j.is_string());
-        assert!(!j.as_str().unwrap_or("").is_empty());
+        assert_ne!(j.as_str().unwrap_or(""), "");
     }
 }
