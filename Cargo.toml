@@ -13,7 +13,9 @@ exclude = [".ferrograph", "tests/fixtures/"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-cozo = "0.7"
+# Without cozo's default "requests" feature (minreq + rustls 0.21), which only lets the
+# JsonReader/CsvReader rules fetch URLs; ferrograph never uses it.
+cozo = { version = "0.7", default-features = false, features = ["minimal", "graph-algo"] }
 # Pin rayon <1.11 so cozo's graph_builder 0.4.1 compiles (rayon 1.11 added IntoParallelIterator for Box<[T]>, breaking graph_builder).
 rayon = ">=1.5, <1.11"
 anyhow = "1"
