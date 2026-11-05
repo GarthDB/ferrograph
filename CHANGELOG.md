@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0](https://github.com/GarthDB/ferrograph/compare/v1.5.1...v2.0.0) - 2026-11-05
+
+### Added
+
+- *(mcp)* [**breaking**] track the indexed root and a source fingerprint in the graph
+- *(mcp)* reindex a stale graph before answering tool calls
+
+### Fixed
+
+- *(deps)* drop cozo's unused requests feature (rustls 0.21 advisories)
+
+### Other
+
+- satisfy clippy::assert_is_empty (Rust 1.99)
+
 ## [1.5.1](https://github.com/GarthDB/ferrograph/compare/v1.5.0...v1.5.1) - 2026-09-15
 
 ### Fixed
