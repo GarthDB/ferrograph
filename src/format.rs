@@ -228,7 +228,7 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
     let mut out = format!(
         "{MARKER}\n### ferrograph: {} newly dead, blast radius {}\n\n",
         r.newly_dead_count,
-        count_label(r.blast.count, false)
+        count_label(r.blast.count, r.blast.truncated)
     );
     out.push_str("**Newly dead functions**\n\n");
     let rows: Vec<Vec<String>> = r
@@ -251,7 +251,7 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
             vec![
                 esc(&f.name),
                 esc(&format!("{}:{}", f.file, f.start_line)),
-                count_label(f.blast_count, false),
+                count_label(f.blast_count, f.blast_truncated),
             ]
         })
         .collect();
@@ -265,7 +265,7 @@ pub fn markdown_blast(r: &BlastRadiusResult, limit: usize) -> String {
     let mut out = format!(
         "{MARKER}\n### ferrograph: blast radius of {} is {} node(s)\n\n",
         esc(&r.from_node_id),
-        count_label(r.count, false)
+        count_label(r.count, r.truncated)
     );
     table(
         &mut out,
@@ -281,7 +281,7 @@ pub fn markdown_blast(r: &BlastRadiusResult, limit: usize) -> String {
 pub fn markdown_callers(r: &CallersResult, limit: usize) -> String {
     let mut out = format!(
         "{MARKER}\n### ferrograph: {} caller(s) of {}\n\n",
-        count_label(r.count, false),
+        count_label(r.count, r.truncated),
         esc(&r.node_id)
     );
     table(
@@ -382,6 +382,7 @@ mod tests {
             blast: PrBlast {
                 count: 0,
                 shown: 0,
+                truncated: false,
                 nodes: vec![],
             },
             coupling: vec![],
@@ -415,5 +416,16 @@ mod tests {
         let md = markdown_dead(&dead(nodes), 1000);
         assert!(md.len() < 61_000, "{}", md.len());
         assert!(md.contains("truncated"));
+    }
+
+    #[test]
+    fn blast_markdown_marks_truncation() {
+        let r = BlastRadiusResult {
+            from_node_id: "./a.rs#1:1".into(),
+            reachable_nodes: vec![node("./a.rs#2:1", "f")],
+            count: 50_000,
+            truncated: true,
+        };
+        assert!(markdown_blast(&r, 50).contains("50000+ node(s)"));
     }
 }

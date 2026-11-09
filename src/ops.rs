@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::graph::query::{ModuleEdge, NodeInfo, Query};
+use crate::graph::query::{ModuleEdge, NodeInfo, Query, RESULT_LIMIT};
 use crate::graph::Store;
 
 /// Result of a status query.
@@ -148,6 +148,9 @@ pub struct ChangedFunction {
     pub start_line: u32,
     pub end_line: u32,
     pub blast_count: usize,
+    /// `blast_count` is a lower bound (the blast query hit its internal cap).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub blast_truncated: bool,
 }
 
 /// Changed lines in one file that fall outside every function (use/struct/const edits).
@@ -165,6 +168,9 @@ pub struct PrBlast {
     pub count: usize,
     /// Number of nodes listed in `nodes` (capped by `--blast-limit`).
     pub shown: usize,
+    /// `count` is a lower bound (some changed function's blast query hit its internal cap).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
     pub nodes: Vec<NodeSummary>,
 }
 
@@ -199,6 +205,9 @@ pub struct BlastRadiusResult {
     pub from_node_id: String,
     pub reachable_nodes: Vec<NodeSummary>,
     pub count: usize,
+    /// The graph query hit its internal cap, so `count` is a lower bound.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 /// Result of a callers query.
@@ -207,6 +216,9 @@ pub struct CallersResult {
     pub node_id: String,
     pub callers: Vec<NodeSummary>,
     pub count: usize,
+    /// The graph query hit its internal cap, so `count` is a lower bound.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 /// Result of a trait implementors query.
@@ -335,7 +347,9 @@ pub fn blast_radius(
     node_id: &str,
     exclude_low_confidence: bool,
 ) -> Result<BlastRadiusResult> {
-    let nodes = Query::blast_radius_opts(store, node_id, exclude_low_confidence)?;
+    let mut nodes = Query::blast_radius_opts(store, node_id, exclude_low_confidence)?;
+    let truncated = nodes.len() > RESULT_LIMIT;
+    nodes.truncate(RESULT_LIMIT);
     let reachable_nodes: Vec<NodeSummary> = nodes
         .into_iter()
         .map(|(id, node_type, payload)| NodeSummary {
@@ -349,6 +363,7 @@ pub fn blast_radius(
         from_node_id: node_id.to_string(),
         reachable_nodes,
         count,
+        truncated,
     })
 }
 
@@ -362,7 +377,9 @@ pub fn callers(
     depth: u32,
     exclude_low_confidence: bool,
 ) -> Result<CallersResult> {
-    let nodes = Query::callers_opts(store, node_id, depth, exclude_low_confidence)?;
+    let mut nodes = Query::callers_opts(store, node_id, depth, exclude_low_confidence)?;
+    let truncated = nodes.len() > RESULT_LIMIT;
+    nodes.truncate(RESULT_LIMIT);
     let callers: Vec<NodeSummary> = nodes
         .into_iter()
         .map(|(id, node_type, payload)| NodeSummary {
@@ -376,6 +393,7 @@ pub fn callers(
         node_id: node_id.to_string(),
         callers,
         count,
+        truncated,
     })
 }
 
@@ -443,4 +461,45 @@ pub fn query(store: &Store, script: &str) -> Result<QueryResult> {
         rows,
         count,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::schema::{EdgeType, NodeId, NodeType};
+
+    /// `hub` calls `n` leaf functions.
+    fn hub_store(n: usize) -> Store {
+        let store = Store::new_memory().unwrap();
+        let hub = NodeId("hub".to_string());
+        let leaves: Vec<NodeId> = (0..n).map(|i| NodeId(format!("leaf{i}"))).collect();
+        let mut nodes: Vec<(NodeId, NodeType, Option<&str>)> =
+            vec![(hub.clone(), NodeType::Function, None)];
+        nodes.extend(leaves.iter().map(|l| (l.clone(), NodeType::Function, None)));
+        store.put_nodes_batch(&nodes).unwrap();
+        let edges: Vec<_> = leaves
+            .iter()
+            .map(|l| (hub.clone(), l.clone(), EdgeType::Calls))
+            .collect();
+        store.put_edges_batch(&edges).unwrap();
+        store
+    }
+
+    #[test]
+    fn blast_count_is_not_capped_at_500() {
+        let r = blast_radius(&hub_store(700), "hub", false).unwrap();
+        assert_eq!((r.count, r.truncated), (700, false));
+        assert!(!serde_json::to_string(&r).unwrap().contains("truncated"));
+    }
+
+    #[test]
+    fn blast_and_callers_report_truncation_at_the_internal_cap() {
+        let store = hub_store(RESULT_LIMIT + 2);
+        let r = blast_radius(&store, "hub", false).unwrap();
+        assert_eq!((r.count, r.truncated), (RESULT_LIMIT, true));
+        assert_eq!(serde_json::to_value(&r).unwrap()["truncated"], true);
+        // Callers share the cap logic; here just check the untruncated path.
+        let c = callers(&store, "leaf0", 1, false).unwrap();
+        assert_eq!((c.count, c.truncated), (1, false));
+    }
 }

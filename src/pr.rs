@@ -401,6 +401,7 @@ fn map_changes(
     let mut changed_functions = Vec::new();
     let mut changed_without_function = Vec::new();
     let mut union: BTreeMap<String, NodeSummary> = BTreeMap::new();
+    let mut truncated = false;
     for d in diffs {
         // Read the HEAD blob, not the working tree: hunk lines are relative to it.
         let Some(source) = git_opt(root, &["show", &format!("{head}:{prefix}{}", d.path)]) else {
@@ -426,7 +427,9 @@ fn map_changes(
                 start_line: r.start_line,
                 end_line: r.end_line,
                 blast_count: blast.count,
+                blast_truncated: blast.truncated,
             });
+            truncated |= blast.truncated;
             for n in blast.reachable_nodes {
                 union.entry(n.id.clone()).or_insert(n);
             }
@@ -437,6 +440,7 @@ fn map_changes(
     let blast = PrBlast {
         count,
         shown: nodes.len(),
+        truncated,
         nodes,
     };
 

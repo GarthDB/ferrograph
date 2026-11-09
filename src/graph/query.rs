@@ -61,6 +61,11 @@ fn extract_node_triple(row: &[DataValue]) -> NodeTriple {
 }
 
 /// Predefined and Datalog query execution.
+/// Most nodes a blast radius or callers query reports; see [`Query::blast_radius_opts`].
+pub const RESULT_LIMIT: usize = 50_000;
+/// One row more than [`RESULT_LIMIT`], so callers can tell "exactly at the cap" from "cut off".
+const PROBE_LIMIT: usize = RESULT_LIMIT + 1;
+
 pub struct Query;
 
 impl Query {
@@ -269,7 +274,8 @@ impl Query {
     /// Return nodes in the "blast radius" of the given node: immediate neighbors (both
     /// directions) plus all nodes reachable by following edges forward only (Calls, Contains,
     /// References, `ChangesWith`). Recursive expansion is forward-only to avoid inflating to the
-    /// full connected component. Returns (id, type, payload) for each reachable node.
+    /// full connected component. Returns (id, type, payload) for each reachable node: at most
+    /// [`RESULT_LIMIT`] + 1 rows, so a longer vector means the result was cut off.
     ///
     /// # Errors
     /// Fails if the store query fails.
@@ -286,7 +292,6 @@ impl Query {
         from_id: &str,
         exclude_low_confidence: bool,
     ) -> Result<Vec<NodeTriple>> {
-        const BLAST_RADIUS_LIMIT: u64 = 500;
         let (not_low_seed, not_low_rec) = if exclude_low_confidence {
             (", not low[from, to]", ", not low[n, to]")
         } else {
@@ -309,7 +314,7 @@ impl Query {
             reachable[id] := seed[id]
             reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_refs}", "{edge_changes}"]{not_low_rec}
             ?[id, type, payload] := reachable[id], *nodes[id, type, payload], id != $from
-            :limit {BLAST_RADIUS_LIMIT}
+            :limit {PROBE_LIMIT}
             "#
         );
         let rows = store.run_query(script.trim(), params)?;
@@ -323,7 +328,8 @@ impl Query {
 
     /// Return nodes that call the given node (reverse call graph). Optionally limited by depth.
     /// depth 1 = direct callers only; depth > 1 = transitive callers up to N hops.
-    /// Returns (id, type, payload) for each caller.
+    /// Returns (id, type, payload) for each caller: at most [`RESULT_LIMIT`] + 1 rows, so a longer
+    /// vector means the result was cut off.
     ///
     /// # Errors
     /// Fails if the store query fails.
@@ -341,7 +347,6 @@ impl Query {
         depth: u32,
         exclude_low_confidence: bool,
     ) -> Result<Vec<NodeTriple>> {
-        const CALLERS_LIMIT: u64 = 500;
         let (not_low_1, not_low_n) = if exclude_low_confidence {
             (", not low[caller, callee]", ", not low[caller, prev]")
         } else {
@@ -361,7 +366,7 @@ impl Query {
               d_plus_1 = d + 1,
               d_plus_1 <= $max_depth
             ?[id, type, payload] := callers[id, _], *nodes[id, type, payload], id != $target
-            :limit {CALLERS_LIMIT}
+            :limit {PROBE_LIMIT}
             "#
         );
         let rows = store.run_query(script.trim(), params)?;

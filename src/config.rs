@@ -615,7 +615,12 @@ fn run_pr(
         }
         println!("\nChanged functions: {}", r.changed_functions.len());
         for f in &r.changed_functions {
-            println!("  {}\t{}\tblast {}", f.id, f.name, f.blast_count);
+            println!(
+                "  {}\t{}\tblast {}",
+                f.id,
+                f.name,
+                format::count_label(f.blast_count, f.blast_truncated)
+            );
         }
         for c in &r.changed_without_function {
             let ranges: Vec<String> = c
@@ -633,7 +638,8 @@ fn run_pr(
         }
         println!(
             "\nBlast radius: {} node(s), showing {}",
-            r.blast.count, r.blast.shown
+            format::count_label(r.blast.count, r.blast.truncated),
+            r.blast.shown
         );
         for n in &r.blast.nodes {
             println!(
@@ -692,7 +698,11 @@ fn run_blast(
             let payload = node.payload.as_deref().unwrap_or("—");
             println!("{}\t{}\t{payload}", node.id, node.node_type);
         }
-        println!("\n{} nodes in blast radius of {}", result.count, node_id);
+        println!(
+            "\n{} nodes in blast radius of {}",
+            format::count_label(result.count, result.truncated),
+            node_id
+        );
     }
     Ok(check_threshold(result.count, max))
 }
@@ -725,7 +735,11 @@ fn run_callers(
             let payload = node.payload.as_deref().unwrap_or("—");
             println!("{}\t{}\t{payload}", node.id, node.node_type);
         }
-        println!("\n{} callers of {}", result.count, node_id);
+        println!(
+            "\n{} callers of {}",
+            format::count_label(result.count, result.truncated),
+            node_id
+        );
     }
     Ok(())
 }
