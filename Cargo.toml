@@ -27,7 +27,8 @@ ignore = "0.4"
 rmcp = { version = "3.4", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 notify = "6"
-ctrlc = "3"
+# "termination" adds SIGTERM/SIGHUP handling (no new crates); `pr` uses it to remove its temp worktree.
+ctrlc = { version = "3", features = ["termination"] }
 glob = "0.3"
 toml = "0.8"
 

@@ -77,12 +77,31 @@ Normal output (including `--json`) is printed first and is unchanged; a breach a
 
 > **Behaviour change:** runtime errors (missing database, query failure) previously exited 1; they now exit 2 so that 1 means "findings over threshold".
 
+### Output formats (`--format`)
+
+`dead`, `pr`, `blast` and `callers` accept `--format text|json|sarif|markdown` (default `text`). `--json` is an alias for `--format json`; combining it with a different `--format` is an error. Text and JSON output are unchanged. Thresholds and exit codes apply in every format, and threshold messages and warnings stay on stderr, so stdout is always a valid document.
+
+- **`sarif`** (`dead`, `pr`): SARIF 2.1.0, one `ferrograph/dead-code` result (level `warning`) per dead / newly dead function, located by repo-relative path (`%SRCROOT%`) and line/column. `partialFingerprints` use path + function name + occurrence index, not the line, so GitHub code scanning does not reopen alerts when lines shift. `blast` and `callers` are impact listings rather than problems, so `--format sarif` is an error there.
+- **`markdown`** (all four): a table for a sticky PR comment, starting with the hidden marker `<!-- ferrograph -->` so a CI step can find and update its own comment. Names are escaped; tables show at most `--markdown-limit N` rows (default 50) followed by `... and N more`, and the whole output is cut below GitHub's 65,536-character comment limit.
+
+```yaml
+- run: ferrograph dead --db .ferrograph --format sarif > ferrograph.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: ferrograph.sarif
+# needs: permissions: security-events: write
+
+- run: ferrograph pr --base origin/main --index-head --format markdown > comment.md
+# post/update comment.md with a step that looks for the <!-- ferrograph --> marker,
+# e.g. marocchino/sticky-pull-request-comment with `path: comment.md`
+```
+
 ### Reviewing a change (`pr`)
 
 `ferrograph pr --base <ref>` reports only what the current branch introduces, so it can gate CI where whole-repo `dead` lists are too noisy:
 
 - **Newly dead functions**: dead at HEAD but not at the merge base (`became_dead`), or new and never called (`added_dead`). Removed functions are never reported.
-- **Blast radius** of the changed functions (changed lines mapped to the innermost containing function), per function plus the de-duplicated union (`--blast-limit`, default 200 listed; the full count is always reported). Lines outside any function (`use`, `struct`, `const` edits) are listed separately and add no blast.
+- **Blast radius** of the changed functions (changed lines mapped to the innermost containing function), per function plus the de-duplicated union (`--blast-limit`, default 200 listed; the full count is always reported, up to an internal cap of 50,000 nodes per function; past it the JSON gets `"truncated": true` and text shows `50000+`). Lines outside any function (`use`, `struct`, `const` edits) are listed separately and add no blast.
 - **Coupling hints** (`changes_with` files not touched by the change) when the graph was indexed with the `git` feature; omitted otherwise.
 
 ```bash
@@ -103,7 +122,7 @@ GitHub Actions (the base ref must be available, so fetch full history):
 
 Notes:
 
-- The diff is `git diff <base>...HEAD` (from the merge base). The base is indexed in a temporary `git worktree` that is always removed; pass `--base-db PATH` to reuse an already indexed base graph (e.g. from a CI cache). Your working tree is not touched.
+- The diff is `git diff <base>...HEAD` (from the merge base). The base is indexed in a temporary `git worktree` that is removed on exit, on SIGINT/SIGTERM, and (for a killed run) pruned by the next `pr` run; pass `--base-db PATH` to reuse an already indexed base graph (e.g. from a CI cache). Your working tree is not touched.
 - HEAD is read from `--db` (default `./.ferrograph`). A missing or stale graph is an error; pass `--index-head` to index the HEAD commit into memory instead. Uncommitted changes are ignored (a warning is printed); a `--db` graph is assumed to match HEAD, and `--base-db` is assumed to be indexed from the merge base (a warning says so).
 - `--strict`, `--entry`, `--ignore` and `.ferrograph.toml` (read from the HEAD commit, for both sides) apply identically to base and head. `--exclude-low-confidence` applies to blast.
 - Functions are matched across base and head by file, name and occurrence among same-name functions in the file, not by node id, so shifting line numbers is harmless. A renamed function, or one moved to another file, looks like one removed plus one added; a function inserted above a same-name function in the same file can shift the match. Pure file renames are followed.
