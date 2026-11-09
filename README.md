@@ -241,6 +241,28 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 | `trait_implementors` | Find implementations of a named trait (stub; returns empty with note). |
 | `module_graph` | File-to-module containment edges; optional relative path prefix filter (e.g. `./src/`). |
 
+## CI
+
+[`GarthDB/ferrograph-action`](https://github.com/GarthDB/ferrograph-action) runs `ferrograph pr` on pull requests and posts a sticky comment with newly dead functions and blast radius. It is advisory by default (it fails only if you set `fail-on-new-dead`, `max-new-dead` or `max-blast`) and can upload SARIF to code scanning. Requires ferrograph v4.0.0 or later (the first release with `ferrograph pr`).
+
+```yaml
+name: ferrograph
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write   # needed for the PR comment
+jobs:
+  ferrograph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # required: the base ref must exist
+      - uses: GarthDB/ferrograph-action@v1
+```
+
+Without `pull-requests: write`, and on pull requests from forks (read-only token), the report goes to the job summary instead of a comment; the job still passes. See the action's README for inputs, thresholds and SARIF.
+
 ## Graph schema (edge types)
 
 ### Dead-code entry points and ignores
