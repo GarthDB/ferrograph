@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0](https://github.com/GarthDB/ferrograph/compare/v3.0.0...v4.0.0) - 2026-11-09
+
+### Added
+
+- *(cli)* add --format with sarif and markdown output
+- *(pr)* add pr subcommand reporting newly dead functions and blast radius
+- *(cli)* exit with code 2 on runtime errors
+- *(cli)* add --fail-on-any/--max and documented exit codes
+- *(cli)* accept --db on status/index/watch and project dirs everywhere
+
+### Fixed
+
+- *(cli)* treat unsignalable pids as alive, encode SARIF uris, escape more markdown
+- *(pr)* clean up stale temporary worktrees
+- *(graph)* stop capping blast radius counts at 500
+- *(skill)* add required YAML frontmatter
+- *(pr)* read function ranges and index head from the HEAD commit, warn on trusted graphs
+
+### Other
+
+- document the pr subcommand
+- cover pr subcommand with real git repositories
+- clarify --db on index/watch is the output path
+
 ## [3.0.0](https://github.com/GarthDB/ferrograph/compare/v2.0.0...v3.0.0) - 2026-11-09
 
 ### Added
