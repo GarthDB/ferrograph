@@ -883,3 +883,68 @@ fn cli_watch_accepts_db_alias() {
     // Missing both must be rejected by clap without starting a watcher.
     assert_eq!(run(&["watch", "."]).status.code(), Some(2));
 }
+
+fn code(out: &std::process::Output) -> Option<i32> {
+    out.status.code()
+}
+
+#[test]
+fn cli_dead_exit_codes() {
+    let (db, _dir) = index_fixture();
+    let d = s(&db);
+    let default = run(&["dead", "--db", d]);
+    assert_eq!(code(&default), Some(0));
+    assert!(String::from_utf8_lossy(&default.stdout).contains("private_unused"));
+
+    let fail = run(&["dead", "--db", d, "--fail-on-any"]);
+    assert_eq!(code(&fail), Some(1));
+    assert_eq!(
+        fail.stdout, default.stdout,
+        "findings still printed unchanged"
+    );
+    assert!(String::from_utf8_lossy(&fail.stderr).contains("threshold exceeded:"));
+
+    assert_eq!(code(&run(&["dead", "--db", d, "--max", "1000"])), Some(0));
+    let zero = run(&["dead", "--db", d, "--max", "0"]);
+    assert_eq!(code(&zero), Some(1));
+    assert_eq!(zero.stdout, fail.stdout);
+    assert_eq!(zero.stderr, fail.stderr);
+
+    let both = run(&["dead", "--db", d, "--fail-on-any", "--max", "5"]);
+    assert_eq!(code(&both), Some(2));
+}
+
+#[test]
+fn cli_dead_json_unchanged_when_threshold_exceeded() {
+    let (db, _dir) = index_fixture();
+    let d = s(&db);
+    let plain = run(&["--json", "dead", "--db", d]);
+    let out = run(&["--json", "dead", "--db", d, "--fail-on-any"]);
+    assert_eq!(code(&out), Some(1));
+    assert_eq!(out.stdout, plain.stdout);
+    serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap();
+}
+
+#[test]
+fn cli_blast_max() {
+    let (db, _dir) = index_fixture();
+    let d = s(&db);
+    let search = run(&["search", "--db", d, "pub::use_add"]);
+    let stdout = String::from_utf8_lossy(&search.stdout).into_owned();
+    let node_id = stdout.lines().next().unwrap().split('\t').next().unwrap();
+    let json = run(&["--json", "blast", "--db", d, node_id]);
+    let count = serde_json::from_slice::<serde_json::Value>(&json.stdout).unwrap()["count"]
+        .as_u64()
+        .unwrap();
+    assert!(count > 0);
+    let over = (count - 1).to_string();
+    let at = count.to_string();
+    assert_eq!(
+        code(&run(&["blast", "--db", d, node_id, "--max", &over])),
+        Some(1)
+    );
+    assert_eq!(
+        code(&run(&["blast", "--db", d, node_id, "--max", &at])),
+        Some(0)
+    );
+}

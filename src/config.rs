@@ -92,6 +92,12 @@ pub enum Command {
         /// Never report functions in files matching this glob. Repeatable.
         #[arg(long)]
         ignore: Vec<String>,
+        /// Exit with code 1 if any dead function is reported (same as `--max 0`).
+        #[arg(long, conflicts_with = "max")]
+        fail_on_any: bool,
+        /// Exit with code 1 if more than N dead functions are reported.
+        #[arg(long)]
+        max: Option<usize>,
     },
     /// Show blast radius (transitive impact) of a node.
     Blast {
@@ -103,6 +109,9 @@ pub enum Command {
         /// Ignore ambiguous (low-confidence) call edges.
         #[arg(long)]
         exclude_low_confidence: bool,
+        /// Exit with code 1 if the blast radius has more than N nodes.
+        #[arg(long)]
+        max: Option<usize>,
     },
     /// Show callers of a node (reverse call graph).
     Callers {
@@ -163,28 +172,55 @@ pub enum ClaudeAction {
     Status,
 }
 
+/// Result of a successful command run; `main` maps it to the process exit code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Exit code 0.
+    Ok,
+    /// A `--max` / `--fail-on-any` threshold was exceeded (exit code 1).
+    FindingsOverThreshold,
+}
+
+/// Compare a finding count with an optional threshold, noting a breach on stderr.
+fn check_threshold(count: usize, max: Option<usize>) -> Outcome {
+    match max {
+        Some(m) if count > m => {
+            eprintln!("threshold exceeded: {count} > {m}");
+            Outcome::FindingsOverThreshold
+        }
+        _ => Outcome::Ok,
+    }
+}
+
 /// Run the CLI command.
 ///
 /// # Errors
 /// Returns an error if the selected command fails (e.g. I/O or graph errors).
-pub fn run(cli: Cli) -> Result<()> {
+pub fn run(cli: Cli) -> Result<Outcome> {
     let json = cli.json;
+    let ok = |r: Result<()>| r.map(|()| Outcome::Ok);
     match cli.command {
-        Command::Index { path, output, db } => run_index(&path, merge_output(output, db)?.as_ref()),
-        Command::Query { db, query } => run_query(db.as_ref(), &query, json),
+        Command::Index { path, output, db } => {
+            ok(run_index(&path, merge_output(output, db)?.as_ref()))
+        }
+        Command::Query { db, query } => ok(run_query(db.as_ref(), &query, json)),
         Command::Search {
             db,
             query,
             case_insensitive,
-        } => run_search(db.as_ref(), &query, case_insensitive, json),
-        Command::Status { db, path } => run_status(db, path, json),
-        Command::Watch { path, output, db } => run_watch(&path, merge_output(output, db)?.as_ref()),
+        } => ok(run_search(db.as_ref(), &query, case_insensitive, json)),
+        Command::Status { db, path } => ok(run_status(db, path, json)),
+        Command::Watch { path, output, db } => {
+            ok(run_watch(&path, merge_output(output, db)?.as_ref()))
+        }
         Command::Dead {
             db,
             file,
             strict,
             entry,
             ignore,
+            fail_on_any,
+            max,
         } => run_dead(
             db.as_ref(),
             file.as_deref(),
@@ -193,24 +229,32 @@ pub fn run(cli: Cli) -> Result<()> {
                 entry,
                 ignore,
             },
+            if fail_on_any { Some(0) } else { max },
             json,
         ),
         Command::Blast {
             db,
             node_id,
             exclude_low_confidence,
-        } => run_blast(db.as_ref(), &node_id, exclude_low_confidence, json),
+            max,
+        } => run_blast(db.as_ref(), &node_id, exclude_low_confidence, max, json),
         Command::Callers {
             db,
             node_id,
             depth,
             exclude_low_confidence,
-        } => run_callers(db.as_ref(), &node_id, depth, exclude_low_confidence, json),
-        Command::Info { db, node_id } => run_info(db.as_ref(), &node_id, json),
-        Command::Modules { db, root } => run_modules(db.as_ref(), root.as_deref(), json),
-        Command::Traits { db, trait_name } => run_traits(db.as_ref(), &trait_name, json),
-        Command::Claude { ref action } => crate::claude::run(action, json),
-        Command::Mcp => run_mcp(),
+        } => ok(run_callers(
+            db.as_ref(),
+            &node_id,
+            depth,
+            exclude_low_confidence,
+            json,
+        )),
+        Command::Info { db, node_id } => ok(run_info(db.as_ref(), &node_id, json)),
+        Command::Modules { db, root } => ok(run_modules(db.as_ref(), root.as_deref(), json)),
+        Command::Traits { db, trait_name } => ok(run_traits(db.as_ref(), &trait_name, json)),
+        Command::Claude { ref action } => ok(crate::claude::run(action, json)),
+        Command::Mcp => ok(run_mcp()),
     }
 }
 
@@ -374,8 +418,9 @@ fn run_dead(
     db: Option<&PathBuf>,
     file: Option<&str>,
     mut opts: crate::ops::DeadOptions,
+    max: Option<usize>,
     json: bool,
-) -> Result<()> {
+) -> Result<Outcome> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -403,10 +448,16 @@ fn run_dead(
         );
         println!("\n{}", crate::ops::DEAD_CODE_CAVEAT);
     }
-    Ok(())
+    Ok(check_threshold(result.count, max))
 }
 
-fn run_blast(db: Option<&PathBuf>, node_id: &str, exclude_low: bool, json: bool) -> Result<()> {
+fn run_blast(
+    db: Option<&PathBuf>,
+    node_id: &str,
+    exclude_low: bool,
+    max: Option<usize>,
+    json: bool,
+) -> Result<Outcome> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -427,7 +478,7 @@ fn run_blast(db: Option<&PathBuf>, node_id: &str, exclude_low: bool, json: bool)
         }
         println!("\n{} nodes in blast radius of {}", result.count, node_id);
     }
-    Ok(())
+    Ok(check_threshold(result.count, max))
 }
 
 fn run_callers(

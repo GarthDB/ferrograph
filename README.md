@@ -57,6 +57,24 @@ Every query subcommand (`status`, `query`, `search`, `dead`, `blast`, `callers`,
 
 The positional form `status [PATH]` is deprecated (still works, prints a note on stderr); use `status --db PATH`.
 
+### CI gating and exit codes
+
+`dead` and `blast` can fail a CI job when findings exceed a threshold. Flags are opt-in; without them the exit code is unchanged.
+
+```bash
+ferrograph dead --db .ferrograph --max 0      # same as --fail-on-any
+ferrograph dead --db .ferrograph --max 25     # allow up to 25 findings
+ferrograph blast --db .ferrograph --max 100 "<node id>"
+```
+
+Normal output (including `--json`) is printed first and is unchanged; a breach adds one line `threshold exceeded: N > M` on stderr.
+
+| Code | Meaning |
+|---|---|
+| 0 | OK / no findings over the threshold |
+| 1 | Findings over the threshold |
+| 2 | Error (bad arguments, missing database, query failure) |
+
 ### Setup with Claude Code
 
 A Claude Code skill gives Claude a full workflow for indexing, exploring, and querying ferrograph graphs via the `/ferrograph` slash command.
