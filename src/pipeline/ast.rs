@@ -196,6 +196,13 @@ fn traverse(
             edges.push((id.clone(), id.clone(), EdgeType::LifetimeScope));
         }
         if kind == "function_item" {
+            for name in attribute_names(&node, source) {
+                edges.push((
+                    id.clone(),
+                    NodeId::new(format!("attr::{name}")),
+                    EdgeType::HasAttribute,
+                ));
+            }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
         }
         if let Some((to_id, edge_type)) = extra {
@@ -257,6 +264,40 @@ fn has_attribute_on_prev_sibling(node: &tree_sitter::Node, source: &str, name: &
         }
     }
     false
+}
+
+/// Outer attribute names on a function (`no_mangle`, `export_name`, ...), plus `extern` for
+/// `extern "C" fn`. Name is the attribute path, without arguments (`#[tokio::main(x)]` -> `tokio::main`).
+fn attribute_names(node: &tree_sitter::Node, source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut current = node.prev_sibling();
+    while let Some(prev) = current {
+        if prev.kind() != "attribute_item" {
+            break;
+        }
+        if let Some(text) = source.get(prev.byte_range()) {
+            let inner = text.trim().trim_start_matches("#[").trim_end_matches(']');
+            let name: String = inner
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
+                .collect();
+            if !name.is_empty() {
+                names.push(name);
+            }
+        }
+        current = prev.prev_sibling();
+    }
+    let mut cursor = node.walk();
+    let has_extern = node.children(&mut cursor).any(|c| {
+        c.kind() == "function_modifiers"
+            && source
+                .get(c.byte_range())
+                .is_some_and(|t| t.split_whitespace().any(|w| w == "extern"))
+    });
+    if has_extern {
+        names.push("extern".to_string());
+    }
+    names
 }
 
 /// Returns true if the node has an attribute containing an identifier with the given name

@@ -103,6 +103,8 @@ pub enum EdgeType {
     LifetimeScope,
     /// Files that changed together in git history (Phase 10).
     ChangesWith,
+    /// Function to a synthetic `attr::<name>` target for each outer attribute (e.g. `no_mangle`).
+    HasAttribute,
 }
 
 impl fmt::Display for EdgeType {
@@ -120,6 +122,7 @@ impl fmt::Display for EdgeType {
             Self::UsesUnsafe => write!(f, "uses_unsafe"),
             Self::LifetimeScope => write!(f, "lifetime_scope"),
             Self::ChangesWith => write!(f, "changes_with"),
+            Self::HasAttribute => write!(f, "has_attribute"),
         }
     }
 }
@@ -140,6 +143,7 @@ impl FromStr for EdgeType {
             "expands_to" => Ok(Self::ExpandsTo),
             "uses_unsafe" => Ok(Self::UsesUnsafe),
             "lifetime_scope" => Ok(Self::LifetimeScope),
+            "has_attribute" => Ok(Self::HasAttribute),
             "changes_with" => Ok(Self::ChangesWith),
             _ => Err(format!("unknown edge type: {s:?}")),
         }
@@ -192,6 +196,7 @@ mod tests {
             EdgeType::UsesUnsafe,
             EdgeType::LifetimeScope,
             EdgeType::ChangesWith,
+            EdgeType::HasAttribute,
         ];
         for v in &variants {
             let s = v.to_string();

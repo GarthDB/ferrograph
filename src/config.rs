@@ -78,6 +78,12 @@ pub enum Command {
         /// Do not treat ambiguous (low-confidence) call edges as keeping a function alive.
         #[arg(long)]
         strict: bool,
+        /// Extra entry point: file glob (`examples/**`) or attribute (`#[no_mangle]`). Repeatable.
+        #[arg(long)]
+        entry: Vec<String>,
+        /// Never report functions in files matching this glob. Repeatable.
+        #[arg(long)]
+        ignore: Vec<String>,
     },
     /// Show blast radius (transitive impact) of a node.
     Blast {
@@ -165,7 +171,22 @@ pub fn run(cli: Cli) -> Result<()> {
         } => run_search(db.as_ref(), &query, case_insensitive, json),
         Command::Status { path } => run_status(&path, json),
         Command::Watch { path, output } => run_watch(&path, output.as_ref()),
-        Command::Dead { db, file, strict } => run_dead(db.as_ref(), file.as_deref(), strict, json),
+        Command::Dead {
+            db,
+            file,
+            strict,
+            entry,
+            ignore,
+        } => run_dead(
+            db.as_ref(),
+            file.as_deref(),
+            crate::ops::DeadOptions {
+                strict,
+                entry,
+                ignore,
+            },
+            json,
+        ),
         Command::Blast {
             db,
             node_id,
@@ -282,7 +303,51 @@ fn run_watch(path: &Path, output: Option<&PathBuf>) -> Result<()> {
     crate::watch::watch_and_reindex(out, path, &config)
 }
 
-fn run_dead(db: Option<&PathBuf>, file: Option<&str>, strict: bool, json: bool) -> Result<()> {
+/// Project config read from `.ferrograph.toml` next to the graph database (or in the cwd).
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct FileConfig {
+    #[serde(default)]
+    pub dead: DeadConfig,
+}
+
+/// `[dead]` section of `.ferrograph.toml`.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeadConfig {
+    /// Extra entry points: file globs or attributes such as `#[no_mangle]`.
+    #[serde(default)]
+    pub entry: Vec<String>,
+    /// File globs whose functions are never reported.
+    #[serde(default)]
+    pub ignore: Vec<String>,
+}
+
+/// Load `.ferrograph.toml` from the database's directory, falling back to the cwd.
+///
+/// # Errors
+/// Fails if the file exists but cannot be read or parsed.
+pub fn load_file_config(db_path: &Path) -> Result<FileConfig> {
+    let candidates = [
+        db_path.parent().map(|p| p.join(".ferrograph.toml")),
+        Some(PathBuf::from(".ferrograph.toml")),
+    ];
+    for path in candidates.into_iter().flatten() {
+        if path.is_file() {
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read {}", path.display()))?;
+            return toml::from_str(&text)
+                .with_context(|| format!("Invalid config {}", path.display()));
+        }
+    }
+    Ok(FileConfig::default())
+}
+
+fn run_dead(
+    db: Option<&PathBuf>,
+    file: Option<&str>,
+    mut opts: crate::ops::DeadOptions,
+    json: bool,
+) -> Result<()> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -293,7 +358,10 @@ fn run_dead(db: Option<&PathBuf>, file: Option<&str>, strict: bool, json: bool) 
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let result = crate::ops::dead_code(&store, file, strict)?;
+    let cfg = load_file_config(&db_path)?;
+    opts.entry.extend(cfg.dead.entry);
+    opts.ignore.extend(cfg.dead.ignore);
+    let result = crate::ops::dead_code(&store, file, &opts)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {

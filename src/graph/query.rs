@@ -158,8 +158,9 @@ impl Query {
     pub fn compute_dead_functions_with_payload(
         store: &Store,
         strict: bool,
+        extra_entries: &[String],
     ) -> Result<Vec<NodeTriple>> {
-        let ids = Self::compute_dead_functions_opts(store, strict)?;
+        let ids = Self::compute_dead_functions_with(store, strict, extra_entries)?;
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -208,6 +209,18 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn compute_dead_functions_opts(store: &Store, strict: bool) -> Result<Vec<String>> {
+        Self::compute_dead_functions_with(store, strict, &[])
+    }
+
+    /// Like [`Self::compute_dead_functions_opts`], with extra entry-point node ids (roots).
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn compute_dead_functions_with(
+        store: &Store,
+        strict: bool,
+        extra_entries: &[String],
+    ) -> Result<Vec<String>> {
         let not_low = if strict { ", not low[from, to]" } else { "" };
         let type_function = NodeType::Function.to_string();
         let edge_calls = EdgeType::Calls.to_string();
@@ -229,6 +242,7 @@ impl Query {
                     || payload.starts_with("bench::");
                 is_entry.then(|| DataValue::from(id))
             })
+            .chain(extra_entries.iter().map(|id| DataValue::from(id.as_str())))
             .collect();
         let mut params = BTreeMap::new();
         params.insert("entry_ids".to_string(), DataValue::List(entry_ids));

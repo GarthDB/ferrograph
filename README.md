@@ -166,7 +166,23 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 
 ## Graph schema (edge types)
 
-The schema defines 11 edge types; all 11 are currently populated:
+### Dead-code entry points and ignores
+
+Beyond `main`, `pub`, `#[test]` and `#[bench]`, `ferrograph dead` accepts extra roots and ignores, from flags or a `.ferrograph.toml` next to the database (flags are added to the file's lists):
+
+```toml
+[dead]
+entry  = ["examples/**", "build.rs", "#[no_mangle]", "#[extern]"]  # file globs or attributes
+ignore = ["src/generated/**"]                                       # never reported
+```
+
+```bash
+ferrograph dead --entry 'examples/**' --entry '#[no_mangle]' --ignore 'src/generated/**'
+```
+
+Using `--entry`/`--strict` recomputes liveness instead of reading the index-time result. Not yet applied by the MCP `dead_code` tool.
+
+The schema defines 12 edge types; all 12 are currently populated:
 
 | Edge type           | v1 populated | Notes |
 |---------------------|-------------|-------|
@@ -180,6 +196,7 @@ The schema defines 11 edge types; all 11 are currently populated:
 | `expands_to`        | Yes         | Macro invocation to macro definition. |
 | `uses_unsafe`       | Yes         | Unsafe blocks and `unsafe fn`/`unsafe impl`. |
 | `lifetime_scope`    | Yes         | Self-loop on items with explicit lifetime params (tree-sitter only). |
+| `has_attribute`     | Yes         | Function to synthetic `attr::<name>` target per outer attribute (e.g. `attr::no_mangle`, `attr::extern`). Used for `dead` entry points. |
 | `changes_with`      | Yes (requires `git` feature) | Git change coupling (optional feature). |
 
 ## Publishing
