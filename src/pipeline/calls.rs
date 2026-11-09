@@ -3,8 +3,12 @@
 //! Resolves placeholder call targets (`file_path::fn_name`) to real function node IDs
 //! (`file_path#line:col`). Tries same-file first, then global `fn_name` lookup for cross-file calls.
 //!
-//! **Known limitation**: Method calls and UFCS are not resolved. Qualified paths (`mod::fn`) are
-//! partially handled (see `resolve_call_target` `scoped_identifier` support).
+//! Method calls (`x.m()`, placeholders ending in `METHOD_SUFFIX`) resolve by name only, among
+//! functions defined inside an `impl`/`trait` (never free functions): same-file methods win, else
+//! every method with that name in the project. Several candidates become low-confidence edges
+//! (1/N); more than `MAX_METHOD_CANDIDATES` are dropped, so std-like names (`len`, `get`, `push`)
+//! cannot flood the graph. Qualified paths (`Type::m()`, `mod::fn`) are partially handled (see
+//! `resolve_call_target` `scoped_identifier` support).
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -15,6 +19,10 @@ use crate::graph::schema::{EdgeType, NodeId, NodeType};
 
 /// Suffix the AST phase puts on call placeholders for paths used as values (see `ast.rs`).
 pub(crate) const VALUE_SUFFIX: &str = "@value";
+/// Suffix the AST phase puts on method-call placeholders (`x.m()`).
+pub(crate) const METHOD_SUFFIX: &str = "@method";
+/// A method name with more candidates than this is dropped at the call site (no edges).
+const MAX_METHOD_CANDIDATES: usize = 8;
 use crate::graph::{query::Query, unquote_datavalue, Store};
 
 /// Strip `pub::`, `test::`, and `bench::` prefixes from payload for canonical function name.
@@ -37,6 +45,37 @@ struct Index {
     imports_map: HashMap<String, Vec<String>>,
     node_id_to_payload: HashMap<String, String>,
     global_by_name: HashMap<String, Vec<NodeId>>,
+    /// Ids of functions defined directly inside an `impl` or `trait`.
+    methods: HashSet<String>,
+}
+
+/// Resolve `x.name()` by name only: same-file methods first, else all methods project-wide.
+fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
+    let methods: Vec<NodeId> = idx
+        .global_by_name
+        .get(name)
+        .into_iter()
+        .flatten()
+        .filter(|n| idx.methods.contains(n.as_str()))
+        .cloned()
+        .collect();
+    let prefix = format!("{from_file}#");
+    let same_file: Vec<NodeId> = methods
+        .iter()
+        .filter(|n| n.as_str().starts_with(&prefix))
+        .cloned()
+        .collect();
+    let mut cands = if same_file.is_empty() {
+        methods
+    } else {
+        same_file
+    };
+    match cands.len() {
+        0 => Resolution::None,
+        1 => Resolution::One(cands.remove(0)),
+        n if n <= MAX_METHOD_CANDIDATES => Resolution::Ambiguous(cands),
+        _ => Resolution::None,
+    }
 }
 
 /// Outcome of resolving a call placeholder.
@@ -63,6 +102,7 @@ fn resolve_placeholder(
         imports_map,
         node_id_to_payload,
         global_by_name,
+        ..
     } = idx;
     if path_part.contains("::") {
         // TODO: qualified path resolution only uses file-level (first path segment); module path within the file (e.g. mod::submod::foo()) is not considered.
@@ -126,6 +166,46 @@ fn resolve_placeholder(
     }
 }
 
+/// Imports edges grouped by importing file.
+fn imports_by_file(edges: &cozo::NamedRows) -> HashMap<String, Vec<String>> {
+    let imports = EdgeType::Imports.to_string();
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for row in &edges.rows {
+        if row.get(2).map(unquote_datavalue).as_deref() != Some(imports.as_str()) {
+            continue;
+        }
+        let from = row.first().map(unquote_datavalue).unwrap_or_default();
+        let to = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        let file = from.split('#').next().unwrap_or(&from).to_string();
+        map.entry(file).or_default().push(to);
+    }
+    map
+}
+
+/// Ids of nodes directly contained in an `impl` or `trait` node.
+fn method_ids(nodes: &cozo::NamedRows, edges: &cozo::NamedRows) -> HashSet<String> {
+    let containers: HashSet<String> = nodes
+        .rows
+        .iter()
+        .filter(|r| {
+            let t = r.get(1).map(unquote_datavalue).unwrap_or_default();
+            t == NodeType::Impl.to_string() || t == NodeType::Trait.to_string()
+        })
+        .filter_map(|r| r.first().map(unquote_datavalue))
+        .collect();
+    let contains = EdgeType::Contains.to_string();
+    edges
+        .rows
+        .iter()
+        .filter(|r| r.get(2).map(unquote_datavalue).as_deref() == Some(contains.as_str()))
+        .filter(|r| {
+            r.first()
+                .is_some_and(|p| containers.contains(&unquote_datavalue(p)))
+        })
+        .filter_map(|r| r.get(1).map(unquote_datavalue))
+        .collect()
+}
+
 /// Build or enrich call graph by resolving AST placeholder call targets to real function nodes.
 ///
 /// Same-file placeholders are resolved first; then Imports edges (from `resolve_modules`) are used
@@ -137,7 +217,6 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     let function_type = NodeType::Function.to_string();
     let calls_type = EdgeType::Calls;
     let calls_type_str = calls_type.to_string();
-    let imports_type_str = EdgeType::Imports.to_string();
 
     let nodes = Query::all_nodes(store)?;
     let mut idx = Index {
@@ -145,8 +224,8 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         imports_map: HashMap::new(),
         node_id_to_payload: HashMap::new(),
         global_by_name: HashMap::new(),
+        methods: HashSet::new(),
     };
-
     for row in &nodes.rows {
         let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
         if type_val != function_type {
@@ -170,16 +249,8 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     }
 
     let edges = Query::all_edges(store)?;
-    for row in &edges.rows {
-        let edge_type = row.get(2).map(unquote_datavalue).unwrap_or_default();
-        if edge_type != imports_type_str {
-            continue;
-        }
-        let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
-        let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        let from_file = from_str.split('#').next().unwrap_or(&from_str).to_string();
-        idx.imports_map.entry(from_file).or_default().push(to_str);
-    }
+    idx.imports_map = imports_by_file(&edges);
+    idx.methods = method_ids(&nodes, &edges);
 
     let mut high: HashSet<(String, String)> = HashSet::new();
     let mut low: Vec<(NodeId, NodeId, f64)> = Vec::new();
@@ -193,6 +264,10 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         let (to_str, value) = match raw_to.strip_suffix(VALUE_SUFFIX) {
             Some(t) => (t.to_string(), true),
             None => (raw_to.clone(), false),
+        };
+        let (to_str, method) = match to_str.strip_suffix(METHOD_SUFFIX) {
+            Some(t) => (t.to_string(), true),
+            None => (to_str, false),
         };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let (path_part, fn_name): (Cow<str>, &str) = if to_str.contains("::") {
@@ -212,7 +287,11 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
             // Unqualified placeholder (bare function name): resolve via same-file then global.
             (Cow::Borrowed(from_file), to_str.as_str())
         };
-        let resolution = resolve_placeholder(path_part.as_ref(), fn_name, from_file, value, &idx);
+        let resolution = if method {
+            resolve_method(fn_name, from_file, &idx)
+        } else {
+            resolve_placeholder(path_part.as_ref(), fn_name, from_file, value, &idx)
+        };
         let from_id = NodeId(from_str.clone());
         store.remove_edge(&from_id, &NodeId(raw_to), &calls_type)?;
         match resolution {
@@ -396,5 +475,79 @@ mod tests {
         build_call_graph(&store).unwrap();
         let rows = Query::all_edges(&store).unwrap().rows;
         assert_eq!(rows, Vec::<Vec<cozo::DataValue>>::new());
+    }
+
+    fn method_store(n: usize, with_free: bool) -> (Store, NodeId) {
+        let store = Store::new_memory().unwrap();
+        let caller = NodeId::new("./a.rs#1:1");
+        store
+            .put_node(&caller, &NodeType::Function, Some("main"))
+            .unwrap();
+        for i in 0..n {
+            let imp = NodeId::new(format!("./m{i}.rs#1:1"));
+            let f = NodeId::new(format!("./m{i}.rs#2:1"));
+            store.put_node(&imp, &NodeType::Impl, Some("T")).unwrap();
+            store
+                .put_node(&f, &NodeType::Function, Some("len"))
+                .unwrap();
+            store.put_edge(&imp, &f, &EdgeType::Contains).unwrap();
+        }
+        if with_free {
+            let free = NodeId::new("./a.rs#9:1");
+            store
+                .put_node(&free, &NodeType::Function, Some("len"))
+                .unwrap();
+        }
+        store
+            .put_edge(
+                &caller,
+                &NodeId::new("./a.rs::len@method"),
+                &EdgeType::Calls,
+            )
+            .unwrap();
+        (store, caller)
+    }
+
+    fn call_targets_of(store: &Store) -> Vec<String> {
+        Query::all_edges(store)
+            .unwrap()
+            .rows
+            .iter()
+            .filter(|r| r[2].to_string().contains("calls"))
+            .map(|r| r[1].to_string().trim_matches('"').to_string())
+            .collect()
+    }
+
+    #[test]
+    fn method_call_ignores_free_function_of_same_name() {
+        let (store, _) = method_store(2, true);
+        build_call_graph(&store).unwrap();
+        let tos = call_targets_of(&store);
+        assert_eq!(tos.len(), 2, "{tos:?}");
+        assert!(tos.iter().all(|t| !t.starts_with("./a.rs")), "{tos:?}");
+    }
+
+    #[test]
+    fn method_call_prefers_same_file_method() {
+        let (store, _) = method_store(2, false);
+        let imp = NodeId::new("./a.rs#20:1");
+        let f = NodeId::new("./a.rs#21:1");
+        store.put_node(&imp, &NodeType::Impl, Some("T")).unwrap();
+        store
+            .put_node(&f, &NodeType::Function, Some("len"))
+            .unwrap();
+        store.put_edge(&imp, &f, &EdgeType::Contains).unwrap();
+        build_call_graph(&store).unwrap();
+        assert_eq!(call_targets_of(&store), vec!["./a.rs#21:1".to_string()]);
+    }
+
+    #[test]
+    fn method_call_fan_out_is_capped() {
+        let (store, _) = method_store(super::MAX_METHOD_CANDIDATES, false);
+        build_call_graph(&store).unwrap();
+        assert_eq!(call_targets_of(&store).len(), super::MAX_METHOD_CANDIDATES);
+        let (store, _) = method_store(super::MAX_METHOD_CANDIDATES + 1, false);
+        build_call_graph(&store).unwrap();
+        assert_eq!(call_targets_of(&store).len(), 0);
     }
 }
