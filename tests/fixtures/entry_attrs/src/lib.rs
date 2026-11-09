@@ -15,4 +15,12 @@ mod tests {
     /// doc between
     fn c() {}
 }
+#[no_mangle]
+extern "C" fn plain_no_mangle() {}
+#[cfg(test)]
+mod more {
+    #[test]
+    /* block */
+    fn d() {}
+}
 fn unused_private() {}

@@ -33,3 +33,6 @@ trait NoImpl { fn orphan_default(&self) -> u32 { 2 } }
 
 struct Plain;
 impl Plain { fn truly_unused_private(&self) {} }
+
+trait Generic<T> { fn gdflt(&self) -> u32 { 3 } }
+impl Generic<u8> for Sq {}

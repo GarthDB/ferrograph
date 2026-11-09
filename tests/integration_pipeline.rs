@@ -380,6 +380,7 @@ fn pipeline_trait_impl_methods_are_roots() {
             "dealloc_helper",
             "realloc_helper",
             "dflt",
+            "gdflt",
         ] {
             assert!(
                 !dead.iter().any(|n| n == live),

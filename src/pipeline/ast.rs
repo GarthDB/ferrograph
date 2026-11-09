@@ -497,30 +497,14 @@ fn impl_type_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
 }
 
 /// Trait name for trait impls only (`impl Trait for Type`). Returns None for inherent impls.
-/// Walks `impl_item` children; when we see "for", the preceding `type_identifier` (or last segment of `scoped_type_identifier`) is the trait.
+/// Reads the `trait` field; generic traits (`Trait<T>`) and scoped paths reduce to the last bare name.
 fn impl_trait_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
-    let mut i = 0;
-    let mut prev_type: Option<tree_sitter::Node> = None;
-    while let Some(child) = node.child(i) {
-        let k = child.kind();
-        if k == "for" {
-            let n = prev_type?;
-            let r = n.byte_range();
-            let text = source.get(r.start..r.end)?;
-            return Some(if n.kind() == "scoped_type_identifier" {
-                text.rsplit("::").next().unwrap_or(text).to_string()
-            } else {
-                text.to_string()
-            });
-        }
-        if k == "type_identifier" || k == "scoped_type_identifier" {
-            prev_type = Some(child);
-        } else if k != "unsafe" && k != "impl" && !k.starts_with("type_parameters") && k != "!" {
-            prev_type = None;
-        }
-        i += 1;
+    let mut t = node.child_by_field_name("trait")?;
+    if t.kind() == "generic_type" {
+        t = t.child_by_field_name("type")?;
     }
-    None
+    let text = source.get(t.byte_range())?;
+    Some(text.rsplit("::").next().unwrap_or(text).to_string())
 }
 
 /// Ownership classification for a type (owned value, shared borrow, or mutable borrow).
