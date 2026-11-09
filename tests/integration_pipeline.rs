@@ -279,3 +279,20 @@ fn pipeline_indexes_workspace() {
         "expected node from crate_b (e.g. 'b'), got payloads: {payloads:?}"
     );
 }
+
+#[test]
+fn pipeline_fn_used_as_value_is_not_dead() {
+    let store = run_fixture("fn_values");
+    let dead = ferrograph::graph::Query::stored_dead_functions_with_payload(&store).unwrap();
+    let names: Vec<&str> = dead.iter().filter_map(|(_, _, p)| p.as_deref()).collect();
+    for live in ["as_arg", "in_field", "in_array", "in_map", "in_let"] {
+        assert!(
+            !names.contains(&live),
+            "{live} is used as a value, dead: {names:?}"
+        );
+    }
+    assert!(
+        names.contains(&"truly_unused"),
+        "truly_unused must stay dead, dead: {names:?}"
+    );
+}

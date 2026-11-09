@@ -39,6 +39,11 @@ fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
                 "type": "integer",
                 "description": "Number of IDs to skip for pagination (default 0)",
                 "default": 0
+            },
+            "strict": {
+                "type": "boolean",
+                "description": "Ignore ambiguous (low-confidence) call edges when deciding liveness (default false)",
+                "default": false
             }
         }
     })
@@ -54,6 +59,11 @@ fn blast_radius_input_schema() -> serde_json::Map<String, serde_json::Value> {
             "node_id": {
                 "type": "string",
                 "description": "The node ID to compute blast radius for"
+            },
+            "exclude_low_confidence": {
+                "type": "boolean",
+                "description": "Ignore ambiguous (low-confidence) call edges (default false)",
+                "default": false
             }
         },
         "required": ["node_id"]
@@ -134,6 +144,11 @@ fn callers_input_schema() -> serde_json::Map<String, serde_json::Value> {
                 "type": "integer",
                 "description": "Max hops backward (1 = direct callers only, default 1)",
                 "default": 1
+            },
+            "exclude_low_confidence": {
+                "type": "boolean",
+                "description": "Ignore ambiguous (low-confidence) call edges (default false)",
+                "default": false
             }
         },
         "required": ["node_id"]
@@ -211,6 +226,15 @@ fn get_str_arg<'a>(request: &'a CallToolRequestParams, key: &str) -> Option<&'a 
         .as_ref()
         .and_then(|m| m.get(key))
         .and_then(serde_json::Value::as_str)
+}
+
+fn get_bool_arg(request: &CallToolRequestParams, key: &str) -> bool {
+    request
+        .arguments
+        .as_ref()
+        .and_then(|m| m.get(key))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn tool(
@@ -528,11 +552,16 @@ impl FerrographMcp {
         request: &CallToolRequestParams,
         store: &crate::graph::Store,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let mut ids = crate::graph::Query::stored_dead_functions(store).map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("Dead code query failed: {e}"), None)
-        })?;
+        let strict = get_bool_arg(request, "strict");
+        let mut ids = if strict {
+            Vec::new()
+        } else {
+            crate::graph::Query::stored_dead_functions(store).map_err(|e| {
+                rmcp::ErrorData::internal_error(format!("Dead code query failed: {e}"), None)
+            })?
+        };
         let source = if ids.is_empty() {
-            ids = crate::graph::Query::compute_dead_functions(store).map_err(|e| {
+            ids = crate::graph::Query::compute_dead_functions_opts(store, strict).map_err(|e| {
                 rmcp::ErrorData::internal_error(format!("Dead code (live) query failed: {e}"), None)
             })?;
             "computed"
@@ -593,7 +622,12 @@ impl FerrographMcp {
         let node_id = get_str_arg(request, "node_id").ok_or_else(|| {
             rmcp::ErrorData::invalid_params("missing required parameter: node_id", None)
         })?;
-        let nodes = crate::graph::Query::blast_radius(store, node_id).map_err(|e| {
+        let nodes = crate::graph::Query::blast_radius_opts(
+            store,
+            node_id,
+            get_bool_arg(request, "exclude_low_confidence"),
+        )
+        .map_err(|e| {
             rmcp::ErrorData::internal_error(format!("Blast radius query failed: {e}"), None)
         })?;
         let reachable: Vec<serde_json::Value> = nodes
@@ -738,9 +772,13 @@ impl FerrographMcp {
             rmcp::ErrorData::invalid_params("missing required parameter: node_id", None)
         })?;
         let depth = parse_depth(request);
-        let callers = crate::graph::Query::callers(store, node_id, depth).map_err(|e| {
-            rmcp::ErrorData::internal_error(format!("Callers query failed: {e}"), None)
-        })?;
+        let callers = crate::graph::Query::callers_opts(
+            store,
+            node_id,
+            depth,
+            get_bool_arg(request, "exclude_low_confidence"),
+        )
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Callers query failed: {e}"), None))?;
         let results: Vec<serde_json::Value> = callers
             .into_iter()
             .map(|(id, node_type, payload)| {

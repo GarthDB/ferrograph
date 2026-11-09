@@ -157,22 +157,38 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 | `status` | Node/edge counts, DB path, `indexed_at` timestamp, project `root` the graph tracks. |
 | `search` | Text search over node payloads; supports limit/offset pagination. |
 | `node_info` | Type, payload, and incoming/outgoing edges for a node ID. |
-| `dead_code` | Functions not reachable from entry points; optional `node_type` and `file_glob` filters. |
-| `blast_radius` | Transitive impact set via calls, references, and changes_with edges. |
-| `callers` | Direct and transitive callers up to a given depth. |
+| `dead_code` | Functions not reachable from entry points; optional `node_type` and `file_glob` filters. Ambiguous (low-confidence) call targets count as live; `strict: true` ignores them. |
+| `blast_radius` | Transitive impact set via calls, references, and changes_with edges. `exclude_low_confidence: true` skips ambiguous calls. |
+| `callers` | Direct and transitive callers up to a given depth. `exclude_low_confidence: true` skips ambiguous calls. |
 | `query` | Raw Datalog queries (read-only; mutations rejected). |
 | `trait_implementors` | Find implementations of a named trait (stub; returns empty with note). |
 | `module_graph` | File-to-module containment edges; optional relative path prefix filter (e.g. `./src/`). |
 
 ## Graph schema (edge types)
 
-The schema defines 11 edge types; all 11 are currently populated:
+### Dead-code entry points and ignores
+
+Beyond `main`, `pub`, `#[test]` and `#[bench]`, `ferrograph dead` accepts extra roots and ignores, from flags or a `.ferrograph.toml` next to the database (flags are added to the file's lists):
+
+```toml
+[dead]
+entry  = ["examples/**", "build.rs", "#[no_mangle]", "#[extern]"]  # file globs or attributes
+ignore = ["src/generated/**"]                                       # never reported
+```
+
+```bash
+ferrograph dead --entry 'examples/**' --entry '#[no_mangle]' --ignore 'src/generated/**'
+```
+
+Using `--entry`/`--strict` recomputes liveness instead of reading the index-time result. Not yet applied by the MCP `dead_code` tool.
+
+The schema defines 12 edge types; all 12 are currently populated:
 
 | Edge type           | v1 populated | Notes |
 |---------------------|-------------|-------|
 | `contains`          | Yes         | File/module containment. |
 | `imports`           | Yes         | From `mod`/`use` resolution. |
-| `calls`             | Yes         | Same-file and cross-file (via imports) calls. |
+| `calls`             | Yes         | Same-file and cross-file (via imports) calls, plus fns used as values (`map(f)`, fn-pointer args/fields). Ambiguous name matches become one edge per candidate with a confidence (1/N) in the `edge_confidence` relation; `dead --strict`, `blast --exclude-low-confidence` and `callers --exclude-low-confidence` ignore them. |
 | `references`        | Yes         | Type mentions in fields, params, return types. |
 | `implements_trait`  | Yes         | Trait impls (`impl Trait for Type`). |
 | `owns`              | Yes         | Struct fields and fn params; unresolvable types (primitives, generics, external) omitted. |
@@ -180,6 +196,7 @@ The schema defines 11 edge types; all 11 are currently populated:
 | `expands_to`        | Yes         | Macro invocation to macro definition. |
 | `uses_unsafe`       | Yes         | Unsafe blocks and `unsafe fn`/`unsafe impl`. |
 | `lifetime_scope`    | Yes         | Self-loop on items with explicit lifetime params (tree-sitter only). |
+| `has_attribute`     | Yes         | Function to synthetic `attr::<name>` target per outer attribute (e.g. `attr::no_mangle`, `attr::extern`). Used for `dead` entry points. |
 | `changes_with`      | Yes (requires `git` feature) | Git change coupling (optional feature). |
 
 ## Publishing

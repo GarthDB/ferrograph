@@ -157,18 +157,87 @@ pub struct ModuleGraphResult {
     pub count: usize,
 }
 
+/// Options for [`dead_code`].
+#[derive(Debug, Default)]
+pub struct DeadOptions {
+    /// Ignore ambiguous (low-confidence) call edges when deciding liveness.
+    pub strict: bool,
+    /// Extra entry points: file globs (`examples/**`) or attributes (`#[no_mangle]`).
+    pub entry: Vec<String>,
+    /// File globs whose functions are never reported.
+    pub ignore: Vec<String>,
+}
+
+fn path_matches(pat: &glob::Pattern, node_id: &str) -> bool {
+    let path = node_id.split('#').next().unwrap_or(node_id);
+    pat.matches(path) || pat.matches(path.strip_prefix("./").unwrap_or(path))
+}
+
+/// Resolve `entry` patterns to function node ids.
+fn resolve_entry_ids(store: &Store, patterns: &[String]) -> Result<Vec<String>> {
+    let mut ids = Vec::new();
+    let mut globs = Vec::new();
+    for pat in patterns {
+        if let Some(attr) = pat.strip_prefix("#[").and_then(|p| p.strip_suffix(']')) {
+            let mut params = std::collections::BTreeMap::new();
+            params.insert(
+                "t".to_string(),
+                cozo::DataValue::from(format!("attr::{attr}").as_str()),
+            );
+            let rows = store.run_query("?[id] := *edges[id, $t, \"has_attribute\"]", params)?;
+            ids.extend(
+                rows.rows
+                    .iter()
+                    .filter_map(|r| r.first())
+                    .map(crate::graph::unquote_datavalue),
+            );
+        } else {
+            globs.push(glob::Pattern::new(pat)?);
+        }
+    }
+    if !globs.is_empty() {
+        let rows = store.run_query(
+            "?[id] := *nodes[id, \"function\", _]",
+            std::collections::BTreeMap::new(),
+        )?;
+        ids.extend(
+            rows.rows
+                .iter()
+                .filter_map(|r| r.first())
+                .map(crate::graph::unquote_datavalue)
+                .filter(|id| globs.iter().any(|g| path_matches(g, id))),
+        );
+    }
+    Ok(ids)
+}
+
 /// Find dead (unreachable) code with symbol names.
 ///
 /// # Errors
-/// Returns an error if the store query or glob pattern is invalid.
-pub fn dead_code(store: &Store, file_glob: Option<&str>) -> Result<DeadCodeResult> {
-    let mut triples = Query::stored_dead_functions_with_payload(store)?;
+/// Returns an error if the store query or a glob pattern is invalid.
+pub fn dead_code(
+    store: &Store,
+    file_glob: Option<&str>,
+    opts: &DeadOptions,
+) -> Result<DeadCodeResult> {
+    // The stored relation reflects index-time defaults only, so any option forces a recompute.
+    let custom = opts.strict || !opts.entry.is_empty();
+    let mut triples = if custom {
+        Vec::new()
+    } else {
+        Query::stored_dead_functions_with_payload(store)?
+    };
     let source = if triples.is_empty() {
-        triples = Query::compute_dead_functions_with_payload(store)?;
+        let entries = resolve_entry_ids(store, &opts.entry)?;
+        triples = Query::compute_dead_functions_with_payload(store, opts.strict, &entries)?;
         "computed"
     } else {
         "stored"
     };
+    for pattern in &opts.ignore {
+        let pat = glob::Pattern::new(pattern)?;
+        triples.retain(|(id, _, _)| !path_matches(&pat, id));
+    }
     if let Some(pattern) = file_glob {
         let pat = glob::Pattern::new(pattern)?;
         triples.retain(|(id, _, _)| pat.matches(id));
@@ -194,8 +263,12 @@ pub fn dead_code(store: &Store, file_glob: Option<&str>) -> Result<DeadCodeResul
 ///
 /// # Errors
 /// Returns an error if the store query fails.
-pub fn blast_radius(store: &Store, node_id: &str) -> Result<BlastRadiusResult> {
-    let nodes = Query::blast_radius(store, node_id)?;
+pub fn blast_radius(
+    store: &Store,
+    node_id: &str,
+    exclude_low_confidence: bool,
+) -> Result<BlastRadiusResult> {
+    let nodes = Query::blast_radius_opts(store, node_id, exclude_low_confidence)?;
     let reachable_nodes: Vec<NodeSummary> = nodes
         .into_iter()
         .map(|(id, node_type, payload)| NodeSummary {
@@ -216,8 +289,13 @@ pub fn blast_radius(store: &Store, node_id: &str) -> Result<BlastRadiusResult> {
 ///
 /// # Errors
 /// Returns an error if the store query fails.
-pub fn callers(store: &Store, node_id: &str, depth: u32) -> Result<CallersResult> {
-    let nodes = Query::callers(store, node_id, depth)?;
+pub fn callers(
+    store: &Store,
+    node_id: &str,
+    depth: u32,
+    exclude_low_confidence: bool,
+) -> Result<CallersResult> {
+    let nodes = Query::callers_opts(store, node_id, depth, exclude_low_confidence)?;
     let callers: Vec<NodeSummary> = nodes
         .into_iter()
         .map(|(id, node_type, payload)| NodeSummary {

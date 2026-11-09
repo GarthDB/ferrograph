@@ -61,6 +61,14 @@ impl Store {
                 ScriptMutability::Mutable,
             )
             .map_err(|e| cozo_err(&e))?;
+        // Confidence (< 1.0) for edges that were resolved ambiguously; absent = certain.
+        self.db
+            .run_script(
+                "%ignore_error { :create edge_confidence { from_id: String, to_id: String, edge_type: String => confidence: Float } }",
+                BTreeMap::new(),
+                ScriptMutability::Mutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
         // Dead functions (populated by pipeline phase 9)
         self.db
             .run_script(
@@ -182,6 +190,36 @@ impl Store {
         Ok(())
     }
 
+    /// Insert an edge that was resolved ambiguously, recording its confidence (1/N candidates).
+    ///
+    /// # Errors
+    /// Fails if the Cozo script fails.
+    pub fn put_low_confidence_edge(
+        &self,
+        from: &NodeId,
+        to: &NodeId,
+        edge_type: &EdgeType,
+        confidence: f64,
+    ) -> Result<()> {
+        self.put_edge(from, to, edge_type)?;
+        let mut params = BTreeMap::new();
+        params.insert("from_id".to_string(), DataValue::from(from.as_str()));
+        params.insert("to_id".to_string(), DataValue::from(to.as_str()));
+        params.insert(
+            "edge_type".to_string(),
+            DataValue::from(edge_type.to_string().as_str()),
+        );
+        params.insert("confidence".to_string(), DataValue::from(confidence));
+        self.db
+            .run_script(
+                "?[from_id, to_id, edge_type, confidence] <- [[$from_id, $to_id, $edge_type, $confidence]] :put edge_confidence { from_id, to_id, edge_type => confidence }",
+                params,
+                ScriptMutability::Mutable,
+            )
+            .map_err(|e| cozo_err(&e))?;
+        Ok(())
+    }
+
     /// Insert multiple edges in one script (more efficient than repeated `put_edge`).
     ///
     /// # Errors
@@ -299,6 +337,7 @@ impl Store {
                 r"
                 { ?[id] := *nodes[id, type, payload]; :rm nodes { id } }
                 { ?[from_id, to_id, edge_type] := *edges[from_id, to_id, edge_type]; :rm edges { from_id, to_id, edge_type } }
+                { ?[from_id, to_id, edge_type] := *edge_confidence[from_id, to_id, edge_type, _]; :rm edge_confidence { from_id, to_id, edge_type } }
                 { ?[id] := *dead_functions[id]; :rm dead_functions { id } }
                 ",
                 BTreeMap::new(),
@@ -386,6 +425,22 @@ impl Store {
             .collect();
         if !edge_batch.is_empty() {
             self.put_edges_batch(&edge_batch)?;
+        }
+        let low = other.run_query(
+            "?[f, t, e, c] := *edge_confidence[f, t, e, c]",
+            BTreeMap::new(),
+        )?;
+        for row in &low.rows {
+            let (Some(f), Some(t), Some(e), Some(c)) = (
+                row.first().map(unquote_datavalue),
+                row.get(1).map(unquote_datavalue),
+                row.get(2)
+                    .and_then(|v| EdgeType::from_str(&unquote_datavalue(v)).ok()),
+                row.get(3).and_then(DataValue::get_float),
+            ) else {
+                continue;
+            };
+            self.put_low_confidence_edge(&NodeId(f), &NodeId(t), &e, c)?;
         }
         let dead = Query::stored_dead_functions(other)?;
         for id in &dead {

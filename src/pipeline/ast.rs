@@ -96,6 +96,21 @@ fn classify_node(
             }
             (None, None, None)
         }
+        "identifier" | "scoped_identifier" => {
+            if let (Some(from), true) = (parent, is_value_position(node)) {
+                let r = node.byte_range();
+                if let Some(path) = source.get(r.start..r.end) {
+                    let target = NodeId::new(format!(
+                        "{}::{}{}",
+                        file_id.as_str(),
+                        path,
+                        super::calls::VALUE_SUFFIX
+                    ));
+                    edges.push((from.clone(), target, EdgeType::Calls));
+                }
+            }
+            (None, None, None)
+        }
         "method_call_expression" => {
             if let Some(callee_id) = resolve_method_call_target(node, source, file_id) {
                 if let Some(from) = parent {
@@ -181,6 +196,13 @@ fn traverse(
             edges.push((id.clone(), id.clone(), EdgeType::LifetimeScope));
         }
         if kind == "function_item" {
+            for name in attribute_names(&node, source) {
+                edges.push((
+                    id.clone(),
+                    NodeId::new(format!("attr::{name}")),
+                    EdgeType::HasAttribute,
+                ));
+            }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
         }
         if let Some((to_id, edge_type)) = extra {
@@ -242,6 +264,40 @@ fn has_attribute_on_prev_sibling(node: &tree_sitter::Node, source: &str, name: &
         }
     }
     false
+}
+
+/// Outer attribute names on a function (`no_mangle`, `export_name`, ...), plus `extern` for
+/// `extern "C" fn`. Name is the attribute path, without arguments (`#[tokio::main(x)]` -> `tokio::main`).
+fn attribute_names(node: &tree_sitter::Node, source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut current = node.prev_sibling();
+    while let Some(prev) = current {
+        if prev.kind() != "attribute_item" {
+            break;
+        }
+        if let Some(text) = source.get(prev.byte_range()) {
+            let inner = text.trim().trim_start_matches("#[").trim_end_matches(']');
+            let name: String = inner
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
+                .collect();
+            if !name.is_empty() {
+                names.push(name);
+            }
+        }
+        current = prev.prev_sibling();
+    }
+    let mut cursor = node.walk();
+    let has_extern = node.children(&mut cursor).any(|c| {
+        c.kind() == "function_modifiers"
+            && source
+                .get(c.byte_range())
+                .is_some_and(|t| t.split_whitespace().any(|w| w == "extern"))
+    });
+    if has_extern {
+        names.push("extern".to_string());
+    }
+    names
 }
 
 /// Returns true if the node has an attribute containing an identifier with the given name
@@ -692,6 +748,30 @@ fn type_name_from_node(node: &tree_sitter::Node, source: &str) -> Option<String>
     })
 }
 
+/// True when an identifier/path is used as a value (argument, field value, array element, ...)
+/// rather than called or declared. Such paths may name a fn item (fn pointer); the calls phase
+/// drops the placeholder if it does not resolve to one.
+fn is_value_position(node: &tree_sitter::Node) -> bool {
+    let Some(p) = node.parent() else {
+        return false;
+    };
+    match p.kind() {
+        "arguments"
+        | "field_initializer"
+        | "shorthand_field_initializer"
+        | "array_expression"
+        | "tuple_expression"
+        | "reference_expression"
+        | "parenthesized_expression"
+        | "return_expression"
+        | "type_cast_expression"
+        | "block" => true,
+        "let_declaration" | "match_arm" => p.child_by_field_name("value") == Some(*node),
+        "assignment_expression" => p.child_by_field_name("right") == Some(*node),
+        _ => false,
+    }
+}
+
 /// Resolve a call expression to a placeholder node id (`file_path::fn_name` or `file_path::path::to::fn`).
 ///
 /// Handles bare identifier calls `foo()` and qualified paths `mod::foo()` (`scoped_identifier`).
@@ -799,6 +879,20 @@ fn scan_token_tree_for_calls(
                             edges.push((parent.clone(), callee_id, EdgeType::Calls));
                         }
                     }
+                }
+            }
+        }
+        if kind == "identifier" && prev_kind.as_deref() != Some(".") {
+            let called = next.is_some_and(|n| n.kind() == "token_tree");
+            if !called {
+                if let Some(name) = source.get(child.byte_range()) {
+                    let target = NodeId::new(format!(
+                        "{}::{}{}",
+                        file_id.as_str(),
+                        name,
+                        super::calls::VALUE_SUFFIX
+                    ));
+                    edges.push((parent.clone(), target, EdgeType::Calls));
                 }
             }
         }

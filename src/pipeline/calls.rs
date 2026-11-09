@@ -7,11 +7,14 @@
 //! partially handled (see `resolve_call_target` `scoped_identifier` support).
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
+
+/// Suffix the AST phase puts on call placeholders for paths used as values (see `ast.rs`).
+pub(crate) const VALUE_SUFFIX: &str = "@value";
 use crate::graph::{query::Query, unquote_datavalue, Store};
 
 /// Strip `pub::`, `test::`, and `bench::` prefixes from payload for canonical function name.
@@ -28,40 +31,58 @@ fn canonical_name(payload: &str) -> &str {
     s
 }
 
-/// Resolve a single placeholder (`path_part::fn_name`) to a `NodeId`, or None if ambiguous/unresolved.
+/// Lookup tables used to resolve call placeholders.
+struct Index {
+    local: HashMap<(String, String), Vec<NodeId>>,
+    imports_map: HashMap<String, Vec<String>>,
+    node_id_to_payload: HashMap<String, String>,
+    global_by_name: HashMap<String, Vec<NodeId>>,
+}
+
+/// Outcome of resolving a call placeholder.
+enum Resolution {
+    One(NodeId),
+    /// Several candidates and no way to pick (no type info); kept as low-confidence edges.
+    Ambiguous(Vec<NodeId>),
+    None,
+}
+
+/// Resolve a single placeholder (`path_part::fn_name`).
 /// For qualified paths (`path_part` contains "::"), first try same-file resolution by file path only.
+/// `value` marks a path used as a value (fn pointer): it never uses the global name fallback and
+/// never yields ambiguous edges, since the identifier is often just a local variable.
 fn resolve_placeholder(
     path_part: &str,
     fn_name: &str,
     from_file: &str,
-    local: &HashMap<(String, String), Vec<NodeId>>,
-    imports_map: &HashMap<String, Vec<String>>,
-    node_id_to_payload: &HashMap<String, String>,
-    global_by_name: &HashMap<String, Vec<NodeId>>,
-) -> Option<NodeId> {
+    value: bool,
+    idx: &Index,
+) -> Resolution {
+    let Index {
+        local,
+        imports_map,
+        node_id_to_payload,
+        global_by_name,
+    } = idx;
     if path_part.contains("::") {
         // TODO: qualified path resolution only uses file-level (first path segment); module path within the file (e.g. mod::submod::foo()) is not considered.
         let file_only = path_part.split("::").next().unwrap_or(path_part);
         let key = (file_only.to_string(), fn_name.to_string());
         if let Some(candidates) = local.get(&key) {
             if let [one] = candidates.as_slice() {
-                return Some(one.clone());
+                return Resolution::One(one.clone());
             }
         }
         // Qualified type/module path (e.g. std::collections::HashMap); do not resolve via global lookup to avoid false positives.
-        return None;
+        return Resolution::None;
     }
     let key = (path_part.to_string(), fn_name.to_string());
     if let Some(candidates) = local.get(&key) {
-        if let [one] = candidates.as_slice() {
-            return Some(one.clone());
-        }
-        if candidates.len() > 1 {
-            eprintln!(
-                "warning: duplicate function name in same file '{fn_name}', dropping call edge (ambiguous)"
-            );
-        }
-        return None;
+        return match candidates.as_slice() {
+            [one] => Resolution::One(one.clone()),
+            many if many.len() > 1 && !value => Resolution::Ambiguous(many.to_vec()),
+            _ => Resolution::None,
+        };
     }
     if let Some(imported) = imports_map.get(from_file) {
         let mut candidate: Option<NodeId> = None;
@@ -70,7 +91,7 @@ fn resolve_placeholder(
                 if let Some(payload) = node_id_to_payload.get(to_id) {
                     if canonical_name(payload) == fn_name {
                         if candidate.is_some() {
-                            return None;
+                            return Resolution::None;
                         }
                         candidate = Some(NodeId(to_id.clone()));
                     }
@@ -87,25 +108,21 @@ fn resolve_placeholder(
                     .unwrap_or_default();
                 if in_file.len() == 1 {
                     if candidate.is_some() {
-                        return None;
+                        return Resolution::None;
                     }
                     candidate = in_file.into_iter().next();
                 }
             }
         }
-        return candidate;
+        return candidate.map_or(Resolution::None, Resolution::One);
+    }
+    if value {
+        return Resolution::None;
     }
     match global_by_name.get(fn_name).map(Vec::as_slice) {
-        Some([one]) => Some(one.clone()),
-        Some([]) | None => None,
-        Some(candidates) => {
-            eprintln!(
-                "warning: cross-file call to '{}' is ambiguous ({} candidates), dropping edge",
-                fn_name,
-                candidates.len()
-            );
-            None
-        }
+        Some([one]) => Resolution::One(one.clone()),
+        Some([]) | None => Resolution::None,
+        Some(candidates) => Resolution::Ambiguous(candidates.to_vec()),
     }
 }
 
@@ -123,9 +140,12 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     let imports_type_str = EdgeType::Imports.to_string();
 
     let nodes = Query::all_nodes(store)?;
-    let mut local: HashMap<(String, String), Vec<NodeId>> = HashMap::new();
-    let mut global_by_name: HashMap<String, Vec<NodeId>> = HashMap::new();
-    let mut node_id_to_payload: HashMap<String, String> = HashMap::new();
+    let mut idx = Index {
+        local: HashMap::new(),
+        imports_map: HashMap::new(),
+        node_id_to_payload: HashMap::new(),
+        global_by_name: HashMap::new(),
+    };
 
     for row in &nodes.rows {
         let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
@@ -137,18 +157,18 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         if payload.is_empty() {
             continue;
         }
-        node_id_to_payload.insert(id_trim.clone(), payload.clone());
+        idx.node_id_to_payload
+            .insert(id_trim.clone(), payload.clone());
         let file_path = id_trim.split('#').next().unwrap_or(&id_trim).to_string();
         let node_id = NodeId(id_trim.clone());
-        local
+        idx.local
             .entry((file_path.clone(), canonical_name(&payload).to_string()))
             .or_default()
             .push(node_id.clone());
         let name = canonical_name(&payload).to_string();
-        global_by_name.entry(name).or_default().push(node_id);
+        idx.global_by_name.entry(name).or_default().push(node_id);
     }
 
-    let mut imports_map: HashMap<String, Vec<String>> = HashMap::new();
     let edges = Query::all_edges(store)?;
     for row in &edges.rows {
         let edge_type = row.get(2).map(unquote_datavalue).unwrap_or_default();
@@ -158,16 +178,22 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
         let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
         let from_file = from_str.split('#').next().unwrap_or(&from_str).to_string();
-        imports_map.entry(from_file).or_default().push(to_str);
+        idx.imports_map.entry(from_file).or_default().push(to_str);
     }
 
+    let mut high: HashSet<(String, String)> = HashSet::new();
+    let mut low: Vec<(NodeId, NodeId, f64)> = Vec::new();
     for row in &edges.rows {
         let edge_type = row.get(2).map(unquote_datavalue).unwrap_or_default();
         if edge_type != calls_type_str {
             continue;
         }
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
-        let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        let raw_to = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        let (to_str, value) = match raw_to.strip_suffix(VALUE_SUFFIX) {
+            Some(t) => (t.to_string(), true),
+            None => (raw_to.clone(), false),
+        };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let (path_part, fn_name): (Cow<str>, &str) = if to_str.contains("::") {
             let Some((pp, fn_name_maybe_path)) = to_str.split_once("::") else {
@@ -186,20 +212,25 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
             // Unqualified placeholder (bare function name): resolve via same-file then global.
             (Cow::Borrowed(from_file), to_str.as_str())
         };
-        let resolved_id = resolve_placeholder(
-            path_part.as_ref(),
-            fn_name,
-            from_file,
-            &local,
-            &imports_map,
-            &node_id_to_payload,
-            &global_by_name,
-        );
+        let resolution = resolve_placeholder(path_part.as_ref(), fn_name, from_file, value, &idx);
         let from_id = NodeId(from_str.clone());
-        let placeholder_to_id = NodeId(to_str.clone());
-        store.remove_edge(&from_id, &placeholder_to_id, &calls_type)?;
-        if let Some(id) = resolved_id {
-            store.put_edge(&from_id, &id, &calls_type)?;
+        store.remove_edge(&from_id, &NodeId(raw_to), &calls_type)?;
+        match resolution {
+            Resolution::One(id) => {
+                high.insert((from_str, id.0.clone()));
+                store.put_edge(&from_id, &id, &calls_type)?;
+            }
+            Resolution::Ambiguous(ids) => {
+                #[allow(clippy::cast_precision_loss)] // candidate counts are tiny
+                let confidence = 1.0 / ids.len() as f64;
+                low.extend(ids.into_iter().map(|id| (from_id.clone(), id, confidence)));
+            }
+            Resolution::None => {}
+        }
+    }
+    for (from, to, confidence) in low {
+        if !high.contains(&(from.0.clone(), to.0.clone())) {
+            store.put_low_confidence_edge(&from, &to, &calls_type, confidence)?;
         }
     }
     Ok(())
@@ -316,5 +347,54 @@ mod tests {
             format!("{path}#10:1"),
             "unqualified placeholder 'callee' should resolve to same-file callee node"
         );
+    }
+
+    fn ambiguous_store(placeholder: &str) -> (Store, NodeId, NodeId, NodeId) {
+        let store = Store::new_memory().unwrap();
+        let caller = NodeId::new("./a.rs#1:1");
+        let c1 = NodeId::new("./b.rs#1:1");
+        let c2 = NodeId::new("./c.rs#1:1");
+        store
+            .put_node(&caller, &NodeType::Function, Some("main"))
+            .unwrap();
+        store
+            .put_node(&c1, &NodeType::Function, Some("text"))
+            .unwrap();
+        store
+            .put_node(&c2, &NodeType::Function, Some("text"))
+            .unwrap();
+        store
+            .put_edge(&caller, &NodeId::new(placeholder), &EdgeType::Calls)
+            .unwrap();
+        (store, caller, c1, c2)
+    }
+
+    #[test]
+    fn ambiguous_call_becomes_low_confidence_edges() {
+        let (store, caller, c1, c2) = ambiguous_store("./a.rs::text");
+        build_call_graph(&store).unwrap();
+        let rows = store
+            .run_query(
+                "?[t, c] := *edge_confidence[f, t, \"calls\", c], f = $f",
+                std::collections::BTreeMap::from([(
+                    "f".to_string(),
+                    cozo::DataValue::from(caller.as_str()),
+                )]),
+            )
+            .unwrap();
+        assert_eq!(rows.rows.len(), 2);
+        assert!(rows.rows.iter().all(|r| r[1].get_float() == Some(0.5)));
+        let edges = Query::all_edges(&store).unwrap();
+        let tos: Vec<String> = edges.rows.iter().map(|r| r[1].to_string()).collect();
+        assert!(tos.iter().any(|t| t.contains(c1.as_str())));
+        assert!(tos.iter().any(|t| t.contains(c2.as_str())));
+    }
+
+    #[test]
+    fn ambiguous_value_reference_is_dropped() {
+        let (store, ..) = ambiguous_store("./a.rs::text@value");
+        build_call_graph(&store).unwrap();
+        let rows = Query::all_edges(&store).unwrap().rows;
+        assert_eq!(rows, Vec::<Vec<cozo::DataValue>>::new());
     }
 }
