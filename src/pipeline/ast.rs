@@ -942,7 +942,12 @@ mod tests {
         let src = "fn f() { let raw = [1, 2]; let _ = &raw[..]; } fn g() {}";
         assert!(parses_cleanly(src));
         let names = function_names(src);
-        assert!(names.iter().any(|n| n.contains('f')) && names.iter().any(|n| n.contains('g')));
+        for want in ["f", "g"] {
+            assert!(
+                names.iter().any(|n| n.trim_matches('"') == want),
+                "missing {want} in {names:?}"
+            );
+        }
     }
 
     // Known gap in tree-sitter-rust 0.24.2 (issue #81): attribute inside a destructuring pattern.
