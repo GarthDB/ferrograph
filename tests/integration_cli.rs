@@ -677,3 +677,104 @@ fn cli_reindex_replaces_the_previous_graph() {
         .collect();
     assert!(leftovers.is_empty());
 }
+
+/// Index a throwaway project and run `dead` with extra args; returns stdout.
+fn dead_in_temp_project(config: Option<&str>, extra: &[&str]) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("examples")).unwrap();
+    std::fs::write(
+        root.join("src/main.rs"),
+        "fn main() {}\n#[no_mangle]\nfn exported_c() {}\nextern \"C\" fn callback_c() {}\nfn plain_unused() {}\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("examples/demo.rs"), "fn demo_helper() {}\n").unwrap();
+    std::fs::write(root.join("src/generated.rs"), "fn table_entry() {}\n").unwrap();
+    if let Some(c) = config {
+        std::fs::write(root.join(".ferrograph.toml"), c).unwrap();
+    }
+    let db = root.join(".ferrograph");
+    let out = ferrograph_cmd()
+        .args([
+            "index",
+            "--output",
+            db.to_str().unwrap(),
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = ferrograph_cmd()
+        .args(["dead", "--db", db.to_str().unwrap()])
+        .args(extra)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn cli_dead_default_reports_everything() {
+    let out = dead_in_temp_project(None, &[]);
+    for name in [
+        "exported_c",
+        "callback_c",
+        "plain_unused",
+        "demo_helper",
+        "table_entry",
+    ] {
+        assert!(
+            out.contains(name),
+            "{name} should be dead by default: {out}"
+        );
+    }
+}
+
+#[test]
+fn cli_dead_entry_and_ignore_flags() {
+    let out = dead_in_temp_project(
+        None,
+        &[
+            "--entry",
+            "examples/**",
+            "--entry",
+            "#[no_mangle]",
+            "--entry",
+            "#[extern]",
+            "--ignore",
+            "src/generated.rs",
+        ],
+    );
+    for name in ["exported_c", "demo_helper", "table_entry", "callback_c"] {
+        assert!(!out.contains(name), "{name} should not be reported: {out}");
+    }
+    assert!(out.contains("plain_unused"), "still dead: {out}");
+}
+
+#[test]
+fn cli_dead_reads_config_file() {
+    let out = dead_in_temp_project(
+        Some(
+            "[dead]\nentry = [\"examples/*\", \"#[no_mangle]\"]\nignore = [\"src/generated.rs\"]\n",
+        ),
+        &[],
+    );
+    assert!(
+        !out.contains("demo_helper") && !out.contains("exported_c"),
+        "{out}"
+    );
+    assert!(!out.contains("table_entry"), "{out}");
+    assert!(
+        out.contains("callback_c") && out.contains("plain_unused"),
+        "{out}"
+    );
+}
