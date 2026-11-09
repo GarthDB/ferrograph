@@ -75,6 +75,8 @@ Normal output (including `--json`) is printed first and is unchanged; a breach a
 | 1 | Findings over the threshold |
 | 2 | Error (bad arguments, missing database, query failure) |
 
+> **Behaviour change:** runtime errors (missing database, query failure) previously exited 1; they now exit 2 so that 1 means "findings over threshold".
+
 ### Setup with Claude Code
 
 A Claude Code skill gives Claude a full workflow for indexing, exploring, and querying ferrograph graphs via the `/ferrograph` slash command.

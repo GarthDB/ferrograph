@@ -948,3 +948,11 @@ fn cli_blast_max() {
         Some(0)
     );
 }
+
+#[test]
+fn cli_runtime_error_exits_2() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("nope");
+    let out = run(&["dead", "--db", s(&missing)]);
+    assert_eq!(code(&out), Some(2));
+}

@@ -15,7 +15,7 @@ fn main() -> ExitCode {
         Ok(Outcome::FindingsOverThreshold) => ExitCode::from(1),
         Err(e) => {
             eprintln!("error: {e:#}");
-            ExitCode::FAILURE
+            ExitCode::from(2)
         }
     }
 }
