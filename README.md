@@ -241,6 +241,17 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 | `trait_implementors` | Find implementations of a named trait (stub; returns empty with note). |
 | `module_graph` | File-to-module containment edges; optional relative path prefix filter (e.g. `./src/`). |
 
+## CI
+
+[`GarthDB/ferrograph-action`](https://github.com/GarthDB/ferrograph-action) runs `ferrograph pr` on pull requests and posts a sticky comment with newly dead functions and blast radius (advisory by default, optional SARIF and thresholds). Requires ferrograph v4.0.0 or later (the first release with `ferrograph pr`).
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- uses: GarthDB/ferrograph-action@v1
+```
+
 ## Graph schema (edge types)
 
 ### Dead-code entry points and ignores
