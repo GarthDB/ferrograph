@@ -111,14 +111,6 @@ fn classify_node(
             }
             (None, None, None)
         }
-        "method_call_expression" => {
-            if let Some(callee_id) = resolve_method_call_target(node, source, file_id) {
-                if let Some(from) = parent {
-                    edges.push((from.clone(), callee_id, EdgeType::Calls));
-                }
-            }
-            (None, None, None)
-        }
         "macro_invocation" => {
             scan_macro_for_calls(node, source, file_id, parent, edges);
             if let (Some(from), Some(macro_name)) = (parent, macro_invocation_name(node, source)) {
@@ -774,42 +766,34 @@ fn is_value_position(node: &tree_sitter::Node) -> bool {
 
 /// Resolve a call expression to a placeholder node id (`file_path::fn_name` or `file_path::path::to::fn`).
 ///
-/// Handles bare identifier calls `foo()` and qualified paths `mod::foo()` (`scoped_identifier`).
-/// Method calls (`x.bar()`), and UFCS (`Type::method()`) are handled elsewhere or not yet.
+/// Handles `foo()` and `mod::foo()`, method calls `x.bar()` (a `field_expression` callee; tree-sitter
+/// has no method call node) and turbofish calls (`generic_function` wrapping any of those).
+/// Method placeholders carry `METHOD_SUFFIX`. Other callee kinds (parenthesized, closures) are ignored.
 fn resolve_call_target(node: &tree_sitter::Node, source: &str, file_id: &NodeId) -> Option<NodeId> {
-    let child = node.child(0)?;
-    let path_str = match child.kind() {
-        "identifier" | "scoped_identifier" => {
-            let r = child.byte_range();
-            source.get(r.start..r.end).map(String::from)?
-        }
-        _ => return None,
-    };
-    Some(NodeId::new(format!("{}::{}", file_id.as_str(), path_str)))
+    callee_placeholder(&node.child(0)?, source, file_id)
 }
 
-/// Resolve a method call (e.g. `x.foo()`) to a placeholder node id (`file_path::foo`).
-fn resolve_method_call_target(
-    node: &tree_sitter::Node,
+fn callee_placeholder(
+    callee: &tree_sitter::Node,
     source: &str,
     file_id: &NodeId,
 ) -> Option<NodeId> {
-    let mut cursor = node.walk();
-    if !cursor.goto_first_child() {
-        return None;
-    }
-    loop {
-        let n = cursor.node();
-        if n.kind() == "field_identifier" {
-            let r = n.byte_range();
-            let name = source.get(r.start..r.end).map(String::from)?;
-            return Some(NodeId::new(format!("{}::{}", file_id.as_str(), name)));
+    let text = |n: &tree_sitter::Node| source.get(n.byte_range());
+    let name = match callee.kind() {
+        "identifier" | "scoped_identifier" => text(callee)?.to_string(),
+        "field_expression" => {
+            let field = callee.child_by_field_name("field")?;
+            if field.kind() != "field_identifier" {
+                return None;
+            }
+            format!("{}{}", text(&field)?, super::calls::METHOD_SUFFIX)
         }
-        if !cursor.goto_next_sibling() {
-            break;
+        "generic_function" => {
+            return callee_placeholder(&callee.child_by_field_name("function")?, source, file_id)
         }
-    }
-    None
+        _ => return None,
+    };
+    Some(NodeId::new(format!("{}::{}", file_id.as_str(), name)))
 }
 
 /// Macro name from a `macro_invocation` node (first child is `identifier` or `scoped_identifier`; last segment for qualified).
@@ -853,8 +837,33 @@ fn scan_macro_for_calls(
     }
 }
 
+/// True if the tokens from `start` are `::<...>` (angle brackets balanced) followed by `( ... )`.
+fn turbofish_then_paren(tt: &tree_sitter::Node, start: usize, source: &str) -> bool {
+    if tt.child(start).map(|n| n.kind()) != Some("::") {
+        return false;
+    }
+    let mut depth = 0i32;
+    let mut j = start + 1;
+    while let Some(n) = tt.child(j) {
+        match n.kind() {
+            "<" => depth += 1,
+            ">" => depth -= 1,
+            ">>" => depth -= 2,
+            _ if depth <= 0 => return false,
+            _ => {}
+        }
+        j += 1;
+        if depth <= 0 {
+            return tt.child(j).is_some_and(|p| {
+                p.kind() == "token_tree" && token_tree_starts_with_paren(&p, source)
+            });
+        }
+    }
+    false
+}
+
 /// Recursively scan a `token_tree` for identifier followed by parenthesized `token_tree`.
-/// Skips method calls (previous sibling `.`) and nested macros (next sibling `!`).
+/// Method calls (previous sibling `.`) become method placeholders; nested macros (next sibling `!`) are skipped.
 fn scan_token_tree_for_calls(
     tt: &tree_sitter::Node,
     source: &str,
@@ -869,16 +878,19 @@ fn scan_token_tree_for_calls(
         let next = tt.child(i + 1);
         if kind == "identifier" {
             let prev_is_dot = prev_kind.as_deref() == Some(".");
-            if !prev_is_dot {
-                if let Some(next_tt) = next {
-                    if next_tt.kind() == "token_tree"
-                        && token_tree_starts_with_paren(&next_tt, source)
-                    {
-                        if let Some(name) = source.get(child.byte_range()) {
-                            let callee_id = NodeId::new(format!("{}::{}", file_id.as_str(), name));
-                            edges.push((parent.clone(), callee_id, EdgeType::Calls));
-                        }
-                    }
+            let called = next.is_some_and(|n| {
+                n.kind() == "token_tree" && token_tree_starts_with_paren(&n, source)
+            }) || (prev_is_dot && turbofish_then_paren(tt, i + 1, source));
+            if called {
+                if let Some(name) = source.get(child.byte_range()) {
+                    let suffix = if prev_is_dot {
+                        super::calls::METHOD_SUFFIX
+                    } else {
+                        ""
+                    };
+                    let callee_id =
+                        NodeId::new(format!("{}::{}{}", file_id.as_str(), name, suffix));
+                    edges.push((parent.clone(), callee_id, EdgeType::Calls));
                 }
             }
         }
@@ -928,6 +940,69 @@ mod tests {
             .filter(|r| r.get(1).is_some_and(|t| t.to_string().contains("function")))
             .filter_map(|r| r.get(2).map(ToString::to_string))
             .collect()
+    }
+
+    fn call_targets(src: &str) -> Vec<String> {
+        let store = Store::new_memory().unwrap();
+        extract_ast(&store, Path::new("/t.rs"), src, Path::new("/")).unwrap();
+        let mut v: Vec<String> = Query::all_edges(&store)
+            .unwrap()
+            .rows
+            .iter()
+            .filter(|r| r[2].to_string().contains("calls"))
+            .map(|r| r[1].to_string().trim_matches('"').to_string())
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn method_and_turbofish_calls_become_placeholders() {
+        let src = "fn f(x: S) { x.m(1); a.b().c(); g::<u8>(); a::b::<T>(); x.k::<T>(); }";
+        let got = call_targets(src);
+        let want: Vec<String> = [
+            "/t.rs::a::b",
+            "/t.rs::b@method",
+            "/t.rs::c@method",
+            "/t.rs::g",
+            "/t.rs::k@method",
+            "/t.rs::m@method",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(got.len(), want.len(), "{got:?}");
+        for w in &want {
+            assert!(
+                got.iter()
+                    .any(|g| g.ends_with(w.trim_start_matches("/t.rs"))),
+                "{w} in {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn method_turbofish_in_macro_args_becomes_placeholder() {
+        let got = call_targets(
+            r#"fn f(x: S) { println!("{} {}", x.m::<u8>(), x.k::<Vec<Vec<u8>>>()); }"#,
+        );
+        for n in ["m", "k"] {
+            assert!(
+                got.iter().any(|g| g.ends_with(&format!("::{n}@method"))),
+                "{got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn field_access_and_paren_callee_make_no_call_edge() {
+        let got = call_targets("fn f(x: S) { let _ = x.field; (x.cb)(1); }");
+        assert!(got.is_empty(), "{got:?}");
+    }
+
+    #[test]
+    fn method_calls_in_macro_args_become_placeholders() {
+        let got = call_targets(r#"fn f(x: S) { println!("{}", x.m()); }"#);
+        assert!(got.iter().any(|g| g.ends_with("::m@method")), "{got:?}");
     }
 
     #[test]

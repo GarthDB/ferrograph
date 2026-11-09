@@ -296,3 +296,67 @@ fn pipeline_fn_used_as_value_is_not_dead() {
         "truly_unused must stay dead, dead: {names:?}"
     );
 }
+
+fn dead_names(store: &Store, strict: bool) -> Vec<String> {
+    let ids = ferrograph::graph::Query::compute_dead_functions_opts(store, strict).unwrap();
+    let nodes = ferrograph::graph::Query::all_nodes(store).unwrap();
+    nodes
+        .rows
+        .iter()
+        .filter(|r| ids.contains(&r[0].to_string().trim_matches('"').to_string()))
+        .map(|r| r[2].to_string().trim_matches('"').to_string())
+        .collect()
+}
+
+#[test]
+fn pipeline_method_and_turbofish_calls_keep_callees_alive() {
+    let store = run_fixture("method_calls");
+    let dead = dead_names(&store, false);
+    for live in [
+        "helper",
+        "outer",
+        "inner",
+        "free_from_inner",
+        "assoc",
+        "first",
+        "second",
+        "parse",
+        "gen_collect",
+        "in_macro",
+        "in_format",
+    ] {
+        assert!(
+            !dead.iter().any(|n| n == live),
+            "{live} is live, dead: {dead:?}"
+        );
+    }
+    for still_dead in ["truly_unused_method", "orphan_free"] {
+        assert!(
+            dead.iter().any(|n| n == still_dead),
+            "{still_dead} must stay dead, dead: {dead:?}"
+        );
+    }
+}
+
+#[test]
+fn pipeline_method_name_collision_is_low_confidence() {
+    let store = run_fixture("method_calls");
+    let rows = store
+        .run_query(
+            "?[t, c] := *edge_confidence[_, t, \"calls\", c]",
+            std::collections::BTreeMap::new(),
+        )
+        .unwrap();
+    // `A.run()` has two same-named candidates (A::run, B::run): both at 1/2.
+    assert_eq!(rows.rows.len(), 2, "rows: {:?}", rows.rows);
+    assert!(rows.rows.iter().all(|r| r[1].get_float() == Some(0.5)));
+    // Default mode keeps both alive; strict drops the low-confidence edges (#57).
+    let default = dead_names(&store, false);
+    let strict = dead_names(&store, true);
+    assert!(!default.iter().any(|n| n == "run"), "{default:?}");
+    assert_eq!(
+        strict.iter().filter(|n| *n == "run").count(),
+        2,
+        "{strict:?}"
+    );
+}
