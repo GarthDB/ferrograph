@@ -272,16 +272,12 @@ impl Query {
         from_id: &str,
         exclude_low_confidence: bool,
     ) -> Result<Vec<NodeTriple>> {
-        let (not_low_fwd, not_low_rev, not_low_rec) = if exclude_low_confidence {
-            (
-                ", not low[from, to]",
-                ", not low[from, to]",
-                ", not low[n, to]",
-            )
-        } else {
-            ("", "", "")
-        };
         const BLAST_RADIUS_LIMIT: u64 = 500;
+        let (not_low_seed, not_low_rec) = if exclude_low_confidence {
+            (", not low[from, to]", ", not low[n, to]")
+        } else {
+            ("", "")
+        };
         let edge_calls = EdgeType::Calls.to_string();
         let edge_contains = EdgeType::Contains.to_string();
         let edge_refs = EdgeType::References.to_string();
@@ -294,8 +290,8 @@ impl Query {
         let script = format!(
             r#"
             low[from, to] := *edge_confidence[from, to, _, _]
-            seed[to] := *edges[from, to, et], from = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]{not_low_fwd}
-            seed[from] := *edges[from, to, et], to = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]{not_low_rev}
+            seed[to] := *edges[from, to, et], from = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]{not_low_seed}
+            seed[from] := *edges[from, to, et], to = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]{not_low_seed}
             reachable[id] := seed[id]
             reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_refs}", "{edge_changes}"]{not_low_rec}
             ?[id, type, payload] := reachable[id], *nodes[id, type, payload], id != $from
@@ -331,12 +327,12 @@ impl Query {
         depth: u32,
         exclude_low_confidence: bool,
     ) -> Result<Vec<NodeTriple>> {
+        const CALLERS_LIMIT: u64 = 500;
         let (not_low_1, not_low_n) = if exclude_low_confidence {
             (", not low[caller, callee]", ", not low[caller, prev]")
         } else {
             ("", "")
         };
-        const CALLERS_LIMIT: u64 = 500;
         let edge_calls = EdgeType::Calls.to_string();
         let max_depth = i64::from(depth.max(1)).min(100);
         let mut params = BTreeMap::new();
@@ -854,8 +850,7 @@ mod tests {
             ids(Query::callers_opts(&store, "f#2:1", 1, false).unwrap()).len(),
             1
         );
-        assert!(Query::callers_opts(&store, "f#2:1", 1, true)
-            .unwrap()
-            .is_empty());
+        let strict_callers = Query::callers_opts(&store, "f#2:1", 1, true).unwrap();
+        assert_eq!(strict_callers, Vec::new());
     }
 }

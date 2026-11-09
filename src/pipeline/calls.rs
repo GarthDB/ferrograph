@@ -394,6 +394,7 @@ mod tests {
     fn ambiguous_value_reference_is_dropped() {
         let (store, ..) = ambiguous_store("./a.rs::text@value");
         build_call_graph(&store).unwrap();
-        assert!(Query::all_edges(&store).unwrap().rows.is_empty());
+        let rows = Query::all_edges(&store).unwrap().rows;
+        assert_eq!(rows, Vec::<Vec<cozo::DataValue>>::new());
     }
 }
