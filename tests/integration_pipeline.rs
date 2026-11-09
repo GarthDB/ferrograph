@@ -481,3 +481,29 @@ fn pipeline_same_name_fns_resolve_by_lexical_scope() {
         assert!(!want.contains(&tags[live]), "{live} must be live");
     }
 }
+
+#[test]
+fn pipeline_path_calls_resolve_among_same_named_assoc_fns() {
+    let store = run_fixture("path_calls");
+    let tags = tagged_lines("path_calls", "src/main.rs");
+    let lines = |names: &[&str]| -> Vec<usize> {
+        let mut v: Vec<usize> = names.iter().map(|t| tags[*t]).collect();
+        v.sort_unstable();
+        v
+    };
+    // Default: cfg variants are kept alive through low-confidence edges; wrong-type fns stay dead.
+    let default = dead_lines(&store, false, "src/main.rs");
+    assert_eq!(default, lines(&["p_mk", "y_g"]));
+    // `--strict` drops the low-confidence edges: the cfg variants (undecidable statically) show up.
+    let strict = dead_lines(&store, true, "src/main.rs");
+    assert_eq!(strict, lines(&["f_unix", "f_other", "p_mk", "y_g"]));
+    // Exactly the two cfg variants carry confidence 1/2; the rest are normal edges.
+    let rows = store
+        .run_query(
+            "?[t, c] := *edge_confidence[_, t, \"calls\", c]",
+            std::collections::BTreeMap::new(),
+        )
+        .unwrap();
+    assert_eq!(rows.rows.len(), 2, "{:?}", rows.rows);
+    assert!(rows.rows.iter().all(|r| r[1].get_float() == Some(0.5)));
+}
