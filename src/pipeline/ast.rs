@@ -195,6 +195,13 @@ fn traverse(
                     EdgeType::HasAttribute,
                 ));
             }
+            if is_trait_impl_method(&node) {
+                edges.push((
+                    id.clone(),
+                    NodeId::new(format!("attr::{TRAIT_IMPL_ATTR}")),
+                    EdgeType::HasAttribute,
+                ));
+            }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
         }
         if let Some((to_id, edge_type)) = extra {
@@ -250,12 +257,28 @@ fn has_attribute_on_prev_sibling(node: &tree_sitter::Node, source: &str, name: &
             if has_attribute_node(&prev, source, name) {
                 return true;
             }
-            current = prev.prev_sibling();
-        } else {
+        } else if !is_comment(&prev) {
             break;
         }
+        current = prev.prev_sibling();
     }
     false
+}
+
+fn is_comment(node: &tree_sitter::Node) -> bool {
+    matches!(node.kind(), "line_comment" | "block_comment")
+}
+
+/// Synthetic attribute marking a method inside `impl Trait for Type` (a dead-code root).
+/// Keep in sync with the entry rules in `graph::query`.
+const TRAIT_IMPL_ATTR: &str = "trait_impl";
+
+/// True for a function directly inside `impl <Trait> for <Type>` (including generic traits).
+fn is_trait_impl_method(node: &tree_sitter::Node) -> bool {
+    node.parent()
+        .filter(|p| p.kind() == "declaration_list")
+        .and_then(|p| p.parent())
+        .is_some_and(|i| i.kind() == "impl_item" && i.child_by_field_name("trait").is_some())
 }
 
 /// Outer attribute names on a function (`no_mangle`, `export_name`, ...), plus `extern` for
@@ -264,11 +287,20 @@ fn attribute_names(node: &tree_sitter::Node, source: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut current = node.prev_sibling();
     while let Some(prev) = current {
+        if is_comment(&prev) {
+            current = prev.prev_sibling();
+            continue;
+        }
         if prev.kind() != "attribute_item" {
             break;
         }
         if let Some(text) = source.get(prev.byte_range()) {
             let inner = text.trim().trim_start_matches("#[").trim_end_matches(']');
+            // `#[unsafe(no_mangle)]` -> `no_mangle`
+            let inner = inner
+                .strip_prefix("unsafe(")
+                .and_then(|s| s.strip_suffix(')'))
+                .unwrap_or(inner);
             let name: String = inner
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
@@ -465,30 +497,14 @@ fn impl_type_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
 }
 
 /// Trait name for trait impls only (`impl Trait for Type`). Returns None for inherent impls.
-/// Walks `impl_item` children; when we see "for", the preceding `type_identifier` (or last segment of `scoped_type_identifier`) is the trait.
+/// Reads the `trait` field; generic traits (`Trait<T>`) and scoped paths reduce to the last bare name.
 fn impl_trait_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
-    let mut i = 0;
-    let mut prev_type: Option<tree_sitter::Node> = None;
-    while let Some(child) = node.child(i) {
-        let k = child.kind();
-        if k == "for" {
-            let n = prev_type?;
-            let r = n.byte_range();
-            let text = source.get(r.start..r.end)?;
-            return Some(if n.kind() == "scoped_type_identifier" {
-                text.rsplit("::").next().unwrap_or(text).to_string()
-            } else {
-                text.to_string()
-            });
-        }
-        if k == "type_identifier" || k == "scoped_type_identifier" {
-            prev_type = Some(child);
-        } else if k != "unsafe" && k != "impl" && !k.starts_with("type_parameters") && k != "!" {
-            prev_type = None;
-        }
-        i += 1;
+    let mut t = node.child_by_field_name("trait")?;
+    if t.kind() == "generic_type" {
+        t = t.child_by_field_name("type")?;
     }
-    None
+    let text = source.get(t.byte_range())?;
+    Some(text.rsplit("::").next().unwrap_or(text).to_string())
 }
 
 /// Ownership classification for a type (owned value, shared borrow, or mutable borrow).

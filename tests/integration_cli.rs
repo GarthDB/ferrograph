@@ -725,13 +725,11 @@ fn dead_in_temp_project(config: Option<&str>, extra: &[&str]) -> String {
 #[test]
 fn cli_dead_default_reports_everything() {
     let out = dead_in_temp_project(None, &[]);
-    for name in [
-        "exported_c",
-        "callback_c",
-        "plain_unused",
-        "demo_helper",
-        "table_entry",
-    ] {
+    assert!(
+        !out.contains("exported_c"),
+        "no_mangle is a default root: {out}"
+    );
+    for name in ["callback_c", "plain_unused", "demo_helper", "table_entry"] {
         assert!(
             out.contains(name),
             "{name} should be dead by default: {out}"

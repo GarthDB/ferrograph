@@ -360,3 +360,47 @@ fn pipeline_method_name_collision_is_low_confidence() {
         "{strict:?}"
     );
 }
+
+#[test]
+fn pipeline_trait_impl_methods_are_roots() {
+    let store = run_fixture("trait_impls");
+    for strict in [false, true] {
+        let dead = dead_names(&store, strict);
+        for live in [
+            "area",
+            "fmt",
+            "add",
+            "fmt_helper",
+            "drop",
+            "drop_helper",
+            "alloc",
+            "dealloc",
+            "realloc",
+            "alloc_helper",
+            "dealloc_helper",
+            "realloc_helper",
+            "dflt",
+            "gdflt",
+        ] {
+            assert!(
+                !dead.iter().any(|n| n == live),
+                "{live} is live (strict={strict}), dead: {dead:?}"
+            );
+        }
+        for still_dead in ["truly_unused_private", "orphan_default"] {
+            assert!(
+                dead.iter().any(|n| n == still_dead),
+                "{still_dead} must stay dead (strict={strict}), dead: {dead:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn pipeline_default_entry_attributes_and_commented_tests() {
+    let store = run_fixture("entry_attrs");
+    for strict in [false, true] {
+        let dead = dead_names(&store, strict);
+        assert_eq!(dead, vec!["unused_private"], "strict={strict}");
+    }
+}
