@@ -913,6 +913,51 @@ mod tests {
 
     use super::extract_ast;
 
+    fn parses_cleanly(src: &str) -> bool {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&super::LANGUAGE.into()).unwrap();
+        !parser.parse(src, None).unwrap().root_node().has_error()
+    }
+
+    fn function_names(src: &str) -> Vec<String> {
+        let store = Store::new_memory().unwrap();
+        extract_ast(&store, Path::new("/t.rs"), src, Path::new("/")).unwrap();
+        let rows = Query::all_nodes(&store).unwrap();
+        rows.rows
+            .iter()
+            .filter(|r| r.get(1).is_some_and(|t| t.to_string().contains("function")))
+            .filter_map(|r| r.get(2).map(ToString::to_string))
+            .collect()
+    }
+
+    #[test]
+    fn unsafe_extern_block_parses_without_error() {
+        let src = r#"unsafe extern "C" { fn ext(); } fn after() {}"#;
+        assert!(parses_cleanly(src));
+        assert!(function_names(src).iter().any(|n| n.contains("after")));
+    }
+
+    #[test]
+    fn raw_local_index_parses_without_error() {
+        let src = "fn f() { let raw = [1, 2]; let _ = &raw[..]; } fn g() {}";
+        assert!(parses_cleanly(src));
+        let names = function_names(src);
+        for want in ["f", "g"] {
+            assert!(
+                names.iter().any(|n| n.trim_matches('"') == want),
+                "missing {want} in {names:?}"
+            );
+        }
+    }
+
+    // Known gap in tree-sitter-rust 0.24.2 (issue #81): attribute inside a destructuring pattern.
+    #[test]
+    #[ignore = "tree-sitter-rust 0.24.2 does not parse attributes in struct patterns"]
+    fn attribute_in_destructuring_pattern_parses_without_error() {
+        let src = "struct S { a: u8, b: u8 } fn f(s: S) { let S { a, #[cfg(debug_assertions)] b: _ } = s; }";
+        assert!(parses_cleanly(src));
+    }
+
     #[test]
     fn extract_ast_single_function() {
         let store = Store::new_memory().unwrap();
