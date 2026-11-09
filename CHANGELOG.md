@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.2](https://github.com/GarthDB/ferrograph/compare/v4.0.1...v4.0.2) - 2026-11-09
+
+### Fixed
+
+- *(deps)* update rmcp to 3.9.0 for RUSTSEC-2026-0457/0461/0462
+- *(deps)* update tree-sitter-rust to 0.24.2 for edition 2024 syntax
+
+### Other
+
+- *(pipeline)* assert exact function names in raw-local test
+- Merge branch 'main' into fix/81-tree-sitter-rust-bump
+- *(pipeline)* cover unsafe extern blocks and &raw locals
+
 ## [4.0.1](https://github.com/GarthDB/ferrograph/compare/v4.0.0...v4.0.1) - 2026-11-09
 
 ### Other
