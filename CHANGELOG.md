@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.3](https://github.com/GarthDB/ferrograph/compare/v4.0.2...v4.0.3) - 2026-11-09
+
+### Fixed
+
+- *(pipeline)* emit implements_trait edges for generic traits; cover plain no_mangle and block comments
+- *(dead)* treat trait-impl methods and no_mangle/export_name fns as roots, skip comments before #[test]
+- *(pipeline)* handle method turbofish in macro args, skip clones for shared names
+- *(pipeline)* extract method and turbofish calls
+
+### Other
+
+- cover method and turbofish call edges
+
 ## [4.0.2](https://github.com/GarthDB/ferrograph/compare/v4.0.1...v4.0.2) - 2026-11-09
 
 ### Fixed
