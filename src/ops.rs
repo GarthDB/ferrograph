@@ -126,6 +126,73 @@ pub const DEAD_CODE_CAVEAT: &str =
     "Note: functions called via dyn Trait (dynamic dispatch) may appear as dead \
      because ferrograph uses static analysis only.";
 
+/// A function that the change under review leaves dead (see [`crate::pr`]).
+#[derive(Debug, Serialize)]
+pub struct NewlyDeadFunction {
+    /// Node id at head.
+    pub id: String,
+    pub file: String,
+    /// Function name without `pub::`/`test::` prefixes.
+    pub name: String,
+    pub line: u32,
+    /// `became_dead` (existed and was live at base) or `added_dead` (new function, never called).
+    pub status: &'static str,
+}
+
+/// A function containing changed lines, with its own blast radius size.
+#[derive(Debug, Serialize)]
+pub struct ChangedFunction {
+    pub id: String,
+    pub file: String,
+    pub name: String,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub blast_count: usize,
+}
+
+/// Changed lines in one file that fall outside every function (use/struct/const edits).
+#[derive(Debug, Serialize)]
+pub struct ChangedItems {
+    pub file: String,
+    /// Inclusive `[start, end]` line ranges on the head side.
+    pub lines: Vec<[u32; 2]>,
+}
+
+/// Union of the blast radii of all changed functions.
+#[derive(Debug, Serialize)]
+pub struct PrBlast {
+    /// Distinct nodes in the union (always the full count).
+    pub count: usize,
+    /// Number of nodes listed in `nodes` (capped by `--blast-limit`).
+    pub shown: usize,
+    pub nodes: Vec<NodeSummary>,
+}
+
+/// Files that historically change together with a changed file but are untouched here.
+#[derive(Debug, Serialize)]
+pub struct CouplingHint {
+    pub file: String,
+    pub coupled_with: Vec<String>,
+}
+
+/// Result of `ferrograph pr`: what a change introduces, for gating CI.
+#[derive(Debug, Serialize)]
+pub struct PrResult {
+    pub base: String,
+    pub merge_base: String,
+    pub head: String,
+    pub changed_files: Vec<String>,
+    pub newly_dead: Vec<NewlyDeadFunction>,
+    pub newly_dead_count: usize,
+    pub changed_functions: Vec<ChangedFunction>,
+    pub changed_without_function: Vec<ChangedItems>,
+    pub blast: PrBlast,
+    /// Present only when the graph has `changes_with` edges (`git` feature).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub coupling: Vec<CouplingHint>,
+    pub warnings: Vec<String>,
+}
+
 /// Result of a blast radius query.
 #[derive(Debug, Serialize)]
 pub struct BlastRadiusResult {
@@ -168,13 +235,13 @@ pub struct DeadOptions {
     pub ignore: Vec<String>,
 }
 
-fn path_matches(pat: &glob::Pattern, node_id: &str) -> bool {
+pub(crate) fn path_matches(pat: &glob::Pattern, node_id: &str) -> bool {
     let path = node_id.split('#').next().unwrap_or(node_id);
     pat.matches(path) || pat.matches(path.strip_prefix("./").unwrap_or(path))
 }
 
 /// Resolve `entry` patterns to function node ids.
-fn resolve_entry_ids(store: &Store, patterns: &[String]) -> Result<Vec<String>> {
+pub(crate) fn resolve_entry_ids(store: &Store, patterns: &[String]) -> Result<Vec<String>> {
     let mut ids = Vec::new();
     let mut globs = Vec::new();
     for pat in patterns {

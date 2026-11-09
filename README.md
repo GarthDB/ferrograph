@@ -77,6 +77,38 @@ Normal output (including `--json`) is printed first and is unchanged; a breach a
 
 > **Behaviour change:** runtime errors (missing database, query failure) previously exited 1; they now exit 2 so that 1 means "findings over threshold".
 
+### Reviewing a change (`pr`)
+
+`ferrograph pr --base <ref>` reports only what the current branch introduces, so it can gate CI where whole-repo `dead` lists are too noisy:
+
+- **Newly dead functions**: dead at HEAD but not at the merge base (`became_dead`), or new and never called (`added_dead`). Removed functions are never reported.
+- **Blast radius** of the changed functions (changed lines mapped to the innermost containing function), per function plus the de-duplicated union (`--blast-limit`, default 200 listed; the full count is always reported). Lines outside any function (`use`, `struct`, `const` edits) are listed separately and add no blast.
+- **Coupling hints** (`changes_with` files not touched by the change) when the graph was indexed with the `git` feature; omitted otherwise.
+
+```bash
+ferrograph index --output .ferrograph
+ferrograph pr --base origin/main --fail-on-new-dead          # exit 1 if any function became dead
+ferrograph pr --base origin/main --max-new-dead 2 --max-blast 300 --json
+```
+
+GitHub Actions (the base ref must be available, so fetch full history):
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- run: ferrograph index --output .ferrograph
+- run: ferrograph pr --base origin/main --fail-on-new-dead
+```
+
+Notes:
+
+- The diff is `git diff <base>...HEAD` (from the merge base). The base is indexed in a temporary `git worktree` that is always removed; pass `--base-db PATH` to reuse an already indexed base graph (e.g. from a CI cache). Your working tree is not touched.
+- HEAD is read from `--db` (default `./.ferrograph`). A missing or stale graph is an error; pass `--index-head` to index the HEAD commit into memory instead. Uncommitted changes are ignored (a warning is printed); a `--db` graph is assumed to match HEAD, and `--base-db` is assumed to be indexed from the merge base (a warning says so).
+- `--strict`, `--entry`, `--ignore` and `.ferrograph.toml` (read from the HEAD commit, for both sides) apply identically to base and head. `--exclude-low-confidence` applies to blast.
+- Functions are matched across base and head by file, name and occurrence among same-name functions in the file, not by node id, so shifting line numbers is harmless. A renamed function, or one moved to another file, looks like one removed plus one added; a function inserted above a same-name function in the same file can shift the match. Pure file renames are followed.
+- Run it from the project root inside a git repository. Exit codes: 0 ok, 1 threshold breached (`--fail-on-new-dead`, `--max-new-dead`, `--max-blast`), 2 error (including an unknown base ref).
+
 ### Setup with Claude Code
 
 A Claude Code skill gives Claude a full workflow for indexing, exploring, and querying ferrograph graphs via the `/ferrograph` slash command.
