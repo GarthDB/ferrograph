@@ -96,6 +96,16 @@ fn classify_node(
             }
             (None, None, None)
         }
+        "identifier" | "scoped_identifier" => {
+            if let (Some(from), true) = (parent, is_value_position(node)) {
+                let r = node.byte_range();
+                if let Some(path) = source.get(r.start..r.end) {
+                    let target = NodeId::new(format!("{}::{}", file_id.as_str(), path));
+                    edges.push((from.clone(), target, EdgeType::Calls));
+                }
+            }
+            (None, None, None)
+        }
         "method_call_expression" => {
             if let Some(callee_id) = resolve_method_call_target(node, source, file_id) {
                 if let Some(from) = parent {
@@ -690,6 +700,30 @@ fn type_name_from_node(node: &tree_sitter::Node, source: &str) -> Option<String>
     } else {
         text.to_string()
     })
+}
+
+/// True when an identifier/path is used as a value (argument, field value, array element, ...)
+/// rather than called or declared. Such paths may name a fn item (fn pointer); the calls phase
+/// drops the placeholder if it does not resolve to one.
+fn is_value_position(node: &tree_sitter::Node) -> bool {
+    let Some(p) = node.parent() else {
+        return false;
+    };
+    match p.kind() {
+        "arguments"
+        | "field_initializer"
+        | "shorthand_field_initializer"
+        | "array_expression"
+        | "tuple_expression"
+        | "reference_expression"
+        | "parenthesized_expression"
+        | "return_expression"
+        | "type_cast_expression"
+        | "block" => true,
+        "let_declaration" | "match_arm" => p.child_by_field_name("value") == Some(*node),
+        "assignment_expression" => p.child_by_field_name("right") == Some(*node),
+        _ => false,
+    }
 }
 
 /// Resolve a call expression to a placeholder node id (`file_path::fn_name` or `file_path::path::to::fn`).
