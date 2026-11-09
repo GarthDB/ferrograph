@@ -53,7 +53,7 @@ cargo run -- mcp
 
 ### Selecting the graph
 
-Every query subcommand (`status`, `query`, `search`, `dead`, `blast`, `callers`, `info`, `modules`, `traits`) takes `-d/--db PATH`, either a graph database file or a project directory containing `.ferrograph`. It defaults to `./.ferrograph`. `index` and `watch` keep the positional project root and accept `--db` as an alias of `-o/--output`.
+Every query subcommand (`status`, `query`, `search`, `dead`, `blast`, `callers`, `info`, `modules`, `traits`) takes `-d/--db PATH`, either a graph database file or a project directory containing `.ferrograph`. It defaults to `./.ferrograph`. `index` and `watch` keep the positional project root and accept `--db` as an alias of `-o/--output`. For these two, `--db` names the file to **write** and is used as given (no project-directory lookup), so `index --db .` and `status --db .` mean different things.
 
 The positional form `status [PATH]` is deprecated (still works, prints a note on stderr); use `status --db PATH`.
 
