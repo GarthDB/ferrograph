@@ -110,7 +110,7 @@ pub enum Command {
         /// Reuse an already indexed base graph instead of indexing the base in a temp worktree.
         #[arg(long)]
         base_db: Option<PathBuf>,
-        /// Index the working tree into memory instead of reading --db.
+        /// Index the HEAD commit into memory instead of reading --db.
         #[arg(long)]
         index_head: bool,
         /// Do not treat ambiguous (low-confidence) call edges as keeping a function alive.

@@ -59,6 +59,7 @@ pub fn parse_diff(text: &str) -> Vec<FileDiff> {
     let mut out = Vec::new();
     let mut cur: Option<FileDiff> = None;
     let mut dropped = false;
+    let mut in_hunk = false;
     let mut flush = |cur: &mut Option<FileDiff>, dropped: bool| {
         if let Some(f) = cur.take() {
             if !dropped && Path::new(&f.path).extension().is_some_and(|e| e == "rs") {
@@ -71,8 +72,11 @@ pub fn parse_diff(text: &str) -> Vec<FileDiff> {
             flush(&mut cur, dropped);
             cur = Some(FileDiff::default());
             dropped = false;
+            in_hunk = false;
         } else if let Some(f) = cur.as_mut() {
-            if let Some(p) = line.strip_prefix("rename from ") {
+            // Header lines only count before the first hunk; `+++ x` can be an added body line.
+            if in_hunk && !line.starts_with("@@ ") {
+            } else if let Some(p) = line.strip_prefix("rename from ") {
                 f.old_path = Some(p.to_string());
             } else if let Some(p) = line.strip_prefix("rename to ") {
                 f.path = p.to_string();
@@ -83,6 +87,7 @@ pub fn parse_diff(text: &str) -> Vec<FileDiff> {
                     None => dropped = true,
                 }
             } else if let Some(rest) = line.strip_prefix("@@ ") {
+                in_hunk = true;
                 if let Some(h) = rest.split_whitespace().nth(1).and_then(parse_new_side) {
                     f.hunks.push(h);
                 }
@@ -348,10 +353,18 @@ fn rev(root: &Path, spec: &str) -> Option<String> {
     )
 }
 
-fn open_head(opts: &PrOptions, root: &Path, warnings: &mut Vec<String>) -> Result<Store> {
+fn open_head(
+    opts: &PrOptions,
+    root: &Path,
+    prefix: &str,
+    head: &str,
+    warnings: &mut Vec<String>,
+) -> Result<Store> {
     if opts.index_head {
+        // Index the HEAD commit, not the working tree, so it matches the diff.
+        let wt = Worktree::add(root, head)?;
         let s = Store::new_memory()?;
-        run_pipeline(&s, root, &PipelineConfig::default())?;
+        run_pipeline(&s, &wt.dir.join(prefix), &PipelineConfig::default())?;
         return Ok(s);
     }
     let s = open_graph(&opts.head_db, "Head").map_err(|e| {
@@ -380,14 +393,18 @@ type Changes = (Vec<ChangedFunction>, Vec<ChangedItems>, PrBlast);
 fn map_changes(
     opts: &PrOptions,
     root: &Path,
+    (prefix, head): (&str, &str),
     head_store: &Store,
     diffs: &[FileDiff],
+    warnings: &mut Vec<String>,
 ) -> Result<Changes> {
     let mut changed_functions = Vec::new();
     let mut changed_without_function = Vec::new();
     let mut union: BTreeMap<String, NodeSummary> = BTreeMap::new();
     for d in diffs {
-        let Ok(source) = std::fs::read_to_string(root.join(&d.path)) else {
+        // Read the HEAD blob, not the working tree: hunk lines are relative to it.
+        let Some(source) = git_opt(root, &["show", &format!("{head}:{prefix}{}", d.path)]) else {
+            warnings.push(format!("could not read {} at HEAD; skipped", d.path));
             continue;
         };
         let ranges = fn_ranges(&source)?;
@@ -458,6 +475,27 @@ fn newly_dead(head: &DeadState, base: &DeadState, diffs: &[FileDiff]) -> Vec<New
         .collect()
 }
 
+fn diff_files(root: &Path, merge_base: &str, head: &str) -> Result<Vec<FileDiff>> {
+    let diff_text = git(
+        root,
+        &[
+            "diff",
+            "-U0",
+            "--no-color",
+            "--no-ext-diff",
+            "--find-renames",
+            "--relative",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            merge_base,
+            head,
+            "--",
+            "*.rs",
+        ],
+    )?;
+    Ok(parse_diff(&diff_text))
+}
+
 /// Compute the [`PrResult`] for `opts.base`..HEAD.
 ///
 /// # Errors
@@ -501,7 +539,9 @@ pub fn run(opts: &PrOptions) -> Result<PrResult> {
         .is_some_and(|s| !s.is_empty())
     {
         warnings.push(
-            "uncommitted changes are ignored: the diff is against the HEAD commit".to_string(),
+            "uncommitted changes are ignored: the diff and function ranges come from the HEAD commit; \
+a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD commit)"
+                .to_string(),
         );
     }
 
@@ -514,28 +554,15 @@ pub fn run(opts: &PrOptions) -> Result<PrResult> {
     let entry: Vec<String> = opts.entry.iter().cloned().chain(cfg.dead.entry).collect();
     let ignore: Vec<String> = opts.ignore.iter().cloned().chain(cfg.dead.ignore).collect();
 
-    let diff_text = git(
-        &root,
-        &[
-            "diff",
-            "-U0",
-            "--no-color",
-            "--no-ext-diff",
-            "--find-renames",
-            "--relative",
-            "--src-prefix=a/",
-            "--dst-prefix=b/",
-            &merge_base,
-            &head,
-            "--",
-            "*.rs",
-        ],
-    )?;
-    let diffs = parse_diff(&diff_text);
+    let diffs = diff_files(&root, &merge_base, &head)?;
 
-    let head_store = open_head(opts, &root, &mut warnings)?;
+    let head_store = open_head(opts, &root, &prefix, &head, &mut warnings)?;
     let head_state = dead_state(&head_store, opts, &entry, &ignore)?;
     let base_state = if let Some(p) = &opts.base_db {
+        warnings.push(format!(
+            "using --base-db {}: it is assumed to be indexed from the merge base {merge_base:.8}",
+            p.display()
+        ));
         dead_state(&open_graph(p, "Base")?, opts, &entry, &ignore)?
     } else {
         let wt = Worktree::add(&root, &merge_base)?;
@@ -545,8 +572,14 @@ pub fn run(opts: &PrOptions) -> Result<PrResult> {
     };
 
     let newly_dead = newly_dead(&head_state, &base_state, &diffs);
-    let (changed_functions, changed_without_function, blast) =
-        map_changes(opts, &root, &head_store, &diffs)?;
+    let (changed_functions, changed_without_function, blast) = map_changes(
+        opts,
+        &root,
+        (&prefix, &head),
+        &head_store,
+        &diffs,
+        &mut warnings,
+    )?;
 
     Ok(PrResult {
         base: opts.base.clone(),
@@ -619,6 +652,24 @@ mod tests {
         assert_eq!(files[1].path, "new.rs");
         assert_eq!(files[1].old_path.as_deref(), Some("old.rs"));
         assert_eq!(files[1].hunks.len(), 0);
+    }
+
+    #[test]
+    fn body_lines_that_look_like_headers_are_ignored() {
+        let d = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1,2 @@\n+++ b/evil.rs\n+rename to x.rs\n";
+        let f = parse_diff(d);
+        assert_eq!(
+            (f.len(), f[0].path.as_str(), f[0].old_path.as_deref()),
+            (1, "a.rs", None)
+        );
+    }
+
+    #[test]
+    fn hunk_spanning_two_fns_marks_both() {
+        let src = "fn a() {\n    1;\n}\nfn b() {\n    2;\n}\n";
+        let r = fn_ranges(src).unwrap();
+        let (f, o) = map_hunks(&r, &[(2, 4)]);
+        assert_eq!((f, o), (vec![0, 1], vec![]));
     }
 
     #[test]

@@ -299,3 +299,24 @@ fn base_worktree_is_removed() {
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout).lines().count(), 1);
 }
+
+#[test]
+fn dirty_tree_does_not_skew_head_results() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "src/main.rs",
+        &BASE.replace("fn used() {}", "fn used() {\n    let _ = 1;\n}"),
+    );
+    commit(d.path(), "edit used");
+    write(
+        d.path(),
+        "src/main.rs",
+        "// uncommitted\n// shift\n\nfn main() {}\n",
+    );
+    let out = pr(d.path(), &["--json"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("uncommitted"));
+    let v = json(&out);
+    assert_eq!(names(&v["changed_functions"]), ["used"]);
+    assert_eq!(v["newly_dead_count"], 0);
+}
