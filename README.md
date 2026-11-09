@@ -157,9 +157,9 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 | `status` | Node/edge counts, DB path, `indexed_at` timestamp, project `root` the graph tracks. |
 | `search` | Text search over node payloads; supports limit/offset pagination. |
 | `node_info` | Type, payload, and incoming/outgoing edges for a node ID. |
-| `dead_code` | Functions not reachable from entry points; optional `node_type` and `file_glob` filters. |
-| `blast_radius` | Transitive impact set via calls, references, and changes_with edges. |
-| `callers` | Direct and transitive callers up to a given depth. |
+| `dead_code` | Functions not reachable from entry points; optional `node_type` and `file_glob` filters. Ambiguous (low-confidence) call targets count as live; `strict: true` ignores them. |
+| `blast_radius` | Transitive impact set via calls, references, and changes_with edges. `exclude_low_confidence: true` skips ambiguous calls. |
+| `callers` | Direct and transitive callers up to a given depth. `exclude_low_confidence: true` skips ambiguous calls. |
 | `query` | Raw Datalog queries (read-only; mutations rejected). |
 | `trait_implementors` | Find implementations of a named trait (stub; returns empty with note). |
 | `module_graph` | File-to-module containment edges; optional relative path prefix filter (e.g. `./src/`). |
@@ -172,7 +172,7 @@ The schema defines 11 edge types; all 11 are currently populated:
 |---------------------|-------------|-------|
 | `contains`          | Yes         | File/module containment. |
 | `imports`           | Yes         | From `mod`/`use` resolution. |
-| `calls`             | Yes         | Same-file and cross-file (via imports) calls. |
+| `calls`             | Yes         | Same-file and cross-file (via imports) calls, plus fns used as values (`map(f)`, fn-pointer args/fields). Ambiguous name matches become one edge per candidate with a confidence (1/N) in the `edge_confidence` relation; `dead --strict`, `blast --exclude-low-confidence` and `callers --exclude-low-confidence` ignore them. |
 | `references`        | Yes         | Type mentions in fields, params, return types. |
 | `implements_trait`  | Yes         | Trait impls (`impl Trait for Type`). |
 | `owns`              | Yes         | Struct fields and fn params; unresolvable types (primitives, generics, external) omitted. |

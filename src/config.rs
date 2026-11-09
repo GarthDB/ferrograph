@@ -75,6 +75,9 @@ pub enum Command {
         /// Filter results by file glob pattern.
         #[arg(short, long)]
         file: Option<String>,
+        /// Do not treat ambiguous (low-confidence) call edges as keeping a function alive.
+        #[arg(long)]
+        strict: bool,
     },
     /// Show blast radius (transitive impact) of a node.
     Blast {
@@ -83,6 +86,9 @@ pub enum Command {
         db: Option<PathBuf>,
         /// Node ID to compute blast radius from.
         node_id: String,
+        /// Ignore ambiguous (low-confidence) call edges.
+        #[arg(long)]
+        exclude_low_confidence: bool,
     },
     /// Show callers of a node (reverse call graph).
     Callers {
@@ -94,6 +100,9 @@ pub enum Command {
         /// Maximum call depth (default: 1 = direct callers only).
         #[arg(long, default_value = "1")]
         depth: u32,
+        /// Ignore ambiguous (low-confidence) call edges.
+        #[arg(long)]
+        exclude_low_confidence: bool,
     },
     /// Show full info for a node (type, payload, edges).
     Info {
@@ -156,9 +165,18 @@ pub fn run(cli: Cli) -> Result<()> {
         } => run_search(db.as_ref(), &query, case_insensitive, json),
         Command::Status { path } => run_status(&path, json),
         Command::Watch { path, output } => run_watch(&path, output.as_ref()),
-        Command::Dead { db, file } => run_dead(db.as_ref(), file.as_deref(), json),
-        Command::Blast { db, node_id } => run_blast(db.as_ref(), &node_id, json),
-        Command::Callers { db, node_id, depth } => run_callers(db.as_ref(), &node_id, depth, json),
+        Command::Dead { db, file, strict } => run_dead(db.as_ref(), file.as_deref(), strict, json),
+        Command::Blast {
+            db,
+            node_id,
+            exclude_low_confidence,
+        } => run_blast(db.as_ref(), &node_id, exclude_low_confidence, json),
+        Command::Callers {
+            db,
+            node_id,
+            depth,
+            exclude_low_confidence,
+        } => run_callers(db.as_ref(), &node_id, depth, exclude_low_confidence, json),
         Command::Info { db, node_id } => run_info(db.as_ref(), &node_id, json),
         Command::Modules { db, root } => run_modules(db.as_ref(), root.as_deref(), json),
         Command::Traits { db, trait_name } => run_traits(db.as_ref(), &trait_name, json),
@@ -264,7 +282,7 @@ fn run_watch(path: &Path, output: Option<&PathBuf>) -> Result<()> {
     crate::watch::watch_and_reindex(out, path, &config)
 }
 
-fn run_dead(db: Option<&PathBuf>, file: Option<&str>, json: bool) -> Result<()> {
+fn run_dead(db: Option<&PathBuf>, file: Option<&str>, strict: bool, json: bool) -> Result<()> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -275,7 +293,7 @@ fn run_dead(db: Option<&PathBuf>, file: Option<&str>, json: bool) -> Result<()> 
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let result = crate::ops::dead_code(&store, file)?;
+    let result = crate::ops::dead_code(&store, file, strict)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
@@ -292,7 +310,7 @@ fn run_dead(db: Option<&PathBuf>, file: Option<&str>, json: bool) -> Result<()> 
     Ok(())
 }
 
-fn run_blast(db: Option<&PathBuf>, node_id: &str, json: bool) -> Result<()> {
+fn run_blast(db: Option<&PathBuf>, node_id: &str, exclude_low: bool, json: bool) -> Result<()> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -303,7 +321,7 @@ fn run_blast(db: Option<&PathBuf>, node_id: &str, json: bool) -> Result<()> {
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let result = crate::ops::blast_radius(&store, node_id)?;
+    let result = crate::ops::blast_radius(&store, node_id, exclude_low)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
@@ -316,7 +334,13 @@ fn run_blast(db: Option<&PathBuf>, node_id: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn run_callers(db: Option<&PathBuf>, node_id: &str, depth: u32, json: bool) -> Result<()> {
+fn run_callers(
+    db: Option<&PathBuf>,
+    node_id: &str,
+    depth: u32,
+    exclude_low: bool,
+    json: bool,
+) -> Result<()> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -327,7 +351,7 @@ fn run_callers(db: Option<&PathBuf>, node_id: &str, depth: u32, json: bool) -> R
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
-    let result = crate::ops::callers(&store, node_id, depth)?;
+    let result = crate::ops::callers(&store, node_id, depth, exclude_low)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {

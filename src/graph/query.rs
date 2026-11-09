@@ -155,8 +155,11 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    pub fn compute_dead_functions_with_payload(store: &Store) -> Result<Vec<NodeTriple>> {
-        let ids = Self::compute_dead_functions(store)?;
+    pub fn compute_dead_functions_with_payload(
+        store: &Store,
+        strict: bool,
+    ) -> Result<Vec<NodeTriple>> {
+        let ids = Self::compute_dead_functions_opts(store, strict)?;
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -196,6 +199,16 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn compute_dead_functions(store: &Store) -> Result<Vec<String>> {
+        Self::compute_dead_functions_opts(store, false)
+    }
+
+    /// Like [`Self::compute_dead_functions`]. With `strict`, ambiguous (low-confidence) call edges
+    /// do not keep their targets alive; otherwise any candidate with an inbound one is live.
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn compute_dead_functions_opts(store: &Store, strict: bool) -> Result<Vec<String>> {
+        let not_low = if strict { ", not low[from, to]" } else { "" };
         let type_function = NodeType::Function.to_string();
         let edge_calls = EdgeType::Calls.to_string();
         let edge_refs = EdgeType::References.to_string();
@@ -223,7 +236,8 @@ impl Query {
             r#"
             entry[id] := id in $entry_ids
             reachable[id] := entry[id]
-            reachable[to] := reachable[from], *edges[from, to, "{edge_calls}"]
+            low[from, to] := *edge_confidence[from, to, _, _]
+            reachable[to] := reachable[from], *edges[from, to, "{edge_calls}"]{not_low}
             reachable[to] := reachable[from], *edges[from, to, "{edge_refs}"]
             ?[id] := *nodes[id, type, _], type = "{type_function}", not reachable[id]
             "#
@@ -246,6 +260,27 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn blast_radius(store: &Store, from_id: &str) -> Result<Vec<NodeTriple>> {
+        Self::blast_radius_opts(store, from_id, false)
+    }
+
+    /// Like [`Self::blast_radius`]; `exclude_low_confidence` skips ambiguous call edges.
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn blast_radius_opts(
+        store: &Store,
+        from_id: &str,
+        exclude_low_confidence: bool,
+    ) -> Result<Vec<NodeTriple>> {
+        let (not_low_fwd, not_low_rev, not_low_rec) = if exclude_low_confidence {
+            (
+                ", not low[from, to]",
+                ", not low[from, to]",
+                ", not low[n, to]",
+            )
+        } else {
+            ("", "", "")
+        };
         const BLAST_RADIUS_LIMIT: u64 = 500;
         let edge_calls = EdgeType::Calls.to_string();
         let edge_contains = EdgeType::Contains.to_string();
@@ -258,10 +293,11 @@ impl Query {
         // when starting from a function (contains is parent->child; following it from file would add every node in the file).
         let script = format!(
             r#"
-            seed[to] := *edges[from, to, et], from = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
-            seed[from] := *edges[from, to, et], to = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]
+            low[from, to] := *edge_confidence[from, to, _, _]
+            seed[to] := *edges[from, to, et], from = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]{not_low_fwd}
+            seed[from] := *edges[from, to, et], to = $from, et in ["{edge_calls}", "{edge_contains}", "{edge_refs}", "{edge_changes}"]{not_low_rev}
             reachable[id] := seed[id]
-            reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_refs}", "{edge_changes}"]
+            reachable[to] := reachable[n], *edges[n, to, et], et in ["{edge_calls}", "{edge_refs}", "{edge_changes}"]{not_low_rec}
             ?[id, type, payload] := reachable[id], *nodes[id, type, payload], id != $from
             :limit {BLAST_RADIUS_LIMIT}
             "#
@@ -282,6 +318,24 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn callers(store: &Store, target_id: &str, depth: u32) -> Result<Vec<NodeTriple>> {
+        Self::callers_opts(store, target_id, depth, false)
+    }
+
+    /// Like [`Self::callers`]; `exclude_low_confidence` skips ambiguous call edges.
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    pub fn callers_opts(
+        store: &Store,
+        target_id: &str,
+        depth: u32,
+        exclude_low_confidence: bool,
+    ) -> Result<Vec<NodeTriple>> {
+        let (not_low_1, not_low_n) = if exclude_low_confidence {
+            (", not low[caller, callee]", ", not low[caller, prev]")
+        } else {
+            ("", "")
+        };
         const CALLERS_LIMIT: u64 = 500;
         let edge_calls = EdgeType::Calls.to_string();
         let max_depth = i64::from(depth.max(1)).min(100);
@@ -290,8 +344,9 @@ impl Query {
         params.insert("max_depth".to_string(), DataValue::from(max_depth));
         let script = format!(
             r#"
-            callers[caller, depth] := *edges[caller, callee, "{edge_calls}"], callee = $target, depth = 1
-            callers[caller, d_plus_1] := *edges[caller, prev, "{edge_calls}"],
+            low[from, to] := *edge_confidence[from, to, _, _]
+            callers[caller, depth] := *edges[caller, callee, "{edge_calls}"], callee = $target, depth = 1{not_low_1}
+            callers[caller, d_plus_1] := *edges[caller, prev, "{edge_calls}"]{not_low_n},
               callers[prev, d],
               d_plus_1 = d + 1,
               d_plus_1 <= $max_depth
@@ -761,5 +816,46 @@ mod tests {
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0].from_id, "file://a");
         assert_eq!(edges[0].to_id, "mod://b");
+    }
+
+    #[test]
+    fn low_confidence_edges_respect_flags() {
+        let store = Store::new_memory().unwrap();
+        for (id, p) in [("f#1:1", "main"), ("f#2:1", "amb"), ("f#3:1", "sure")] {
+            store
+                .put_node(&NodeId::new(id), &NodeType::Function, Some(p))
+                .unwrap();
+        }
+        store
+            .put_low_confidence_edge(
+                &NodeId::new("f#1:1"),
+                &NodeId::new("f#2:1"),
+                &EdgeType::Calls,
+                0.5,
+            )
+            .unwrap();
+        store
+            .put_edge(
+                &NodeId::new("f#1:1"),
+                &NodeId::new("f#3:1"),
+                &EdgeType::Calls,
+            )
+            .unwrap();
+        let dead = Query::compute_dead_functions_opts(&store, false).unwrap();
+        assert!(dead.is_empty(), "low-confidence target is live: {dead:?}");
+        let dead = Query::compute_dead_functions_opts(&store, true).unwrap();
+        assert_eq!(dead, vec!["f#2:1".to_string()]);
+        let ids = |v: Vec<super::NodeTriple>| v.into_iter().map(|t| t.0).collect::<Vec<_>>();
+        let blast = ids(Query::blast_radius_opts(&store, "f#1:1", false).unwrap());
+        assert!(blast.contains(&"f#2:1".to_string()));
+        let blast = ids(Query::blast_radius_opts(&store, "f#1:1", true).unwrap());
+        assert!(!blast.contains(&"f#2:1".to_string()) && blast.contains(&"f#3:1".to_string()));
+        assert_eq!(
+            ids(Query::callers_opts(&store, "f#2:1", 1, false).unwrap()).len(),
+            1
+        );
+        assert!(Query::callers_opts(&store, "f#2:1", 1, true)
+            .unwrap()
+            .is_empty());
     }
 }

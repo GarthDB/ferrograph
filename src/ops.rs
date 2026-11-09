@@ -161,10 +161,15 @@ pub struct ModuleGraphResult {
 ///
 /// # Errors
 /// Returns an error if the store query or glob pattern is invalid.
-pub fn dead_code(store: &Store, file_glob: Option<&str>) -> Result<DeadCodeResult> {
-    let mut triples = Query::stored_dead_functions_with_payload(store)?;
+pub fn dead_code(store: &Store, file_glob: Option<&str>, strict: bool) -> Result<DeadCodeResult> {
+    // The stored relation is computed non-strictly at index time, so strict always recomputes.
+    let mut triples = if strict {
+        Vec::new()
+    } else {
+        Query::stored_dead_functions_with_payload(store)?
+    };
     let source = if triples.is_empty() {
-        triples = Query::compute_dead_functions_with_payload(store)?;
+        triples = Query::compute_dead_functions_with_payload(store, strict)?;
         "computed"
     } else {
         "stored"
@@ -194,8 +199,12 @@ pub fn dead_code(store: &Store, file_glob: Option<&str>) -> Result<DeadCodeResul
 ///
 /// # Errors
 /// Returns an error if the store query fails.
-pub fn blast_radius(store: &Store, node_id: &str) -> Result<BlastRadiusResult> {
-    let nodes = Query::blast_radius(store, node_id)?;
+pub fn blast_radius(
+    store: &Store,
+    node_id: &str,
+    exclude_low_confidence: bool,
+) -> Result<BlastRadiusResult> {
+    let nodes = Query::blast_radius_opts(store, node_id, exclude_low_confidence)?;
     let reachable_nodes: Vec<NodeSummary> = nodes
         .into_iter()
         .map(|(id, node_type, payload)| NodeSummary {
@@ -216,8 +225,13 @@ pub fn blast_radius(store: &Store, node_id: &str) -> Result<BlastRadiusResult> {
 ///
 /// # Errors
 /// Returns an error if the store query fails.
-pub fn callers(store: &Store, node_id: &str, depth: u32) -> Result<CallersResult> {
-    let nodes = Query::callers(store, node_id, depth)?;
+pub fn callers(
+    store: &Store,
+    node_id: &str,
+    depth: u32,
+    exclude_low_confidence: bool,
+) -> Result<CallersResult> {
+    let nodes = Query::callers_opts(store, node_id, depth, exclude_low_confidence)?;
     let callers: Vec<NodeSummary> = nodes
         .into_iter()
         .map(|(id, node_type, payload)| NodeSummary {

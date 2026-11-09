@@ -100,7 +100,12 @@ fn classify_node(
             if let (Some(from), true) = (parent, is_value_position(node)) {
                 let r = node.byte_range();
                 if let Some(path) = source.get(r.start..r.end) {
-                    let target = NodeId::new(format!("{}::{}", file_id.as_str(), path));
+                    let target = NodeId::new(format!(
+                        "{}::{}{}",
+                        file_id.as_str(),
+                        path,
+                        super::calls::VALUE_SUFFIX
+                    ));
                     edges.push((from.clone(), target, EdgeType::Calls));
                 }
             }
@@ -833,6 +838,20 @@ fn scan_token_tree_for_calls(
                             edges.push((parent.clone(), callee_id, EdgeType::Calls));
                         }
                     }
+                }
+            }
+        }
+        if kind == "identifier" && prev_kind.as_deref() != Some(".") {
+            let called = next.is_some_and(|n| n.kind() == "token_tree");
+            if !called {
+                if let Some(name) = source.get(child.byte_range()) {
+                    let target = NodeId::new(format!(
+                        "{}::{}{}",
+                        file_id.as_str(),
+                        name,
+                        super::calls::VALUE_SUFFIX
+                    ));
+                    edges.push((parent.clone(), target, EdgeType::Calls));
                 }
             }
         }
