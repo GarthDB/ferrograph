@@ -837,6 +837,31 @@ fn scan_macro_for_calls(
     }
 }
 
+/// True if the tokens from `start` are `::<...>` (angle brackets balanced) followed by `( ... )`.
+fn turbofish_then_paren(tt: &tree_sitter::Node, start: usize, source: &str) -> bool {
+    if tt.child(start).map(|n| n.kind()) != Some("::") {
+        return false;
+    }
+    let mut depth = 0i32;
+    let mut j = start + 1;
+    while let Some(n) = tt.child(j) {
+        match n.kind() {
+            "<" => depth += 1,
+            ">" => depth -= 1,
+            ">>" => depth -= 2,
+            _ if depth <= 0 => return false,
+            _ => {}
+        }
+        j += 1;
+        if depth <= 0 {
+            return tt.child(j).is_some_and(|p| {
+                p.kind() == "token_tree" && token_tree_starts_with_paren(&p, source)
+            });
+        }
+    }
+    false
+}
+
 /// Recursively scan a `token_tree` for identifier followed by parenthesized `token_tree`.
 /// Method calls (previous sibling `.`) become method placeholders; nested macros (next sibling `!`) are skipped.
 fn scan_token_tree_for_calls(
@@ -853,19 +878,19 @@ fn scan_token_tree_for_calls(
         let next = tt.child(i + 1);
         if kind == "identifier" {
             let prev_is_dot = prev_kind.as_deref() == Some(".");
-            if let Some(next_tt) = next {
-                if next_tt.kind() == "token_tree" && token_tree_starts_with_paren(&next_tt, source)
-                {
-                    if let Some(name) = source.get(child.byte_range()) {
-                        let suffix = if prev_is_dot {
-                            super::calls::METHOD_SUFFIX
-                        } else {
-                            ""
-                        };
-                        let callee_id =
-                            NodeId::new(format!("{}::{}{}", file_id.as_str(), name, suffix));
-                        edges.push((parent.clone(), callee_id, EdgeType::Calls));
-                    }
+            let called = next.is_some_and(|n| {
+                n.kind() == "token_tree" && token_tree_starts_with_paren(&n, source)
+            }) || (prev_is_dot && turbofish_then_paren(tt, i + 1, source));
+            if called {
+                if let Some(name) = source.get(child.byte_range()) {
+                    let suffix = if prev_is_dot {
+                        super::calls::METHOD_SUFFIX
+                    } else {
+                        ""
+                    };
+                    let callee_id =
+                        NodeId::new(format!("{}::{}{}", file_id.as_str(), name, suffix));
+                    edges.push((parent.clone(), callee_id, EdgeType::Calls));
                 }
             }
         }
@@ -951,6 +976,19 @@ mod tests {
                 got.iter()
                     .any(|g| g.ends_with(w.trim_start_matches("/t.rs"))),
                 "{w} in {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn method_turbofish_in_macro_args_becomes_placeholder() {
+        let got = call_targets(
+            r#"fn f(x: S) { println!("{} {}", x.m::<u8>(), x.k::<Vec<Vec<u8>>>()); }"#,
+        );
+        for n in ["m", "k"] {
+            assert!(
+                got.iter().any(|g| g.ends_with(&format!("::{n}@method"))),
+                "{got:?}"
             );
         }
     }

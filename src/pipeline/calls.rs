@@ -51,25 +51,24 @@ struct Index {
 
 /// Resolve `x.name()` by name only: same-file methods first, else all methods project-wide.
 fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
-    let methods: Vec<NodeId> = idx
-        .global_by_name
-        .get(name)
-        .into_iter()
-        .flatten()
-        .filter(|n| idx.methods.contains(n.as_str()))
-        .cloned()
-        .collect();
+    let all = idx.global_by_name.get(name).map_or(&[][..], Vec::as_slice);
     let prefix = format!("{from_file}#");
-    let same_file: Vec<NodeId> = methods
+    let is_method = |n: &&NodeId| idx.methods.contains(n.as_str());
+    let mut cands: Vec<NodeId> = all
         .iter()
+        .filter(is_method)
         .filter(|n| n.as_str().starts_with(&prefix))
         .cloned()
         .collect();
-    let mut cands = if same_file.is_empty() {
-        methods
-    } else {
-        same_file
-    };
+    if cands.is_empty() {
+        // Cheap cutoff before cloning: a hugely shared name is dropped anyway.
+        if all.len() > MAX_METHOD_CANDIDATES
+            && all.iter().filter(is_method).count() > MAX_METHOD_CANDIDATES
+        {
+            return Resolution::None;
+        }
+        cands = all.iter().filter(is_method).cloned().collect();
+    }
     match cands.len() {
         0 => Resolution::None,
         1 => Resolution::One(cands.remove(0)),
