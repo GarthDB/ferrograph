@@ -1,8 +1,24 @@
 name: Release binaries
 
+# Not triggered by `release: published`: release-plz creates releases with GITHUB_TOKEN,
+# and events caused by GITHUB_TOKEN never start other workflows. release-plz.yml calls this
+# workflow instead; run it by hand (with a tag) to backfill an existing release.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build and attach assets to (e.g. v2.0.0)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach assets to (e.g. v2.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -14,11 +30,15 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
           - os: macos-latest
             target: aarch64-apple-darwin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.88
@@ -34,14 +54,35 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Create tarball
-        run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../ferrograph-${{ matrix.target }}.tar.gz ferrograph
-          cd ../../..
+        run: tar czf ferrograph-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release ferrograph
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ferrograph-${{ matrix.target }}.tar.gz
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" ferrograph-${{ matrix.target }}.tar.gz --clobber
+
+      - name: Keep tarball for checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: ferrograph-${{ matrix.target }}
+          path: ferrograph-${{ matrix.target }}.tar.gz
+
+  checksums:
+    name: Publish SHA256SUMS
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download tarballs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ferrograph-*
+          merge-multiple: true
+
+      - name: Create and upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sha256sum ferrograph-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "${{ inputs.tag }}" SHA256SUMS --clobber
