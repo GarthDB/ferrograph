@@ -238,6 +238,7 @@ impl Worktree {
             repo: repo.to_path_buf(),
             dir,
         };
+        active_worktrees().push((guard.repo.clone(), guard.dir.clone()));
         let dir_s = guard.dir.to_string_lossy().into_owned();
         git(
             repo,
@@ -248,13 +249,79 @@ impl Worktree {
     }
 }
 
+fn remove_worktree(repo: &Path, dir: &Path) {
+    let dir_s = dir.to_string_lossy().into_owned();
+    let _ = git_cmd(repo, &["worktree", "remove", "--force", &dir_s]);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = git_cmd(repo, &["worktree", "prune"]);
+}
+
 impl Drop for Worktree {
     fn drop(&mut self) {
-        let dir = self.dir.to_string_lossy().into_owned();
-        let _ = git_cmd(&self.repo, &["worktree", "remove", "--force", &dir]);
-        let _ = std::fs::remove_dir_all(&self.dir);
-        let _ = git_cmd(&self.repo, &["worktree", "prune"]);
+        active_worktrees().retain(|(_, d)| d != &self.dir);
+        remove_worktree(&self.repo, &self.dir);
     }
+}
+
+/// `(repo, dir)` of the live temporary worktrees, so a signal handler can remove them.
+fn active_worktrees() -> std::sync::MutexGuard<'static, Vec<(PathBuf, PathBuf)>> {
+    static ACTIVE: std::sync::Mutex<Vec<(PathBuf, PathBuf)>> = std::sync::Mutex::new(Vec::new());
+    ACTIVE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Remove the temp worktrees on SIGINT/SIGTERM; SIGKILL cannot be caught, see
+/// [`prune_stale_worktrees`].
+fn install_signal_cleanup() {
+    // Fails only if a handler is already installed in this process; keep that one.
+    let _ = ctrlc::set_handler(|| {
+        let active = std::mem::take(&mut *active_worktrees());
+        for (repo, dir) in &active {
+            remove_worktree(repo, dir);
+        }
+        std::process::exit(130);
+    });
+}
+
+fn pid_alive(pid: u32) -> bool {
+    if pid == std::process::id() {
+        return true;
+    }
+    // shortcut: no `kill -0` off unix, so such pids count as alive and are never pruned.
+    cfg!(not(unix))
+        || Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+}
+
+/// Pid in a `<tmp>/ferrograph-pr-<pid>-<nanos>` path, if `path` is one of ours.
+fn temp_worktree_pid(path: &Path, tmp: &Path) -> Option<u32> {
+    let rest = path.file_name()?.to_str()?.strip_prefix("ferrograph-pr-")?;
+    if path.parent()?.canonicalize().ok()?.as_path() != tmp {
+        return None;
+    }
+    rest.split('-').next()?.parse().ok()
+}
+
+/// Remove registered `ferrograph-pr-<pid>-*` temp worktrees whose process is gone (killed runs
+/// never reach [`Worktree`]'s `Drop`), then `git worktree prune` for those whose directory is gone.
+// shortcut: a pid reused by an unrelated live process keeps its stale worktree until that exits.
+fn prune_stale_worktrees(repo: &Path) {
+    let Some(list) = git_opt(repo, &["worktree", "list", "--porcelain"]) else {
+        return;
+    };
+    let tmp = std::env::temp_dir();
+    let tmp = tmp.canonicalize().unwrap_or(tmp);
+    for path in list.lines().filter_map(|l| l.strip_prefix("worktree ")) {
+        let path = Path::new(path);
+        if temp_worktree_pid(path, &tmp).is_some_and(|pid| !pid_alive(pid)) {
+            remove_worktree(repo, path);
+        }
+    }
+    let _ = git_cmd(repo, &["worktree", "prune"]);
 }
 
 type FnKey = (String, String, usize);
@@ -538,6 +605,8 @@ pub fn run(opts: &PrOptions) -> Result<PrResult> {
             }
         );
     };
+    prune_stale_worktrees(&root);
+    install_signal_cleanup();
     let mut warnings = Vec::new();
     if git_opt(&root, &["status", "--porcelain", "--untracked-files=no"])
         .is_some_and(|s| !s.is_empty())
@@ -696,6 +765,57 @@ mod tests {
             name(&[(11, 0)]),
             (vec![], vec![[11, 11]]),
             "deletion between items"
+        );
+    }
+
+    #[test]
+    fn prunes_worktrees_of_dead_pids_only() {
+        let git = |dir: &Path, args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+                .args(args)
+                .output();
+            out.is_ok_and(|o| o.status.success())
+        };
+        let repo = tempfile::tempdir().unwrap();
+        if !git(repo.path(), &["init", "-q"])
+            || !git(repo.path(), &["commit", "-q", "--allow-empty", "-m", "x"])
+        {
+            eprintln!("skipping: git not usable");
+            return;
+        }
+        let mut child = Command::new("git").arg("--version").spawn().unwrap();
+        let dead_pid = child.id();
+        child.wait().unwrap();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let tmp = std::env::temp_dir();
+        let dead = tmp.join(format!("ferrograph-pr-{dead_pid}-{nanos}"));
+        let live = tmp.join(format!("ferrograph-pr-{}-{nanos}", std::process::id()));
+        let other = tmp.join(format!("unrelated-{nanos}"));
+        for d in [&dead, &live, &other] {
+            assert!(git(
+                repo.path(),
+                &["worktree", "add", "--detach", d.to_str().unwrap(), "HEAD"]
+            ));
+        }
+        prune_stale_worktrees(repo.path());
+        let (dead_left, live_left, other_left) = (dead.exists(), live.exists(), other.exists());
+        let listed = git_opt(repo.path(), &["worktree", "list", "--porcelain"]).unwrap();
+        for d in [&live, &other] {
+            remove_worktree(repo.path(), d);
+        }
+        assert!(!dead_left, "dead pid's worktree is removed");
+        assert!(
+            live_left && other_left,
+            "live pid and unrelated worktrees stay"
+        );
+        assert!(
+            !listed.contains(&format!("ferrograph-pr-{dead_pid}-")),
+            "{listed}"
         );
     }
 }

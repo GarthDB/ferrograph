@@ -122,7 +122,7 @@ GitHub Actions (the base ref must be available, so fetch full history):
 
 Notes:
 
-- The diff is `git diff <base>...HEAD` (from the merge base). The base is indexed in a temporary `git worktree` that is always removed; pass `--base-db PATH` to reuse an already indexed base graph (e.g. from a CI cache). Your working tree is not touched.
+- The diff is `git diff <base>...HEAD` (from the merge base). The base is indexed in a temporary `git worktree` that is removed on exit, on SIGINT/SIGTERM, and (for a killed run) pruned by the next `pr` run; pass `--base-db PATH` to reuse an already indexed base graph (e.g. from a CI cache). Your working tree is not touched.
 - HEAD is read from `--db` (default `./.ferrograph`). A missing or stale graph is an error; pass `--index-head` to index the HEAD commit into memory instead. Uncommitted changes are ignored (a warning is printed); a `--db` graph is assumed to match HEAD, and `--base-db` is assumed to be indexed from the merge base (a warning says so).
 - `--strict`, `--entry`, `--ignore` and `.ferrograph.toml` (read from the HEAD commit, for both sides) apply identically to base and head. `--exclude-low-confidence` applies to blast.
 - Functions are matched across base and head by file, name and occurrence among same-name functions in the file, not by node id, so shifting line numbers is harmless. A renamed function, or one moved to another file, looks like one removed plus one added; a function inserted above a same-name function in the same file can shift the match. Pure file renames are followed.
