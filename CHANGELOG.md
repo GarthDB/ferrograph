@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0](https://github.com/GarthDB/ferrograph/compare/v2.0.0...v3.0.0) - 2026-11-09
+
+### Added
+
+- *(dead)* entry/ignore config via .ferrograph.toml and --entry/--ignore
+- *(graph)* keep ambiguous calls as low-confidence edges
+
+### Fixed
+
+- *(graph)* satisfy clippy pedantic in low-confidence code
+- *(pipeline)* treat fns used as values as references, not dead
+
+### Other
+
+- *(release)* build binaries from release-plz workflow; add aarch64 linux and SHA256SUMS
+
 ## [2.0.0](https://github.com/GarthDB/ferrograph/compare/v1.5.1...v2.0.0) - 2026-11-05
 
 ### Added
