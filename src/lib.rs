@@ -8,5 +8,6 @@ pub mod graph;
 pub mod mcp;
 pub mod ops;
 pub mod pipeline;
+pub mod pr;
 pub mod search;
 pub mod watch;

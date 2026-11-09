@@ -99,6 +99,45 @@ pub enum Command {
         #[arg(long)]
         max: Option<usize>,
     },
+    /// Report what a change introduces relative to a base ref: newly dead functions and blast radius.
+    Pr {
+        /// Graph of HEAD (database file or project directory containing .ferrograph).
+        #[arg(short, long, conflicts_with = "index_head")]
+        db: Option<PathBuf>,
+        /// Base ref to compare against (diffed from the merge base with HEAD).
+        #[arg(long)]
+        base: String,
+        /// Reuse an already indexed base graph instead of indexing the base in a temp worktree.
+        #[arg(long)]
+        base_db: Option<PathBuf>,
+        /// Index the working tree into memory instead of reading --db.
+        #[arg(long)]
+        index_head: bool,
+        /// Do not treat ambiguous (low-confidence) call edges as keeping a function alive.
+        #[arg(long)]
+        strict: bool,
+        /// Extra entry point: file glob or attribute (`#[no_mangle]`). Repeatable.
+        #[arg(long)]
+        entry: Vec<String>,
+        /// Never report functions in files matching this glob. Repeatable.
+        #[arg(long)]
+        ignore: Vec<String>,
+        /// Ignore ambiguous (low-confidence) call edges in blast radius.
+        #[arg(long)]
+        exclude_low_confidence: bool,
+        /// Maximum blast radius nodes listed (the full count is always reported).
+        #[arg(long, default_value = "200")]
+        blast_limit: usize,
+        /// Exit with code 1 if any function is newly dead.
+        #[arg(long, conflicts_with = "max_new_dead")]
+        fail_on_new_dead: bool,
+        /// Exit with code 1 if more than N functions are newly dead.
+        #[arg(long)]
+        max_new_dead: Option<usize>,
+        /// Exit with code 1 if the combined blast radius has more than N nodes.
+        #[arg(long)]
+        max_blast: Option<usize>,
+    },
     /// Show blast radius (transitive impact) of a node.
     Blast {
         /// Path to the graph database, or a project directory containing .ferrograph.
@@ -232,6 +271,43 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             if fail_on_any { Some(0) } else { max },
             json,
         ),
+        Command::Pr {
+            db,
+            base,
+            base_db,
+            index_head,
+            strict,
+            entry,
+            ignore,
+            exclude_low_confidence,
+            blast_limit,
+            fail_on_new_dead,
+            max_new_dead,
+            max_blast,
+        } => {
+            let opts = crate::pr::PrOptions {
+                root: std::env::current_dir()?,
+                base,
+                base_db,
+                head_db: resolve_db_path(db.as_ref())?,
+                index_head,
+                strict,
+                entry,
+                ignore,
+                exclude_low_confidence,
+                blast_limit,
+            };
+            run_pr(
+                &opts,
+                if fail_on_new_dead {
+                    Some(0)
+                } else {
+                    max_new_dead
+                },
+                max_blast,
+                json,
+            )
+        }
         Command::Blast {
             db,
             node_id,
@@ -269,7 +345,7 @@ fn default_db_path() -> Option<PathBuf> {
     std::env::current_dir().ok().map(|p| p.join(".ferrograph"))
 }
 
-fn resolve_db_path(db: Option<&PathBuf>) -> Result<PathBuf> {
+pub(crate) fn resolve_db_path(db: Option<&PathBuf>) -> Result<PathBuf> {
     let path = db
         .cloned()
         .or_else(default_db_path)
@@ -449,6 +525,81 @@ fn run_dead(
         println!("\n{}", crate::ops::DEAD_CODE_CAVEAT);
     }
     Ok(check_threshold(result.count, max))
+}
+
+fn run_pr(
+    opts: &crate::pr::PrOptions,
+    max_new_dead: Option<usize>,
+    max_blast: Option<usize>,
+    json: bool,
+) -> Result<Outcome> {
+    let r = crate::pr::run(opts)?;
+    for w in &r.warnings {
+        eprintln!("warning: {w}");
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&r)?);
+    } else {
+        println!(
+            "base {} (merge base {:.8}) .. head {:.8}: {} changed .rs file(s)",
+            r.base,
+            r.merge_base,
+            r.head,
+            r.changed_files.len()
+        );
+        println!("\nNewly dead functions: {}", r.newly_dead_count);
+        for f in &r.newly_dead {
+            println!("  {}\t{}\t{}", f.id, f.name, f.status);
+        }
+        println!("\nChanged functions: {}", r.changed_functions.len());
+        for f in &r.changed_functions {
+            println!("  {}\t{}\tblast {}", f.id, f.name, f.blast_count);
+        }
+        for c in &r.changed_without_function {
+            let ranges: Vec<String> = c
+                .lines
+                .iter()
+                .map(|[a, b]| {
+                    if a == b {
+                        a.to_string()
+                    } else {
+                        format!("{a}-{b}")
+                    }
+                })
+                .collect();
+            println!("  (no function) {}: lines {}", c.file, ranges.join(", "));
+        }
+        println!(
+            "\nBlast radius: {} node(s), showing {}",
+            r.blast.count, r.blast.shown
+        );
+        for n in &r.blast.nodes {
+            println!(
+                "  {}\t{}\t{}",
+                n.id,
+                n.node_type,
+                n.payload.as_deref().unwrap_or("—")
+            );
+        }
+        for h in &r.coupling {
+            println!(
+                "\nOften changes with {}: {}",
+                h.file,
+                h.coupled_with.join(", ")
+            );
+        }
+    }
+    let mut outcome = Outcome::Ok;
+    for (label, count, max) in [
+        ("new dead", r.newly_dead_count, max_new_dead),
+        ("blast", r.blast.count, max_blast),
+    ] {
+        if let Some(m) = max.filter(|&m| count > m) {
+            eprintln!("threshold exceeded: {label} {count} > {m}");
+            outcome = Outcome::FindingsOverThreshold;
+        }
+    }
+    Ok(outcome)
 }
 
 fn run_blast(
