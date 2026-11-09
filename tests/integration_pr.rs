@@ -320,3 +320,33 @@ fn dirty_tree_does_not_skew_head_results() {
     assert_eq!(names(&v["changed_functions"]), ["used"]);
     assert_eq!(v["newly_dead_count"], 0);
 }
+
+#[test]
+fn pr_sarif_and_markdown_formats() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "src/main.rs",
+        &BASE.replace("    helper();\n", ""),
+    );
+    commit(d.path(), "drop call");
+    let sarif = pr(d.path(), &["--format", "sarif", "--max-new-dead", "0"]);
+    assert_eq!(sarif.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&sarif.stdout).unwrap();
+    let r = &v["runs"][0]["results"];
+    assert_eq!(r.as_array().unwrap().len(), 1);
+    assert!(r[0]["message"]["text"].as_str().unwrap().contains("helper"));
+    assert_eq!(
+        r[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+        "src/main.rs"
+    );
+
+    let md = pr(d.path(), &["--format", "markdown"]);
+    let md = String::from_utf8(md.stdout).unwrap();
+    assert!(md.starts_with("<!-- ferrograph -->\n"));
+    assert!(
+        md.contains("| helper | src/main.rs:5 | became_dead |"),
+        "{md}"
+    );
+    assert!(md.contains("| main |"), "{md}");
+}
