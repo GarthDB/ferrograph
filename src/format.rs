@@ -71,7 +71,7 @@ fn sarif(mut findings: Vec<Finding>) -> Value {
                 "message": { "text": f.message },
                 "locations": [{
                     "physicalLocation": {
-                        "artifactLocation": { "uri": f.path, "uriBaseId": "%SRCROOT%" },
+                        "artifactLocation": { "uri": percent_encode(&f.path), "uriBaseId": "%SRCROOT%" },
                         "region": { "startLine": f.line.max(1), "startColumn": f.col.max(1) }
                     }
                 }],
@@ -136,15 +136,29 @@ pub fn sarif_pr(r: &PrResult) -> Value {
     )
 }
 
+/// Percent-encode a repo-relative path for a SARIF URI reference (keeps `/` and unreserved bytes).
+fn percent_encode(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {
+            out.push(char::from(b));
+        } else {
+            let _ = write!(out, "%{b:02X}");
+        }
+    }
+    out
+}
+
 /// Escape text for a Markdown table cell (also neutralises HTML, so names cannot inject markup).
 fn esc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
-            '\\' | '|' | '`' | '*' => {
+            '\\' | '|' | '`' | '*' | '[' | ']' => {
                 out.push('\\');
                 out.push(c);
             }
+            '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
             '\n' | '\r' => out.push(' '),
@@ -393,6 +407,14 @@ mod tests {
         let md = markdown_pr(&r, 50);
         assert!(md.starts_with(MARKER));
         assert!(md.contains("| foo | src/a.rs:3 | added_dead |"));
+    }
+
+    #[test]
+    fn sarif_uri_is_percent_encoded() {
+        let v = sarif_dead(&dead(vec![node("./src/a b#c/%.rs#1:1", "f")]));
+        let uri = &v["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+            ["artifactLocation"]["uri"];
+        assert_eq!(uri, "src/a%20b%23c/%25.rs");
     }
 
     #[test]

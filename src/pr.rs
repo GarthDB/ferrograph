@@ -289,12 +289,17 @@ fn pid_alive(pid: u32) -> bool {
         return true;
     }
     // shortcut: no `kill -0` off unix, so such pids count as alive and are never pruned.
+    // EPERM (a live process of another user) must count as alive; only ESRCH means gone.
     cfg!(not(unix))
         || Command::new("kill")
             .args(["-0", &pid.to_string()])
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
+            .output()
+            .is_ok_and(|o| {
+                o.status.success()
+                    || !String::from_utf8_lossy(&o.stderr)
+                        .to_lowercase()
+                        .contains("no such process")
+            })
 }
 
 /// Pid in a `<tmp>/ferrograph-pr-<pid>-<nanos>` path, if `path` is one of ours.
