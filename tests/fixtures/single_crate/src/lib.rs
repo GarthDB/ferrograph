@@ -15,6 +15,10 @@ fn private_unused() -> i32 {
     0
 }
 
+fn private_unused_too() -> i32 {
+    1
+}
+
 pub struct Point {
     pub x: i32,
     pub y: i32,

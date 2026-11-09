@@ -195,6 +195,13 @@ fn traverse(
                     EdgeType::HasAttribute,
                 ));
             }
+            if is_trait_impl_method(&node) {
+                edges.push((
+                    id.clone(),
+                    NodeId::new(format!("attr::{TRAIT_IMPL_ATTR}")),
+                    EdgeType::HasAttribute,
+                ));
+            }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
         }
         if let Some((to_id, edge_type)) = extra {
@@ -250,12 +257,28 @@ fn has_attribute_on_prev_sibling(node: &tree_sitter::Node, source: &str, name: &
             if has_attribute_node(&prev, source, name) {
                 return true;
             }
-            current = prev.prev_sibling();
-        } else {
+        } else if !is_comment(&prev) {
             break;
         }
+        current = prev.prev_sibling();
     }
     false
+}
+
+fn is_comment(node: &tree_sitter::Node) -> bool {
+    matches!(node.kind(), "line_comment" | "block_comment")
+}
+
+/// Synthetic attribute marking a method inside `impl Trait for Type` (a dead-code root).
+/// Keep in sync with the entry rules in `graph::query`.
+const TRAIT_IMPL_ATTR: &str = "trait_impl";
+
+/// True for a function directly inside `impl <Trait> for <Type>` (including generic traits).
+fn is_trait_impl_method(node: &tree_sitter::Node) -> bool {
+    node.parent()
+        .filter(|p| p.kind() == "declaration_list")
+        .and_then(|p| p.parent())
+        .is_some_and(|i| i.kind() == "impl_item" && i.child_by_field_name("trait").is_some())
 }
 
 /// Outer attribute names on a function (`no_mangle`, `export_name`, ...), plus `extern` for
@@ -264,11 +287,20 @@ fn attribute_names(node: &tree_sitter::Node, source: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut current = node.prev_sibling();
     while let Some(prev) = current {
+        if is_comment(&prev) {
+            current = prev.prev_sibling();
+            continue;
+        }
         if prev.kind() != "attribute_item" {
             break;
         }
         if let Some(text) = source.get(prev.byte_range()) {
             let inner = text.trim().trim_start_matches("#[").trim_end_matches(']');
+            // `#[unsafe(no_mangle)]` -> `no_mangle`
+            let inner = inner
+                .strip_prefix("unsafe(")
+                .and_then(|s| s.strip_suffix(')'))
+                .unwrap_or(inner);
             let name: String = inner
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')

@@ -230,6 +230,9 @@ impl Query {
         let type_function = NodeType::Function.to_string();
         let edge_calls = EdgeType::Calls.to_string();
         let edge_refs = EdgeType::References.to_string();
+        let edge_attr = EdgeType::HasAttribute.to_string();
+        let edge_contains = EdgeType::Contains.to_string();
+        let edge_impl = EdgeType::ImplementsTrait.to_string();
         // Compute entry point ids in Rust (Cozo has no str_starts_with); then pass to Datalog.
         let all_fns = store.run_query(
             &format!("?[id, payload] := *nodes[id, type, payload], type = \"{type_function}\""),
@@ -254,6 +257,8 @@ impl Query {
         let script = format!(
             r#"
             entry[id] := id in $entry_ids
+            entry[id] := *edges[id, t, "{edge_attr}"], t in ["attr::trait_impl", "attr::no_mangle", "attr::export_name"]
+            entry[f] := *nodes[t, "trait", _], *edges[t, f, "{edge_contains}"], *edges[_, t, "{edge_impl}"], *nodes[f, "{type_function}", _]
             reachable[id] := entry[id]
             low[from, to] := *edge_confidence[from, to, _, _]
             reachable[to] := reachable[from], *edges[from, to, "{edge_calls}"]{not_low}
