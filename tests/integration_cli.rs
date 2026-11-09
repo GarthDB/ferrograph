@@ -956,3 +956,70 @@ fn cli_runtime_error_exits_2() {
     let out = run(&["dead", "--db", s(&missing)]);
     assert_eq!(code(&out), Some(2));
 }
+
+#[test]
+fn cli_format_flag_and_json_alias() {
+    let (db, _dir) = index_fixture();
+    let d = s(&db);
+    let alias = run(&["dead", "--db", d, "--json"]);
+    let flag = run(&["dead", "--db", d, "--format", "json"]);
+    assert_eq!(alias.stdout, flag.stdout);
+    let both_same = run(&["dead", "--db", d, "--json", "--format", "json"]);
+    assert_eq!(both_same.stdout, flag.stdout);
+    let text = run(&["dead", "--db", d, "--format", "text"]);
+    assert_eq!(text.stdout, run(&["dead", "--db", d]).stdout);
+    let conflict = run(&["dead", "--db", d, "--json", "--format", "sarif"]);
+    assert_eq!(code(&conflict), Some(2));
+    assert!(String::from_utf8_lossy(&conflict.stderr).contains("conflicts"));
+}
+
+#[test]
+fn cli_dead_sarif_and_markdown() {
+    let (db, _dir) = index_fixture();
+    let d = s(&db);
+    let out = run(&["dead", "--db", d, "--format", "sarif", "--fail-on-any"]);
+    assert_eq!(code(&out), Some(1), "threshold applies in every format");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("stdout is pure SARIF");
+    assert_eq!(v["version"], "2.1.0");
+    let results = v["runs"][0]["results"].as_array().unwrap();
+    assert_ne!(results.len(), 0);
+    for r in results {
+        let p = &r["locations"][0]["physicalLocation"];
+        let uri = p["artifactLocation"]["uri"].as_str().unwrap();
+        assert!(!uri.starts_with("./"), "{uri}");
+        assert!(p["region"]["startLine"].as_u64().unwrap() >= 1);
+        assert!(r["partialFingerprints"].is_object());
+    }
+    assert!(String::from_utf8_lossy(&out.stderr).contains("threshold exceeded:"));
+
+    let md = run(&[
+        "dead",
+        "--db",
+        d,
+        "--format",
+        "markdown",
+        "--markdown-limit",
+        "1",
+    ]);
+    let md = String::from_utf8(md.stdout).unwrap();
+    assert!(md.starts_with("<!-- ferrograph -->\n"));
+    assert!(md.contains("| Function | Location |"));
+    assert!(md.contains("more"), "{md}");
+}
+
+#[test]
+fn cli_blast_and_callers_formats() {
+    let (db, _dir) = index_fixture();
+    let d = s(&db);
+    let search = run(&["search", "--db", d, "pub::add"]);
+    let stdout = String::from_utf8_lossy(&search.stdout).into_owned();
+    let id = stdout.lines().next().unwrap().split('\t').next().unwrap();
+    for sub in ["blast", "callers"] {
+        let sarif = run(&[sub, "--db", d, id, "--format", "sarif"]);
+        assert_eq!(code(&sarif), Some(2));
+        assert!(String::from_utf8_lossy(&sarif.stderr).contains("sarif not supported"));
+        let md = run(&[sub, "--db", d, id, "--format", "markdown"]);
+        assert_eq!(code(&md), Some(0));
+        assert!(String::from_utf8_lossy(&md.stdout).starts_with("<!-- ferrograph -->"));
+    }
+}

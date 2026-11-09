@@ -259,7 +259,7 @@ impl Drop for Worktree {
 
 type FnKey = (String, String, usize);
 
-fn split_id(id: &str) -> (String, u32, u32) {
+pub(crate) fn split_id(id: &str) -> (String, u32, u32) {
     let (path, pos) = id.rsplit_once('#').unwrap_or((id, "0:0"));
     let (l, c) = pos.split_once(':').unwrap_or(("0", "0"));
     (
@@ -269,7 +269,7 @@ fn split_id(id: &str) -> (String, u32, u32) {
     )
 }
 
-fn bare_name(payload: &str) -> &str {
+pub(crate) fn bare_name(payload: &str) -> &str {
     let mut p = payload;
     while let Some(rest) = ["pub::", "test::", "bench::"]
         .iter()

@@ -3,7 +3,33 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+
+use crate::format::{self, Format};
+
+/// Output selection shared by `dead`, `pr`, `blast` and `callers`.
+#[derive(Debug, Args)]
+pub struct FormatArgs {
+    /// Output format (`--json` is an alias for `--format json`).
+    #[arg(long, value_enum)]
+    pub format: Option<Format>,
+    /// Maximum table rows in Markdown output.
+    #[arg(long, default_value_t = format::DEFAULT_MARKDOWN_LIMIT)]
+    pub markdown_limit: usize,
+}
+
+impl FormatArgs {
+    fn resolve(&self, json: bool) -> Result<(Format, usize)> {
+        let format = match (json, self.format) {
+            (true, Some(f)) if f != Format::Json => {
+                anyhow::bail!("--json conflicts with --format {f:?}: pass only one")
+            }
+            (true, _) => Format::Json,
+            (false, f) => f.unwrap_or(Format::Text),
+        };
+        Ok((format, self.markdown_limit))
+    }
+}
 
 /// Graph-powered Rust code intelligence.
 #[derive(Debug, Parser)]
@@ -98,6 +124,8 @@ pub enum Command {
         /// Exit with code 1 if more than N dead functions are reported.
         #[arg(long)]
         max: Option<usize>,
+        #[command(flatten)]
+        fmt: FormatArgs,
     },
     /// Report what a change introduces relative to a base ref: newly dead functions and blast radius.
     Pr {
@@ -137,6 +165,8 @@ pub enum Command {
         /// Exit with code 1 if the combined blast radius has more than N nodes.
         #[arg(long)]
         max_blast: Option<usize>,
+        #[command(flatten)]
+        fmt: FormatArgs,
     },
     /// Show blast radius (transitive impact) of a node.
     Blast {
@@ -151,6 +181,8 @@ pub enum Command {
         /// Exit with code 1 if the blast radius has more than N nodes.
         #[arg(long)]
         max: Option<usize>,
+        #[command(flatten)]
+        fmt: FormatArgs,
     },
     /// Show callers of a node (reverse call graph).
     Callers {
@@ -165,6 +197,8 @@ pub enum Command {
         /// Ignore ambiguous (low-confidence) call edges.
         #[arg(long)]
         exclude_low_confidence: bool,
+        #[command(flatten)]
+        fmt: FormatArgs,
     },
     /// Show full info for a node (type, payload, edges).
     Info {
@@ -235,6 +269,8 @@ fn check_threshold(count: usize, max: Option<usize>) -> Outcome {
 ///
 /// # Errors
 /// Returns an error if the selected command fails (e.g. I/O or graph errors).
+// One flat match over every subcommand; splitting it would only scatter the dispatch.
+#[allow(clippy::too_many_lines)]
 pub fn run(cli: Cli) -> Result<Outcome> {
     let json = cli.json;
     let ok = |r: Result<()>| r.map(|()| Outcome::Ok);
@@ -260,6 +296,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             ignore,
             fail_on_any,
             max,
+            fmt,
         } => run_dead(
             db.as_ref(),
             file.as_deref(),
@@ -268,8 +305,8 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 entry,
                 ignore,
             },
-            if fail_on_any { Some(0) } else { max },
-            json,
+            fail_on_any.then_some(0).or(max),
+            fmt.resolve(json)?,
         ),
         Command::Pr {
             db,
@@ -284,6 +321,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             fail_on_new_dead,
             max_new_dead,
             max_blast,
+            fmt,
         } => {
             let opts = crate::pr::PrOptions {
                 root: std::env::current_dir()?,
@@ -299,13 +337,9 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             };
             run_pr(
                 &opts,
-                if fail_on_new_dead {
-                    Some(0)
-                } else {
-                    max_new_dead
-                },
+                fail_on_new_dead.then_some(0).or(max_new_dead),
                 max_blast,
-                json,
+                fmt.resolve(json)?,
             )
         }
         Command::Blast {
@@ -313,18 +347,26 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             node_id,
             exclude_low_confidence,
             max,
-        } => run_blast(db.as_ref(), &node_id, exclude_low_confidence, max, json),
+            fmt,
+        } => run_blast(
+            db.as_ref(),
+            &node_id,
+            exclude_low_confidence,
+            max,
+            fmt.resolve(json)?,
+        ),
         Command::Callers {
             db,
             node_id,
             depth,
             exclude_low_confidence,
+            fmt,
         } => ok(run_callers(
             db.as_ref(),
             &node_id,
             depth,
             exclude_low_confidence,
-            json,
+            fmt.resolve(json)?,
         )),
         Command::Info { db, node_id } => ok(run_info(db.as_ref(), &node_id, json)),
         Command::Modules { db, root } => ok(run_modules(db.as_ref(), root.as_deref(), json)),
@@ -490,12 +532,21 @@ pub fn load_file_config(db_path: &Path) -> Result<FileConfig> {
     Ok(FileConfig::default())
 }
 
+/// Blast radius and callers are impact listings, not problems at a file and line, so SARIF
+/// (a problem-report format) has no natural mapping for them.
+fn ensure_not_sarif(format: Format) -> Result<()> {
+    if format == Format::Sarif {
+        anyhow::bail!("sarif not supported for blast/callers; use --format json or markdown");
+    }
+    Ok(())
+}
+
 fn run_dead(
     db: Option<&PathBuf>,
     file: Option<&str>,
     mut opts: crate::ops::DeadOptions,
     max: Option<usize>,
-    json: bool,
+    (format, md_limit): (Format, usize),
 ) -> Result<Outcome> {
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
@@ -511,8 +562,15 @@ fn run_dead(
     opts.entry.extend(cfg.dead.entry);
     opts.ignore.extend(cfg.dead.ignore);
     let result = crate::ops::dead_code(&store, file, &opts)?;
-    if json {
+    if format == Format::Json {
         println!("{}", serde_json::to_string_pretty(&result)?);
+    } else if format == Format::Sarif {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&format::sarif_dead(&result))?
+        );
+    } else if format == Format::Markdown {
+        println!("{}", format::markdown_dead(&result, md_limit));
     } else {
         for node in &result.dead_nodes {
             let payload = node.payload.as_deref().unwrap_or("—");
@@ -531,14 +589,18 @@ fn run_pr(
     opts: &crate::pr::PrOptions,
     max_new_dead: Option<usize>,
     max_blast: Option<usize>,
-    json: bool,
+    (format, md_limit): (Format, usize),
 ) -> Result<Outcome> {
     let r = crate::pr::run(opts)?;
     for w in &r.warnings {
         eprintln!("warning: {w}");
     }
-    if json {
+    if format == Format::Json {
         println!("{}", serde_json::to_string_pretty(&r)?);
+    } else if format == Format::Sarif {
+        println!("{}", serde_json::to_string_pretty(&format::sarif_pr(&r))?);
+    } else if format == Format::Markdown {
+        println!("{}", format::markdown_pr(&r, md_limit));
     } else {
         println!(
             "base {} (merge base {:.8}) .. head {:.8}: {} changed .rs file(s)",
@@ -607,8 +669,9 @@ fn run_blast(
     node_id: &str,
     exclude_low: bool,
     max: Option<usize>,
-    json: bool,
+    (format, md_limit): (Format, usize),
 ) -> Result<Outcome> {
+    ensure_not_sarif(format)?;
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -620,8 +683,10 @@ fn run_blast(
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
     let result = crate::ops::blast_radius(&store, node_id, exclude_low)?;
-    if json {
+    if format == Format::Json {
         println!("{}", serde_json::to_string_pretty(&result)?);
+    } else if format == Format::Markdown {
+        println!("{}", format::markdown_blast(&result, md_limit));
     } else {
         for node in &result.reachable_nodes {
             let payload = node.payload.as_deref().unwrap_or("—");
@@ -637,8 +702,9 @@ fn run_callers(
     node_id: &str,
     depth: u32,
     exclude_low: bool,
-    json: bool,
+    (format, md_limit): (Format, usize),
 ) -> Result<()> {
+    ensure_not_sarif(format)?;
     let db_path = resolve_db_path(db)?;
     if !db_path.exists() {
         anyhow::bail!(
@@ -650,8 +716,10 @@ fn run_callers(
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
     let result = crate::ops::callers(&store, node_id, depth, exclude_low)?;
-    if json {
+    if format == Format::Json {
         println!("{}", serde_json::to_string_pretty(&result)?);
+    } else if format == Format::Markdown {
+        println!("{}", format::markdown_callers(&result, md_limit));
     } else {
         for node in &result.callers {
             let payload = node.payload.as_deref().unwrap_or("—");

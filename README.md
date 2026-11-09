@@ -77,6 +77,25 @@ Normal output (including `--json`) is printed first and is unchanged; a breach a
 
 > **Behaviour change:** runtime errors (missing database, query failure) previously exited 1; they now exit 2 so that 1 means "findings over threshold".
 
+### Output formats (`--format`)
+
+`dead`, `pr`, `blast` and `callers` accept `--format text|json|sarif|markdown` (default `text`). `--json` is an alias for `--format json`; combining it with a different `--format` is an error. Text and JSON output are unchanged. Thresholds and exit codes apply in every format, and threshold messages and warnings stay on stderr, so stdout is always a valid document.
+
+- **`sarif`** (`dead`, `pr`): SARIF 2.1.0, one `ferrograph/dead-code` result (level `warning`) per dead / newly dead function, located by repo-relative path (`%SRCROOT%`) and line/column. `partialFingerprints` use path + function name + occurrence index, not the line, so GitHub code scanning does not reopen alerts when lines shift. `blast` and `callers` are impact listings rather than problems, so `--format sarif` is an error there.
+- **`markdown`** (all four): a table for a sticky PR comment, starting with the hidden marker `<!-- ferrograph -->` so a CI step can find and update its own comment. Names are escaped; tables show at most `--markdown-limit N` rows (default 50) followed by `... and N more`, and the whole output is cut below GitHub's 65,536-character comment limit.
+
+```yaml
+- run: ferrograph dead --db .ferrograph --format sarif > ferrograph.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: ferrograph.sarif
+# needs: permissions: security-events: write
+
+- run: ferrograph pr --base origin/main --index-head --format markdown > comment.md
+# post/update comment.md with a step that looks for the <!-- ferrograph --> marker,
+# e.g. marocchino/sticky-pull-request-comment with `path: comment.md`
+```
+
 ### Reviewing a change (`pr`)
 
 `ferrograph pr --base <ref>` reports only what the current branch introduces, so it can gate CI where whole-repo `dead` lists are too noisy:

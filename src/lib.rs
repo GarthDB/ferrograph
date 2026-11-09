@@ -4,6 +4,7 @@
 
 pub mod claude;
 pub mod config;
+pub mod format;
 pub mod graph;
 pub mod mcp;
 pub mod ops;
