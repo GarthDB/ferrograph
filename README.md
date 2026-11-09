@@ -40,9 +40,9 @@ cargo run -- search --db .ferrograph "main"
 cargo run -- search --db .ferrograph -c "greet"
 
 # Show graph stats
-cargo run -- status .
+cargo run -- status --db .ferrograph
 
-# Watch for changes and re-index (--output required)
+# Watch for changes and re-index (--output/--db required)
 cargo run -- watch . --output .ferrograph
 
 # Run MCP server over stdio (for AI agents / IDEs).
@@ -50,6 +50,12 @@ cargo run -- watch . --output .ferrograph
 # Set FERROGRAPH_DB to the path of your index to use a specific graph.
 cargo run -- mcp
 ```
+
+### Selecting the graph
+
+Every query subcommand (`status`, `query`, `search`, `dead`, `blast`, `callers`, `info`, `modules`, `traits`) takes `-d/--db PATH`, either a graph database file or a project directory containing `.ferrograph`. It defaults to `./.ferrograph`. `index` and `watch` keep the positional project root and accept `--db` as an alias of `-o/--output`.
+
+The positional form `status [PATH]` is deprecated (still works, prints a note on stderr); use `status --db PATH`.
 
 ### Setup with Claude Code
 

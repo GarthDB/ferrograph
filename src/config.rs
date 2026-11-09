@@ -32,6 +32,9 @@ pub enum Command {
         /// Output path for the graph database.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Alias of --output (same convention as the other subcommands).
+        #[arg(short, long)]
+        db: Option<PathBuf>,
     },
     /// Run a Datalog or named query against the graph.
     Query {
@@ -43,7 +46,7 @@ pub enum Command {
     },
     /// Semantic search over the codebase.
     Search {
-        /// Path to the graph database.
+        /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
         db: Option<PathBuf>,
         /// Search query.
@@ -54,9 +57,11 @@ pub enum Command {
     },
     /// Show index status and stats.
     Status {
-        /// Path to the project or graph database.
-        #[arg(default_value = ".")]
-        path: PathBuf,
+        /// Path to the graph database, or a project directory containing .ferrograph.
+        #[arg(short, long, conflicts_with = "path")]
+        db: Option<PathBuf>,
+        /// Deprecated: use --db. Project directory or graph database file.
+        path: Option<PathBuf>,
     },
     /// Watch for file changes and re-index.
     Watch {
@@ -64,12 +69,15 @@ pub enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
         /// Output path for the graph database.
-        #[arg(short, long, required = true)]
+        #[arg(short, long, required_unless_present = "db")]
         output: Option<PathBuf>,
+        /// Alias of --output.
+        #[arg(short, long)]
+        db: Option<PathBuf>,
     },
     /// Find dead (unreachable) code.
     Dead {
-        /// Path to the graph database.
+        /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
         db: Option<PathBuf>,
         /// Filter results by file glob pattern.
@@ -87,7 +95,7 @@ pub enum Command {
     },
     /// Show blast radius (transitive impact) of a node.
     Blast {
-        /// Path to the graph database.
+        /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
         db: Option<PathBuf>,
         /// Node ID to compute blast radius from.
@@ -98,7 +106,7 @@ pub enum Command {
     },
     /// Show callers of a node (reverse call graph).
     Callers {
-        /// Path to the graph database.
+        /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
         db: Option<PathBuf>,
         /// Node ID to find callers for.
@@ -112,7 +120,7 @@ pub enum Command {
     },
     /// Show full info for a node (type, payload, edges).
     Info {
-        /// Path to the graph database.
+        /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
         db: Option<PathBuf>,
         /// Node ID to inspect.
@@ -120,7 +128,7 @@ pub enum Command {
     },
     /// Show module containment graph.
     Modules {
-        /// Path to the graph database.
+        /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
         db: Option<PathBuf>,
         /// Filter to modules under this path prefix (e.g. "./src/").
@@ -129,7 +137,7 @@ pub enum Command {
     },
     /// Show trait implementors.
     Traits {
-        /// Path to the graph database.
+        /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
         db: Option<PathBuf>,
         /// Trait name to search for.
@@ -162,15 +170,15 @@ pub enum ClaudeAction {
 pub fn run(cli: Cli) -> Result<()> {
     let json = cli.json;
     match cli.command {
-        Command::Index { path, output } => run_index(&path, output.as_ref()),
+        Command::Index { path, output, db } => run_index(&path, merge_output(output, db)?.as_ref()),
         Command::Query { db, query } => run_query(db.as_ref(), &query, json),
         Command::Search {
             db,
             query,
             case_insensitive,
         } => run_search(db.as_ref(), &query, case_insensitive, json),
-        Command::Status { path } => run_status(&path, json),
-        Command::Watch { path, output } => run_watch(&path, output.as_ref()),
+        Command::Status { db, path } => run_status(db, path, json),
+        Command::Watch { path, output, db } => run_watch(&path, merge_output(output, db)?.as_ref()),
         Command::Dead {
             db,
             file,
@@ -218,9 +226,29 @@ fn default_db_path() -> Option<PathBuf> {
 }
 
 fn resolve_db_path(db: Option<&PathBuf>) -> Result<PathBuf> {
-    db.cloned()
+    let path = db
+        .cloned()
         .or_else(default_db_path)
-        .context("No graph database path (use --db or run from a directory with .ferrograph)")
+        .context("No graph database path (use --db or run from a directory with .ferrograph)")?;
+    Ok(if path.is_dir() {
+        path.join(".ferrograph")
+    } else {
+        path
+    })
+}
+
+/// Combine `--output` and its `--db` alias; both may be given only if they agree.
+fn merge_output(output: Option<PathBuf>, db: Option<PathBuf>) -> Result<Option<PathBuf>> {
+    match (output, db) {
+        (Some(o), Some(d)) if o != d => {
+            anyhow::bail!(
+                "--output and --db are aliases but differ ({} vs {})",
+                o.display(),
+                d.display()
+            )
+        }
+        (o, d) => Ok(o.or(d)),
+    }
 }
 
 fn run_index(path: &Path, output: Option<&PathBuf>) -> Result<()> {
@@ -534,12 +562,12 @@ fn run_traits(db: Option<&PathBuf>, trait_name: &str, json: bool) -> Result<()> 
     Ok(())
 }
 
-fn run_status(path: &Path, json: bool) -> Result<()> {
-    let db_path = if path.is_dir() {
-        path.join(".ferrograph")
-    } else {
-        path.to_path_buf()
-    };
+fn run_status(db: Option<PathBuf>, legacy_path: Option<PathBuf>, json: bool) -> Result<()> {
+    if legacy_path.is_some() {
+        eprintln!("note: positional PATH for `status` is deprecated; use --db PATH");
+    }
+    let path = db.or(legacy_path).unwrap_or_else(|| PathBuf::from("."));
+    let db_path = resolve_db_path(Some(&path))?;
     if !db_path.exists() {
         println!(
             "No graph at {}. Run 'ferrograph index --output {}' first.",

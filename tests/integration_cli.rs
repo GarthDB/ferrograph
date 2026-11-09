@@ -778,3 +778,108 @@ fn cli_dead_reads_config_file() {
         "{out}"
     );
 }
+
+fn run(args: &[&str]) -> std::process::Output {
+    ferrograph_cmd().args(args).output().unwrap()
+}
+
+fn s(p: &std::path::Path) -> &str {
+    p.to_str().unwrap()
+}
+
+#[test]
+fn cli_status_db_forms() {
+    let (db, dir) = index_fixture();
+    for target in [s(&db), s(dir.path())] {
+        for flag in ["--db", "-d"] {
+            let out = run(&["status", flag, target]);
+            assert!(out.status.success());
+            assert!(String::from_utf8_lossy(&out.stdout).contains("Nodes ("));
+            assert_eq!(out.stderr, b"", "no deprecation note expected");
+            let out = run(&["status", "--json", flag, target]);
+            serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap();
+        }
+    }
+}
+
+#[test]
+fn cli_status_no_args_uses_cwd() {
+    let (_db, dir) = index_fixture();
+    let out = ferrograph_cmd()
+        .arg("status")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Nodes ("));
+    assert_eq!(out.stderr, b"");
+}
+
+#[test]
+fn cli_status_legacy_positional_warns_on_stderr() {
+    let (db, dir) = index_fixture();
+    for target in [s(&db), s(dir.path())] {
+        let out = run(&["status", target]);
+        assert!(out.status.success());
+        assert!(String::from_utf8_lossy(&out.stdout).contains("Nodes ("));
+        assert!(String::from_utf8_lossy(&out.stderr).contains("deprecated"));
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("deprecated"));
+        let out = run(&["status", "--json", target]);
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap();
+    }
+}
+
+#[test]
+fn cli_status_path_conflicts_with_db() {
+    let (db, dir) = index_fixture();
+    let out = run(&["status", s(dir.path()), "--db", s(&db)]);
+    assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn cli_all_subcommands_accept_project_dir_as_db() {
+    let (_db, dir) = index_fixture();
+    let d = s(dir.path());
+    let cases: [&[&str]; 8] = [
+        &["query", "?[id] := *dead_functions[id]"],
+        &["search", "main"],
+        &["dead"],
+        &["blast", "./src/lib.rs"],
+        &["callers", "./src/lib.rs"],
+        &["info", "./src/lib.rs"],
+        &["modules"],
+        &["traits", "Greeter"],
+    ];
+    for case in cases {
+        let mut args = vec![case[0], "--db", d];
+        args.extend_from_slice(&case[1..]);
+        let out = run(&args);
+        assert!(
+            out.status.success(),
+            "{case:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+#[test]
+fn cli_index_db_alias_of_output() {
+    let fixture = fixture_path("single_crate");
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("g.db");
+    let out = run(&["index", "--db", s(&db), s(&fixture)]);
+    assert!(out.status.success());
+    assert!(db.exists());
+    let other = dir.path().join("other.db");
+    let out = run(&["index", "-o", s(&db), "-d", s(&other), s(&fixture)]);
+    assert!(!out.status.success());
+    assert!(!other.exists());
+}
+
+#[test]
+fn cli_watch_accepts_db_alias() {
+    let out = run(&["watch", "--help"]);
+    assert!(String::from_utf8_lossy(&out.stdout).contains("--db"));
+    // Missing both must be rejected by clap without starting a watcher.
+    assert_eq!(run(&["watch", "."]).status.code(), Some(2));
+}
