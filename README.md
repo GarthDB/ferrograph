@@ -40,9 +40,9 @@ cargo run -- search --db .ferrograph "main"
 cargo run -- search --db .ferrograph -c "greet"
 
 # Show graph stats
-cargo run -- status .
+cargo run -- status --db .ferrograph
 
-# Watch for changes and re-index (--output required)
+# Watch for changes and re-index (--output/--db required)
 cargo run -- watch . --output .ferrograph
 
 # Run MCP server over stdio (for AI agents / IDEs).
@@ -50,6 +50,32 @@ cargo run -- watch . --output .ferrograph
 # Set FERROGRAPH_DB to the path of your index to use a specific graph.
 cargo run -- mcp
 ```
+
+### Selecting the graph
+
+Every query subcommand (`status`, `query`, `search`, `dead`, `blast`, `callers`, `info`, `modules`, `traits`) takes `-d/--db PATH`, either a graph database file or a project directory containing `.ferrograph`. It defaults to `./.ferrograph`. `index` and `watch` keep the positional project root and accept `--db` as an alias of `-o/--output`. For these two, `--db` names the file to **write** and is used as given (no project-directory lookup), so `index --db .` and `status --db .` mean different things.
+
+The positional form `status [PATH]` is deprecated (still works, prints a note on stderr); use `status --db PATH`.
+
+### CI gating and exit codes
+
+`dead` and `blast` can fail a CI job when findings exceed a threshold. Flags are opt-in; without them the exit code is unchanged.
+
+```bash
+ferrograph dead --db .ferrograph --max 0      # same as --fail-on-any
+ferrograph dead --db .ferrograph --max 25     # allow up to 25 findings
+ferrograph blast --db .ferrograph --max 100 "<node id>"
+```
+
+Normal output (including `--json`) is printed first and is unchanged; a breach adds one line `threshold exceeded: N > M` on stderr.
+
+| Code | Meaning |
+|---|---|
+| 0 | OK / no findings over the threshold |
+| 1 | Findings over the threshold |
+| 2 | Error (bad arguments, missing database, query failure) |
+
+> **Behaviour change:** runtime errors (missing database, query failure) previously exited 1; they now exit 2 so that 1 means "findings over threshold".
 
 ### Setup with Claude Code
 
