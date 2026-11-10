@@ -243,7 +243,7 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 
 ## CI
 
-[`GarthDB/ferrograph-action`](https://github.com/GarthDB/ferrograph-action) runs `ferrograph pr` on pull requests and posts a sticky comment with newly dead functions and blast radius. Advisory mode is the recommended default today, because dead-code detection has known false positives and negatives (see [Accuracy and limitations](#accuracy-and-limitations)). It is advisory by default (it fails only if you set `fail-on-new-dead`, `max-new-dead` or `max-blast`) and can upload SARIF to code scanning. Requires ferrograph v4.0.0 or later (the first release with `ferrograph pr`).
+[`GarthDB/ferrograph-action`](https://github.com/GarthDB/ferrograph-action) runs `ferrograph pr` on pull requests and posts a sticky comment with newly dead functions and blast radius. Advisory mode is the recommended default today, because dead-code detection has known false positives and negatives (see [Accuracy and limitations](#accuracy-and-limitations)). The action is advisory by default (it fails only if you set `fail-on-new-dead`, `max-new-dead` or `max-blast`) and can upload SARIF to code scanning. Requires ferrograph v4.0.0 or later (the first release with `ferrograph pr`).
 
 ```yaml
 name: ferrograph
