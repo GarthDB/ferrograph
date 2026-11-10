@@ -7,7 +7,7 @@
 //! functions defined inside an `impl`/`trait` (never free functions): same-file methods win, else
 //! every method with that name in the project. Several candidates become low-confidence edges
 //! (1/N); more than `MAX_METHOD_CANDIDATES` are dropped, so std-like names (`len`, `get`, `push`)
-//! cannot flood the graph. Qualified paths (`Type::m()`, `mod::fn`) are partially handled (see
+//! cannot flood the graph. A bare name (`f()`) only falls back to free functions. Qualified paths (`Type::m()`, `mod::fn`) are partially handled (see
 //! `resolve_call_target` `scoped_identifier` support).
 
 use std::borrow::Cow;
@@ -244,10 +244,17 @@ fn resolve_placeholder(
     if value {
         return Resolution::None;
     }
-    match global_by_name.get(fn_name).map(Vec::as_slice) {
-        Some([one]) => Resolution::One(one.clone()),
-        Some([]) | None => Resolution::None,
-        Some(candidates) => Resolution::Ambiguous(candidates.to_vec()),
+    // A bare name cannot call a method (`Type::new` keeps its path), so only free functions count.
+    let free: Vec<&NodeId> = global_by_name
+        .get(fn_name)
+        .into_iter()
+        .flatten()
+        .filter(|n| !idx.methods.contains(n.as_str()))
+        .collect();
+    match free.as_slice() {
+        [] => Resolution::None,
+        [one] => Resolution::One((*one).clone()),
+        many => Resolution::Ambiguous(many.iter().map(|n| (*n).clone()).collect()),
     }
 }
 
@@ -759,5 +766,49 @@ mod tests {
             .unwrap();
         build_call_graph(&store).unwrap();
         assert_eq!(call_targets_of(&store), Vec::<String>::new());
+    }
+
+    #[test]
+    fn bare_name_global_fallback_ignores_methods() {
+        let store = Store::new_memory().unwrap();
+        let caller = NodeId::new("./a.rs#1:1");
+        store
+            .put_node(&caller, &NodeType::Function, Some("main"))
+            .unwrap();
+        let free = NodeId::new("./free.rs#1:1");
+        store
+            .put_node(&free, &NodeType::Function, Some("find"))
+            .unwrap();
+        for i in 0..3 {
+            let imp = NodeId::new(format!("./m{i}.rs#1:1"));
+            let method = NodeId::new(format!("./m{i}.rs#2:5"));
+            store.put_node(&imp, &NodeType::Impl, Some("S")).unwrap();
+            store
+                .put_node(&method, &NodeType::Function, Some("find"))
+                .unwrap();
+            store.put_edge(&imp, &method, &EdgeType::Contains).unwrap();
+        }
+        store
+            .put_edge(&caller, &NodeId::new("./a.rs::find"), &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let edges = Query::all_edges(&store).unwrap();
+        let calls: Vec<_> = edges
+            .rows
+            .iter()
+            .filter(|r| r[2].to_string().contains("calls"))
+            .map(|r| r[1].to_string().trim_matches('"').to_string())
+            .collect();
+        assert_eq!(calls, ["./free.rs#1:1"]);
+        let low = store
+            .run_query(
+                "?[t] := *edge_confidence[_, t, \"calls\", _]",
+                std::collections::BTreeMap::new(),
+            )
+            .unwrap();
+        assert!(
+            low.rows.is_empty(),
+            "unique free fn is a high-confidence edge"
+        );
     }
 }
