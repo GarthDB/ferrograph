@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.4](https://github.com/GarthDB/ferrograph/compare/v4.0.3...v4.0.4) - 2026-11-10
+
+### Fixed
+
+- *(pipeline)* keep fns referenced from const and static initialisers alive
+- *(pipeline)* scan bracket and brace macro bodies for calls
+- *(pipeline)* resolve Self::f and Type::f among same-named assoc fns
+- *(pipeline)* resolve same-named fns by lexical scope
+
 ## [4.0.3](https://github.com/GarthDB/ferrograph/compare/v4.0.2...v4.0.3) - 2026-11-09
 
 ### Fixed
