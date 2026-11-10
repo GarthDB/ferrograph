@@ -59,7 +59,7 @@ The positional form `status [PATH]` is deprecated (still works, prints a note on
 
 ### CI gating and exit codes
 
-`dead` and `blast` can fail a CI job when findings exceed a threshold. Flags are opt-in; without them the exit code is unchanged.
+`dead` and `blast` can fail a CI job when findings exceed a threshold. Flags are opt-in; without them the exit code is unchanged. Because dead-code results are not exact (see [Accuracy and limitations](#accuracy-and-limitations)), try advisory mode on your own repo before gating.
 
 ```bash
 ferrograph dead --db .ferrograph --max 0      # same as --fail-on-any
@@ -98,7 +98,7 @@ Normal output (including `--json`) is printed first and is unchanged; a breach a
 
 ### Reviewing a change (`pr`)
 
-`ferrograph pr --base <ref>` reports only what the current branch introduces, so it can gate CI where whole-repo `dead` lists are too noisy:
+`ferrograph pr --base <ref>` reports only what the current branch introduces, so it is intended for CI gating where whole-repo `dead` lists are too noisy. Its accuracy is still being measured (see [Accuracy and limitations](#accuracy-and-limitations)): thresholds (`--fail-on-new-dead`, `--max-*`) are opt-in, so run it in advisory mode on your own repo first and adopt them only once the reports hold up:
 
 - **Newly dead functions**: dead at HEAD but not at the merge base (`became_dead`), or new and never called (`added_dead`). Removed functions are never reported.
 - **Blast radius** of the changed functions (changed lines mapped to the innermost containing function), per function plus the de-duplicated union (`--blast-limit`, default 200 listed; the full count is always reported, up to an internal cap of 50,000 nodes per function; past it the JSON gets `"truncated": true` and text shows `50000+`). Lines outside any function (`use`, `struct`, `const` edits) are listed separately and add no blast.
@@ -243,7 +243,7 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 
 ## CI
 
-[`GarthDB/ferrograph-action`](https://github.com/GarthDB/ferrograph-action) runs `ferrograph pr` on pull requests and posts a sticky comment with newly dead functions and blast radius. It is advisory by default (it fails only if you set `fail-on-new-dead`, `max-new-dead` or `max-blast`) and can upload SARIF to code scanning. Requires ferrograph v4.0.0 or later (the first release with `ferrograph pr`).
+[`GarthDB/ferrograph-action`](https://github.com/GarthDB/ferrograph-action) runs `ferrograph pr` on pull requests and posts a sticky comment with newly dead functions and blast radius. Advisory mode is the recommended default today, because dead-code detection has known false positives and negatives (see [Accuracy and limitations](#accuracy-and-limitations)). The action is advisory by default (it fails only if you set `fail-on-new-dead`, `max-new-dead` or `max-blast`) and can upload SARIF to code scanning. Requires ferrograph v4.0.0 or later (the first release with `ferrograph pr`).
 
 ```yaml
 name: ferrograph
@@ -297,6 +297,17 @@ The schema defines 12 edge types; all 12 are currently populated:
 | `lifetime_scope`    | Yes         | Self-loop on items with explicit lifetime params (tree-sitter only). |
 | `has_attribute`     | Yes         | Function to synthetic `attr::<name>` target per outer attribute (e.g. `attr::no_mangle`, `attr::extern`). Used for `dead` entry points. |
 | `changes_with`      | Yes (requires `git` feature) | Git change coupling (optional feature). |
+
+## Accuracy and limitations
+
+Dead-code and blast-radius results are a review aid, not proof.
+
+- **What is analysed**: syntactic (tree-sitter) extraction with name-based call resolution. Ambiguous names become low-confidence edges, which `--strict` (and `--exclude-low-confidence`) ignore.
+- **Always live**: all `pub` items, trait impl methods, entry attributes, `main`, and test code.
+- **Known false positives** (live code reported dead): names used only in attribute or macro arguments ([#89](https://github.com/GarthDB/ferrograph/issues/89)), attribute-macro impls ([#102](https://github.com/GarthDB/ferrograph/issues/102)), `write!` calling `write_fmt` ([#101](https://github.com/GarthDB/ferrograph/issues/101)), some cross-file qualified paths, methods above the 8-candidate cap, and `dyn Trait` dynamic dispatch.
+- **Known false negatives** (dead code not reported): anything `pub`, trait impls, name collisions, and `pub(crate)` items ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
+- **Recall is not yet measured.** A short list may reflect over-approximation of liveness rather than a clean codebase.
+- Hand-checked samples of what is still reported showed poor precision (about 1 true-dead in 45 sampled reports) as of v4.0.4 (2026-11-10); see [#92](https://github.com/GarthDB/ferrograph/issues/92) and [#103](https://github.com/GarthDB/ferrograph/pull/103).
 
 ## Publishing
 

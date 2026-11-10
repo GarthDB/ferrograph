@@ -249,12 +249,12 @@ fn all_tools() -> Vec<Tool> {
     vec![
         tool(
             "dead_code",
-            "List node ids that are not reachable from any entry point (e.g. dead functions).",
+            "List node ids that are not reachable from any entry point (e.g. dead functions). Static, name-based analysis: results may include false positives (dyn Trait, macro/attribute arguments) and miss dead code (anything pub, trait impls); a review aid, not proof.",
             dead_code_input_schema(),
         ),
         tool(
             "blast_radius",
-            "List nodes reachable from a given node (what breaks if this changes).",
+            "List nodes reachable from a given node (what breaks if this changes). Approximate: name-based call resolution may over- or under-approximate.",
             blast_radius_input_schema(),
         ),
         tool(

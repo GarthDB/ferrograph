@@ -120,7 +120,7 @@ ferrograph query '?[from, to] := *edges[from, to, "uses_unsafe"]' -d "$DB_PATH"
 ### Dead Code (N items)
 - function_name (file.rs#line)
 - ...
-(Note: functions called via dyn Trait may appear dead — see caveat below)
+(Note: static, name-based analysis; may contain false positives and miss dead code — see caveat below)
 
 ### Unsafe Usage
 - N unsafe blocks/functions
@@ -307,6 +307,6 @@ Each tool produces independent output — ferrograph in `.ferrograph`, graphify 
 
 ## Honesty rules
 
-- ferrograph uses static analysis only. Functions called via `dyn Trait` (dynamic dispatch) may appear as dead code. Always mention this caveat.
+- ferrograph uses static, name-based analysis. Dead-code results can include false positives (`dyn Trait` dynamic dispatch, names used only in macro/attribute arguments, attribute-macro impls, some cross-file paths) and false negatives (anything `pub` or `pub(crate)`, trait impls and name collisions keep code alive). Treat them as a review aid, not proof, and always mention this caveat. Recall is not yet measured; see https://github.com/GarthDB/ferrograph/issues/92.
 - The `changes_with` edge type requires the `git` feature and may not be populated.
 - Node IDs are positional (line:col). Reindex after significant code changes or IDs may be stale.
