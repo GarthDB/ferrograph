@@ -121,10 +121,14 @@ pub struct DeadCodeResult {
     pub caveat: &'static str,
 }
 
-/// Caveat about dynamic dispatch included in dead code results.
+/// Accuracy caveat included in dead code results.
 pub const DEAD_CODE_CAVEAT: &str =
-    "Note: functions called via dyn Trait (dynamic dispatch) may appear as dead \
-     because ferrograph uses static analysis only.";
+    "Note: this is static, name-based analysis, so treat it as a review aid, not proof. \
+     It can report live code as dead (false positives), e.g. functions called via dyn Trait \
+     (dynamic dispatch), names used only in macro or attribute arguments, attribute-macro \
+     impls, and some cross-file paths. It can also miss dead code (false negatives): anything \
+     `pub`, trait impls, and name collisions keep code alive. \
+     See https://github.com/GarthDB/ferrograph/issues/92.";
 
 /// A function that the change under review leaves dead (see [`crate::pr`]).
 #[derive(Debug, Serialize)]

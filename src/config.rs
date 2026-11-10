@@ -101,7 +101,7 @@ pub enum Command {
         #[arg(short, long)]
         db: Option<PathBuf>,
     },
-    /// Find dead (unreachable) code.
+    /// Find dead (unreachable) code. Static, name-based: may have false positives and negatives; a review aid, not proof.
     Dead {
         /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
@@ -127,7 +127,7 @@ pub enum Command {
         #[command(flatten)]
         fmt: FormatArgs,
     },
-    /// Report what a change introduces relative to a base ref: newly dead functions and blast radius.
+    /// Report what a change introduces relative to a base ref: newly dead functions and blast radius. Accuracy is still being measured; try without thresholds first.
     Pr {
         /// Graph of HEAD (database file or project directory containing .ferrograph).
         #[arg(short, long, conflicts_with = "index_head")]
