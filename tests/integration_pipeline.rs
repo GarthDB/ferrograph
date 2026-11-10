@@ -507,3 +507,120 @@ fn pipeline_path_calls_resolve_among_same_named_assoc_fns() {
     assert_eq!(rows.rows.len(), 2, "{:?}", rows.rows);
     assert!(rows.rows.iter().all(|r| r[1].get_float() == Some(0.5)));
 }
+
+fn low_confidence_targets(store: &Store) -> Vec<(String, f64)> {
+    store
+        .run_query(
+            "?[t, c] := *edge_confidence[_, t, \"calls\", c]",
+            std::collections::BTreeMap::new(),
+        )
+        .unwrap()
+        .rows
+        .iter()
+        .map(|r| {
+            (
+                r[0].to_string().trim_matches('"').to_string(),
+                r[1].get_float().unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn pipeline_macro_bodies_with_any_delimiter_keep_callees_alive() {
+    let store = run_fixture("macro_bodies");
+    for strict in [false, true] {
+        let dead = dead_names(&store, strict);
+        for live in [
+            "bubble",
+            "third",
+            "in_macro_def",
+            "observer_class",
+            "observer_class_helper",
+            "observe",
+            "value_in_vec",
+            "story_a",
+            "story_b",
+            "story_helper",
+            "body_helper",
+            "inner_callee",
+            "turbo_in_macro",
+        ] {
+            assert!(
+                !dead.iter().any(|n| n == live),
+                "{live} is live (strict={strict}), dead: {dead:?}"
+            );
+        }
+        for still_dead in [
+            "neighbour_unused",
+            "only_in_unused_macro",
+            "only_in_dead_caller",
+            "dead_caller",
+            "story_unlisted",
+        ] {
+            assert!(
+                dead.iter().any(|n| n == still_dead),
+                "{still_dead} must stay dead (strict={strict}), dead: {dead:?}"
+            );
+        }
+    }
+    // `vec![Maker::make()]` reaches the method; the free fn of the same name stays dead.
+    let dead = dead_names(&store, false);
+    assert_eq!(dead.iter().filter(|n| *n == "make").count(), 1, "{dead:?}");
+    // `vec![a.go()]` with two `go` methods: low-confidence (1/2) edges, dropped by --strict only.
+    let low = low_confidence_targets(&store);
+    assert_eq!(low.len(), 2, "{low:?}");
+    assert!(low.iter().all(|(_, c)| (*c - 0.5).abs() < f64::EPSILON));
+    assert!(!dead_names(&store, false).iter().any(|n| n == "go"));
+    assert_eq!(
+        dead_names(&store, true)
+            .iter()
+            .filter(|n| *n == "go")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn pipeline_const_and_static_initialisers_keep_fns_alive() {
+    let store = run_fixture("const_refs");
+    for strict in [false, true] {
+        let dead = dead_names(&store, strict);
+        for live in [
+            "handler",
+            "init",
+            "adapter",
+            "adapter_field",
+            "table_fn",
+            "const_helper",
+            "lazy_init",
+            "builtin",
+            "used_builtin",
+            "trait_const_init",
+            "kept_by_used",
+            "reg_fn",
+        ] {
+            assert!(
+                !dead.iter().any(|n| n == live),
+                "{live} is live (strict={strict}), dead: {dead:?}"
+            );
+        }
+        // `dv` is the cross-file value path of #97 item 3, not fixed yet.
+        for still_dead in [
+            "dv",
+            "unref_fn",
+            "unref_const_fn",
+            "max_init",
+            "hidden_builtin",
+            "dead_turbofish",
+            "unused_reg_fn",
+        ] {
+            assert!(
+                dead.iter().any(|n| n == still_dead),
+                "{still_dead} must stay dead (strict={strict}), dead: {dead:?}"
+            );
+        }
+    }
+    let low = low_confidence_targets(&store);
+    assert!(low.is_empty(), "{low:?}");
+}

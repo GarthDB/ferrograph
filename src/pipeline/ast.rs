@@ -97,7 +97,10 @@ fn classify_node(
             (None, None, None)
         }
         "identifier" | "scoped_identifier" => {
-            if let (Some(from), true) = (parent, is_value_position(node)) {
+            if let (Some(from), true) = (
+                parent,
+                is_value_position(node) || is_const_use(node, source),
+            ) {
                 let r = node.byte_range();
                 if let Some(path) = source.get(r.start..r.end) {
                     let target = NodeId::new(format!(
@@ -203,6 +206,12 @@ fn traverse(
                 ));
             }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
+        }
+        if kind == "const_item" || kind == "static_item" {
+            push_const_roots(&id, &node, source, edges);
+        }
+        if kind == "macro_definition" {
+            scan_macro_rules_body(&node, source, file_id, &id, edges);
         }
         if let Some((to_id, edge_type)) = extra {
             edges.push((id.clone(), to_id, edge_type));
@@ -754,6 +763,13 @@ fn type_name_from_node(node: &tree_sitter::Node, source: &str) -> Option<String>
 /// rather than called or declared. Such paths may name a fn item (fn pointer); the calls phase
 /// drops the placeholder if it does not resolve to one.
 fn is_value_position(node: &tree_sitter::Node) -> bool {
+    let mut node = *node;
+    // `f::<T>` as a value: the path sits inside a `generic_function`, which takes its place.
+    if let Some(g) = node.parent().filter(|g| {
+        g.kind() == "generic_function" && g.child_by_field_name("function") == Some(node)
+    }) {
+        node = g;
+    }
     let Some(p) = node.parent() else {
         return false;
     };
@@ -768,9 +784,68 @@ fn is_value_position(node: &tree_sitter::Node) -> bool {
         | "return_expression"
         | "type_cast_expression"
         | "block" => true,
-        "let_declaration" | "match_arm" => p.child_by_field_name("value") == Some(*node),
-        "assignment_expression" => p.child_by_field_name("right") == Some(*node),
+        "let_declaration" | "match_arm" | "const_item" | "static_item" => {
+            p.child_by_field_name("value") == Some(node)
+        }
+        "assignment_expression" => p.child_by_field_name("right") == Some(node),
         _ => false,
+    }
+}
+
+/// True for an outermost path that looks like a use of a const/static (`MAX`, `Self::ID`) outside
+/// declarations and `use` items. The calls phase links it to a same-file const/static, else drops it.
+fn is_const_use(node: &tree_sitter::Node, source: &str) -> bool {
+    let Some(p) = node.parent() else {
+        return false;
+    };
+    if matches!(
+        p.kind(),
+        "scoped_identifier"
+            | "token_tree"
+            | "token_repetition"
+            | "token_tree_pattern"
+            | "use_declaration"
+            | "use_list"
+            | "scoped_use_list"
+            | "use_as_clause"
+            | "use_wildcard"
+    ) || (matches!(p.kind(), "const_item" | "static_item")
+        && p.child_by_field_name("name") == Some(*node))
+    {
+        return false;
+    }
+    source
+        .get(node.byte_range())
+        .is_some_and(|t| super::calls::is_const_like(t.rsplit("::").next().unwrap_or(t)))
+}
+
+/// Marks a const/static as a dead-code root (see `graph::query`): `pub`, an item of a trait impl,
+/// or a static with an entry attribute (`#[no_mangle]`, `#[used]`, ...).
+fn push_const_roots(
+    id: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let is_bare_pub = node.child(0).is_some_and(|c| {
+        c.kind() == "visibility_modifier" && source.get(c.byte_range()) == Some("pub")
+    });
+    let mut roots = Vec::new();
+    if is_bare_pub {
+        roots.push("pub".to_string());
+    }
+    if is_trait_impl_method(node) {
+        roots.push(TRAIT_IMPL_ATTR.to_string());
+    }
+    if node.kind() == "static_item" {
+        roots.extend(attribute_names(node, source));
+    }
+    for name in roots {
+        edges.push((
+            id.clone(),
+            NodeId::new(format!("attr::{name}")),
+            EdgeType::HasAttribute,
+        ));
     }
 }
 
@@ -840,10 +915,30 @@ fn scan_macro_for_calls(
     };
     let mut i = 0;
     while let Some(child) = node.child(i) {
-        if child.kind() == "token_tree" && token_tree_starts_with_paren(&child, source) {
+        if child.kind() == "token_tree" {
             scan_token_tree_for_calls(&child, source, file_id, parent_id, edges);
         }
         i += 1;
+    }
+}
+
+/// Scan the transcriber (right-hand side) of each `macro_rules!` rule, attributing calls to the
+/// macro node. The matcher side is not scanned: it only holds patterns and fragment names.
+fn scan_macro_rules_body(
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    macro_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let mut cursor = node.walk();
+    for rule in node.children(&mut cursor) {
+        if let Some(body) = rule
+            .child_by_field_name("right")
+            .filter(|b| b.kind() == "token_tree")
+        {
+            scan_token_tree_for_calls(&body, source, file_id, macro_id, edges);
+        }
     }
 }
 
@@ -872,8 +967,38 @@ fn turbofish_then_paren(tt: &tree_sitter::Node, start: usize, source: &str) -> b
     false
 }
 
-/// Recursively scan a `token_tree` for identifier followed by parenthesized `token_tree`.
-/// Method calls (previous sibling `.`) become method placeholders; nested macros (next sibling `!`) are skipped.
+/// True if the identifier at child `i` is followed by `::` and another segment (not a turbofish).
+fn is_path_segment(tt: &tree_sitter::Node, i: usize) -> bool {
+    tt.child(i + 1).is_some_and(|n| n.kind() == "::")
+        && tt.child(i + 2).map(|n| n.kind()) != Some("<")
+}
+
+/// The `A::B::` path before the identifier at child `i` of a token tree (empty if there is none),
+/// so `Type::new(` keeps its path as it does outside macros instead of becoming a bare `new`.
+fn path_prefix(tt: &tree_sitter::Node, i: usize, source: &str) -> String {
+    let mut segments = Vec::new();
+    let mut j = i;
+    while j >= 2 && tt.child(j - 1).is_some_and(|n| n.kind() == "::") {
+        let Some(seg) = tt
+            .child(j - 2)
+            .filter(|n| matches!(n.kind(), "identifier" | "crate" | "self" | "super"))
+            .and_then(|n| source.get(n.byte_range()))
+        else {
+            break;
+        };
+        segments.push(seg);
+        j -= 2;
+    }
+    segments.reverse();
+    segments
+        .into_iter()
+        .fold(String::new(), |acc, s| acc + s + "::")
+}
+
+/// Recursively scan a `token_tree` (any delimiter: `()`, `[]`, `{}`) for identifier followed by a
+/// parenthesized `token_tree`. Method calls (previous sibling `.`) become method placeholders;
+/// nested macros (next sibling `!`) become `ExpandsTo` placeholders. Identifiers that name a new
+/// item (`fn f`, `struct S`) or a field/binding (`name:`) are not references.
 fn scan_token_tree_for_calls(
     tt: &tree_sitter::Node,
     source: &str,
@@ -886,31 +1011,46 @@ fn scan_token_tree_for_calls(
     while let Some(child) = tt.child(i) {
         let kind = child.kind().to_string();
         let next = tt.child(i + 1);
-        if kind == "identifier" {
+        let next_kind = next.map(|n| n.kind());
+        let declares = matches!(
+            prev_kind.as_deref(),
+            Some("fn" | "struct" | "enum" | "union" | "trait" | "type" | "mod")
+        );
+        if kind == "identifier" && !declares && next_kind == Some("!") {
+            if tt.child(i + 2).is_some_and(|n| n.kind() == "token_tree") {
+                if let Some(name) = source.get(child.byte_range()) {
+                    edges.push((
+                        parent.clone(),
+                        NodeId::new(format!("{}::{}", file_id.as_str(), name)),
+                        EdgeType::ExpandsTo,
+                    ));
+                }
+            }
+        } else if kind == "identifier" && !declares {
             let prev_is_dot = prev_kind.as_deref() == Some(".");
             let called = next.is_some_and(|n| {
                 n.kind() == "token_tree" && token_tree_starts_with_paren(&n, source)
-            }) || (prev_is_dot && turbofish_then_paren(tt, i + 1, source));
+            }) || turbofish_then_paren(tt, i + 1, source);
             if called {
                 if let Some(name) = source.get(child.byte_range()) {
-                    let suffix = if prev_is_dot {
-                        super::calls::METHOD_SUFFIX
+                    let (path, suffix) = if prev_is_dot {
+                        (String::new(), super::calls::METHOD_SUFFIX)
                     } else {
-                        ""
+                        (path_prefix(tt, i, source), "")
                     };
                     let callee_id =
-                        NodeId::new(format!("{}::{}{}", file_id.as_str(), name, suffix));
+                        NodeId::new(format!("{}::{}{}{}", file_id.as_str(), path, name, suffix));
                     edges.push((parent.clone(), callee_id, EdgeType::Calls));
                 }
-            }
-        }
-        if kind == "identifier" && prev_kind.as_deref() != Some(".") {
-            let called = next.is_some_and(|n| n.kind() == "token_tree");
-            if !called {
+            } else if !prev_is_dot
+                && !matches!(next_kind, Some("token_tree" | ":"))
+                && !is_path_segment(tt, i)
+            {
                 if let Some(name) = source.get(child.byte_range()) {
                     let target = NodeId::new(format!(
-                        "{}::{}{}",
+                        "{}::{}{}{}",
                         file_id.as_str(),
+                        path_prefix(tt, i, source),
                         name,
                         super::calls::VALUE_SUFFIX
                     ));
@@ -918,7 +1058,7 @@ fn scan_token_tree_for_calls(
                 }
             }
         }
-        if kind == "token_tree" {
+        if kind == "token_tree" || kind == "token_repetition" {
             scan_token_tree_for_calls(&child, source, file_id, parent, edges);
         }
         prev_kind = Some(kind);
@@ -1550,5 +1690,71 @@ mod tests {
             to_vals.iter().any(|t| t.contains("Point")),
             "owns should include Point (tuple field type), got {to_vals:?}"
         );
+    }
+
+    #[test]
+    fn bracket_and_brace_macros_are_scanned_like_parens() {
+        let src = "fn f() { vec![a(), b.m()]; t! { k => v, w(1) }; g!(h()); }";
+        let got = call_targets(src);
+        for want in ["./t.rs::a", "./t.rs::m@method", "./t.rs::w", "./t.rs::h"] {
+            assert!(got.iter().any(|g| g == want), "{want} missing: {got:?}");
+        }
+        for want in ["./t.rs::v@value", "./t.rs::k@value"] {
+            assert!(got.iter().any(|g| g == want), "{want} missing: {got:?}");
+        }
+    }
+
+    #[test]
+    fn macro_paths_keep_their_qualifier() {
+        let got = call_targets("fn f() { vec![Type::new(), a::b::c(), crate::d(), p::V] }");
+        for want in [
+            "./t.rs::Type::new",
+            "./t.rs::a::b::c",
+            "./t.rs::crate::d",
+            "./t.rs::p::V@value",
+        ] {
+            assert!(got.iter().any(|g| g == want), "{want} missing: {got:?}");
+        }
+        let got = call_targets("fn f() { assert!(own::<T>(&rt).x); g!(conv::<u8>); }");
+        for want in ["./t.rs::own", "./t.rs::conv@value"] {
+            assert!(got.iter().any(|g| g == want), "{want} missing: {got:?}");
+        }
+        let got = call_targets("fn f() { vec![Type::new(), a::b::c(), crate::d(), p::V] }");
+        for not in ["./t.rs::new", "./t.rs::Type@value", "./t.rs::a@value"] {
+            assert!(!got.iter().any(|g| g == not), "{not} present: {got:?}");
+        }
+    }
+
+    #[test]
+    fn macro_rules_body_calls_belong_to_the_macro_not_the_matcher() {
+        let src = "macro_rules! m { (matcher_only(x)) => { real(); fn gen() { inner() } struct S(u8); name: v }; }";
+        let got = call_targets(src);
+        assert!(got.contains(&"./t.rs::real".to_string()), "{got:?}");
+        assert!(got.contains(&"./t.rs::inner".to_string()), "{got:?}");
+        for not in ["matcher_only", "gen", "S", "name"] {
+            assert!(
+                !got.iter().any(|g| g.starts_with(&format!("./t.rs::{not}"))),
+                "{not} is not a reference: {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn const_like_uses_and_turbofish_values_become_placeholders() {
+        let src = "const A: u8 = f; fn g() { h(MAX, Self::ID, u8::MAX, x::<u8>); let _ = TABLE[0]; map(conv::<T>); i(conv::<T>()); }";
+        let got = call_targets(src);
+        for want in [
+            "./t.rs::MAX@value",
+            "./t.rs::Self::ID@value",
+            "./t.rs::TABLE@value",
+            "./t.rs::f@value",
+            "./t.rs::x@value",
+            "./t.rs::conv@value",
+        ] {
+            assert!(got.iter().any(|g| g == want), "{want} missing: {got:?}");
+        }
+        // the callee turbofish is a call, never a value
+        assert_eq!(got.iter().filter(|g| *g == "./t.rs::conv").count(), 1);
+        assert!(!got.iter().any(|g| g == "./t.rs::A@value"));
     }
 }
