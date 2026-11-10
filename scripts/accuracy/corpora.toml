@@ -1,0 +1,56 @@
+# Corpora for groundtruth.py / mutation.py.
+#   url (shallow-cloned at `ref`, a branch, tag or full SHA) or path (copied, never modified)
+#   optional: group (share copy + target dir), index_path (subdir to index, default "."),
+#             cargo_args (default: --workspace --all-targets --all-features; the runner falls back
+#             step by step if that fails and reports which variant ran)
+
+# Primary corpora (pinned to the commits measured in the first report).
+[[corpus]]
+name = "clap"
+url = "https://github.com/clap-rs/clap"
+ref = "ec93e71255c0b833a34f50662a3fdb22f53f6ded"
+
+[[corpus]]
+name = "ripgrep"        # library-leaning: one binary plus nine library crates
+url = "https://github.com/BurntSushi/ripgrep"
+ref = "178cc027e283fd965cb72d0a7395b219eada170c"
+
+[[corpus]]
+name = "fd"             # binary-heavy
+url = "https://github.com/sharkdp/fd"
+ref = "24d90b28d25438af2a8f2e7f7e46d03d6828da94"
+
+# Supplementary corpora. CI-clean crates contain almost no dead code, so these were picked from a
+# scan of 20 popular crates because rustc reports at least one dead function in them.
+[[corpus]]
+name = "topgrade"
+url = "https://github.com/topgrade-rs/topgrade"
+ref = "77eef190429850607c41cedfec904f43d66c8394"
+
+[[corpus]]
+name = "delta"
+url = "https://github.com/dandavison/delta"
+ref = "c6043957f68af55699f85f827aac795d73319440"
+
+[[corpus]]
+name = "tokei"
+url = "https://github.com/XAMPPRocky/tokei"
+ref = "c14f744716272fadeb27a74443cdffa0af35f82f"
+
+[[corpus]]
+name = "mdbook"
+url = "https://github.com/rust-lang/mdBook"
+ref = "0accb8a3ff59e311c60e2267581fea6407d64c73"
+
+# Local-only corpora (the author's machine); other machines select with --only.
+[[corpus]]
+name = "rune-kit"
+group = "rune"          # shares the copy and target dir with the next entry
+path = "~/repos/rune"
+index_path = "crates/rune-kit"
+cargo_args = ["-p", "rune-kit", "--all-targets", "--all-features"]
+
+[[corpus]]
+name = "rune"
+group = "rune"
+path = "~/repos/rune"

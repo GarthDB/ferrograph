@@ -9,7 +9,7 @@ readme = "README.md"
 rust-version = "1.88"
 keywords = ["rust", "code-analysis", "mcp", "knowledge-graph", "tree-sitter"]
 categories = ["development-tools"]
-exclude = [".ferrograph", "tests/fixtures/"]
+exclude = [".ferrograph", "tests/fixtures/", "scripts/"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
