@@ -580,3 +580,47 @@ fn pipeline_macro_bodies_with_any_delimiter_keep_callees_alive() {
         2
     );
 }
+
+#[test]
+fn pipeline_const_and_static_initialisers_keep_fns_alive() {
+    let store = run_fixture("const_refs");
+    for strict in [false, true] {
+        let dead = dead_names(&store, strict);
+        for live in [
+            "handler",
+            "init",
+            "adapter",
+            "adapter_field",
+            "table_fn",
+            "const_helper",
+            "lazy_init",
+            "builtin",
+            "used_builtin",
+            "trait_const_init",
+            "kept_by_used",
+            "reg_fn",
+        ] {
+            assert!(
+                !dead.iter().any(|n| n == live),
+                "{live} is live (strict={strict}), dead: {dead:?}"
+            );
+        }
+        // `dv` is the cross-file value path of #97 item 3, not fixed yet.
+        for still_dead in [
+            "dv",
+            "unref_fn",
+            "unref_const_fn",
+            "max_init",
+            "hidden_builtin",
+            "dead_turbofish",
+            "unused_reg_fn",
+        ] {
+            assert!(
+                dead.iter().any(|n| n == still_dead),
+                "{still_dead} must stay dead (strict={strict}), dead: {dead:?}"
+            );
+        }
+    }
+    let low = low_confidence_targets(&store);
+    assert!(low.is_empty(), "{low:?}");
+}

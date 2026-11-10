@@ -258,7 +258,7 @@ impl Query {
         let script = format!(
             r#"
             entry[id] := id in $entry_ids
-            entry[id] := *edges[id, t, "{edge_attr}"], t in ["attr::trait_impl", "attr::no_mangle", "attr::export_name"]
+            entry[id] := *edges[id, t, "{edge_attr}"], t in ["attr::trait_impl", "attr::no_mangle", "attr::export_name", "attr::used", "attr::pub"]
             entry[id] := *nodes[id, type, _], type in ["file", "module"]
             entry[f] := *nodes[t, "trait", _], *edges[t, f, "{edge_contains}"], *edges[_, t, "{edge_impl}"], *nodes[f, "{type_function}", _]
             reachable[id] := entry[id]

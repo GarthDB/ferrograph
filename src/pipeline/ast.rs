@@ -97,7 +97,10 @@ fn classify_node(
             (None, None, None)
         }
         "identifier" | "scoped_identifier" => {
-            if let (Some(from), true) = (parent, is_value_position(node)) {
+            if let (Some(from), true) = (
+                parent,
+                is_value_position(node) || is_const_use(node, source),
+            ) {
                 let r = node.byte_range();
                 if let Some(path) = source.get(r.start..r.end) {
                     let target = NodeId::new(format!(
@@ -203,6 +206,9 @@ fn traverse(
                 ));
             }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
+        }
+        if kind == "const_item" || kind == "static_item" {
+            push_const_roots(&id, &node, source, edges);
         }
         if kind == "macro_definition" {
             scan_macro_rules_body(&node, source, file_id, &id, edges);
@@ -757,6 +763,13 @@ fn type_name_from_node(node: &tree_sitter::Node, source: &str) -> Option<String>
 /// rather than called or declared. Such paths may name a fn item (fn pointer); the calls phase
 /// drops the placeholder if it does not resolve to one.
 fn is_value_position(node: &tree_sitter::Node) -> bool {
+    let mut node = *node;
+    // `f::<T>` as a value: the path sits inside a `generic_function`, which takes its place.
+    if let Some(g) = node.parent().filter(|g| {
+        g.kind() == "generic_function" && g.child_by_field_name("function") == Some(node)
+    }) {
+        node = g;
+    }
     let Some(p) = node.parent() else {
         return false;
     };
@@ -771,9 +784,68 @@ fn is_value_position(node: &tree_sitter::Node) -> bool {
         | "return_expression"
         | "type_cast_expression"
         | "block" => true,
-        "let_declaration" | "match_arm" => p.child_by_field_name("value") == Some(*node),
-        "assignment_expression" => p.child_by_field_name("right") == Some(*node),
+        "let_declaration" | "match_arm" | "const_item" | "static_item" => {
+            p.child_by_field_name("value") == Some(node)
+        }
+        "assignment_expression" => p.child_by_field_name("right") == Some(node),
         _ => false,
+    }
+}
+
+/// True for an outermost path that looks like a use of a const/static (`MAX`, `Self::ID`) outside
+/// declarations and `use` items. The calls phase links it to a same-file const/static, else drops it.
+fn is_const_use(node: &tree_sitter::Node, source: &str) -> bool {
+    let Some(p) = node.parent() else {
+        return false;
+    };
+    if matches!(
+        p.kind(),
+        "scoped_identifier"
+            | "token_tree"
+            | "token_repetition"
+            | "token_tree_pattern"
+            | "use_declaration"
+            | "use_list"
+            | "scoped_use_list"
+            | "use_as_clause"
+            | "use_wildcard"
+    ) || (matches!(p.kind(), "const_item" | "static_item")
+        && p.child_by_field_name("name") == Some(*node))
+    {
+        return false;
+    }
+    source
+        .get(node.byte_range())
+        .is_some_and(|t| super::calls::is_const_like(t.rsplit("::").next().unwrap_or(t)))
+}
+
+/// Marks a const/static as a dead-code root (see `graph::query`): `pub`, an item of a trait impl,
+/// or a static with an entry attribute (`#[no_mangle]`, `#[used]`, ...).
+fn push_const_roots(
+    id: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let is_bare_pub = node.child(0).is_some_and(|c| {
+        c.kind() == "visibility_modifier" && source.get(c.byte_range()) == Some("pub")
+    });
+    let mut roots = Vec::new();
+    if is_bare_pub {
+        roots.push("pub".to_string());
+    }
+    if is_trait_impl_method(node) {
+        roots.push(TRAIT_IMPL_ATTR.to_string());
+    }
+    if node.kind() == "static_item" {
+        roots.extend(attribute_names(node, source));
+    }
+    for name in roots {
+        edges.push((
+            id.clone(),
+            NodeId::new(format!("attr::{name}")),
+            EdgeType::HasAttribute,
+        ));
     }
 }
 
@@ -1665,5 +1737,24 @@ mod tests {
                 "{not} is not a reference: {got:?}"
             );
         }
+    }
+
+    #[test]
+    fn const_like_uses_and_turbofish_values_become_placeholders() {
+        let src = "const A: u8 = f; fn g() { h(MAX, Self::ID, u8::MAX, x::<u8>); let _ = TABLE[0]; map(conv::<T>); i(conv::<T>()); }";
+        let got = call_targets(src);
+        for want in [
+            "./t.rs::MAX@value",
+            "./t.rs::Self::ID@value",
+            "./t.rs::TABLE@value",
+            "./t.rs::f@value",
+            "./t.rs::x@value",
+            "./t.rs::conv@value",
+        ] {
+            assert!(got.iter().any(|g| g == want), "{want} missing: {got:?}");
+        }
+        // the callee turbofish is a call, never a value
+        assert_eq!(got.iter().filter(|g| *g == "./t.rs::conv").count(), 1);
+        assert!(!got.iter().any(|g| g == "./t.rs::A@value"));
     }
 }

@@ -7,8 +7,9 @@
 //! functions defined inside an `impl`/`trait` (never free functions): same-file methods win, else
 //! every method with that name in the project. Several candidates become low-confidence edges
 //! (1/N); more than `MAX_METHOD_CANDIDATES` are dropped, so std-like names (`len`, `get`, `push`)
-//! cannot flood the graph. A bare name (`f()`) only falls back to free functions. Qualified paths (`Type::m()`, `mod::fn`) are partially handled (see
-//! `resolve_call_target` `scoped_identifier` support).
+//! cannot flood the graph. A bare name (`f()`) only falls back to free functions. Qualified paths
+//! (`Type::m()`, `mod::fn`) are partially handled (see `resolve_call_target` `scoped_identifier`
+//! support).
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -24,6 +25,14 @@ pub(crate) const METHOD_SUFFIX: &str = "@method";
 /// A method name with more candidates than this is dropped at the call site (no edges).
 const MAX_METHOD_CANDIDATES: usize = 8;
 use crate::graph::{query::Query, unquote_datavalue, Store};
+
+/// True for a `SCREAMING_CASE` name (`MAX`, `BUILTINS`, `ID_2`), the shape of a const/static use.
+pub(crate) fn is_const_like(name: &str) -> bool {
+    name.starts_with(|c: char| c.is_ascii_uppercase())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
 
 /// Strip `pub::`, `test::`, and `bench::` prefixes from payload for canonical function name.
 /// While-loop handles composite prefixes (e.g. `pub::test::name`) produced by `function_payload`.
@@ -50,6 +59,9 @@ struct Index {
     methods: HashSet<String>,
     /// `contains` edges, child id -> parent id.
     parent: HashMap<String, String>,
+    /// Consts and statics by (file, name).
+    consts: HashMap<(String, String), Vec<NodeId>>,
+    consts_by_name: HashMap<String, Vec<NodeId>>,
     /// Scope-forming nodes by id: (is `impl`/`trait`, payload). `mod` blocks have `false`.
     scopes: HashMap<String, (bool, String)>,
 }
@@ -148,6 +160,30 @@ fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
         1 => Resolution::One(cands.remove(0)),
         n if n <= MAX_METHOD_CANDIDATES => Resolution::Ambiguous(cands),
         _ => Resolution::None,
+    }
+}
+
+/// Resolve a const/static use (`NAME`, `Type::NAME`). Same file first, with an exact scope or
+/// owner match (`u32::MAX` must not link to a local `const MAX`). A bare name that is not in the
+/// file links to the project's only const/static of that name: `SCREAMING_CASE` names are never
+/// locals, and this is how `use`d consts from other files are found.
+fn resolve_const(path_part: &str, name: &str, from: &str, idx: &Index) -> Option<NodeId> {
+    let qualified = path_part.contains("::");
+    let file = path_part.split("::").next().unwrap_or(path_part);
+    if let Some(cands) = idx.consts.get(&(file.to_string(), name.to_string())) {
+        let picked = if qualified {
+            let owner = path_part.rsplit("::").next().unwrap_or(path_part);
+            pick_by_owner(owner, from, cands, idx)
+        } else {
+            nearest_in_scope(from, cands, idx).unwrap_or_default()
+        };
+        if let [one] = picked.as_slice() {
+            return Some(one.clone());
+        }
+    }
+    match idx.consts_by_name.get(name).map(Vec::as_slice) {
+        Some([one]) if !qualified => Some(one.clone()),
+        _ => None,
     }
 }
 
@@ -321,6 +357,38 @@ fn fill_scopes(idx: &mut Index, nodes: &cozo::NamedRows, edges: &cozo::NamedRows
     }
 }
 
+/// Split a placeholder target (`file::path::name`, or a bare name) into (path part, fn name).
+fn split_placeholder<'a>(to_str: &'a str, from_file: &'a str) -> (Cow<'a, str>, &'a str) {
+    let Some((pp, rest)) = to_str.split_once("::") else {
+        // Unqualified placeholder (bare function name): resolve via same-file then global.
+        return (Cow::Borrowed(from_file), to_str);
+    };
+    // Qualified call like file::mod::foo: use last segment as fn name for resolution.
+    match rest.rsplit_once("::") {
+        Some((path_suffix, name)) => (Cow::Owned(format!("{pp}::{path_suffix}")), name),
+        None => (Cow::Borrowed(pp), rest),
+    }
+}
+
+/// Fill `idx.consts` from const and static nodes.
+fn fill_consts(idx: &mut Index, nodes: &cozo::NamedRows) {
+    let kinds = [NodeType::Const.to_string(), NodeType::Static.to_string()];
+    for row in &nodes.rows {
+        let t = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        let id = row.first().map(unquote_datavalue).unwrap_or_default();
+        let name = row.get(2).map(unquote_datavalue).unwrap_or_default();
+        if kinds.contains(&t) && !name.is_empty() {
+            let file = id.split('#').next().unwrap_or(&id).to_string();
+            let node_id = NodeId(id);
+            idx.consts_by_name
+                .entry(name.clone())
+                .or_default()
+                .push(node_id.clone());
+            idx.consts.entry((file, name)).or_default().push(node_id);
+        }
+    }
+}
+
 /// Build or enrich call graph by resolving AST placeholder call targets to real function nodes.
 ///
 /// Same-file placeholders are resolved first; then Imports edges (from `resolve_modules`) are used
@@ -361,6 +429,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     idx.imports_map = imports_by_file(&edges);
     idx.methods = method_ids(&nodes, &edges);
     fill_scopes(&mut idx, &nodes, &edges);
+    fill_consts(&mut idx, &nodes);
 
     let mut high: HashSet<(String, String)> = HashSet::new();
     let mut low: Vec<(NodeId, NodeId, f64)> = Vec::new();
@@ -380,23 +449,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
             None => (to_str, false),
         };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
-        let (path_part, fn_name): (Cow<str>, &str) = if to_str.contains("::") {
-            let Some((pp, fn_name_maybe_path)) = to_str.split_once("::") else {
-                continue;
-            };
-            // Qualified call like file::mod::foo: use last segment as fn name for resolution.
-            if fn_name_maybe_path.contains("::") {
-                fn_name_maybe_path
-                    .rsplit_once("::")
-                    .map(|(path_suffix, name)| (Cow::Owned(format!("{pp}::{path_suffix}")), name))
-                    .unwrap_or((Cow::Borrowed(pp), fn_name_maybe_path))
-            } else {
-                (Cow::Borrowed(pp), fn_name_maybe_path)
-            }
-        } else {
-            // Unqualified placeholder (bare function name): resolve via same-file then global.
-            (Cow::Borrowed(from_file), to_str.as_str())
-        };
+        let (path_part, fn_name) = split_placeholder(&to_str, from_file);
         let resolution = if method {
             resolve_method(fn_name, from_file, &idx)
         } else {
@@ -411,6 +464,13 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         };
         let from_id = NodeId(from_str.clone());
         store.remove_edge(&from_id, &NodeId(raw_to), &calls_type)?;
+        if value && !method && matches!(resolution, Resolution::None) && is_const_like(fn_name) {
+            // A const/static use keeps its initialiser's callees alive (reachability follows `references`).
+            if let Some(id) = resolve_const(path_part.as_ref(), fn_name, &from_str, &idx) {
+                store.put_edge(&from_id, &id, &EdgeType::References)?;
+            }
+            continue;
+        }
         match resolution {
             Resolution::One(id) => {
                 high.insert((from_str, id.0.clone()));
@@ -438,7 +498,17 @@ mod tests {
     use crate::graph::schema::{EdgeType, NodeId, NodeType};
     use crate::graph::Store;
 
-    use super::build_call_graph;
+    use super::{build_call_graph, is_const_like};
+
+    #[test]
+    fn const_like_names_are_screaming_case_only() {
+        for yes in ["MAX", "ID_2", "BUILTINS", "N"] {
+            assert!(is_const_like(yes), "{yes}");
+        }
+        for no in ["", "Max", "max", "_X", "2X", "Self", "f"] {
+            assert!(!is_const_like(no), "{no}");
+        }
+    }
 
     #[test]
     fn build_call_graph_resolves_placeholder() {
