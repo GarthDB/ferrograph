@@ -477,23 +477,17 @@ fn has_unsafe_modifier(node: &tree_sitter::Node) -> bool {
     false
 }
 
-/// Payload for an impl block: type name (e.g. "Point" for `impl Point`, or "Draw" for `impl Draw for Point`).
+/// Payload for an impl block: the implemented type (e.g. "Point" for `impl Point` and for
+/// `impl Draw for Point`). Generic arguments and path prefixes are dropped; other self types
+/// (references, slices, tuples, ...) have no payload.
 fn impl_type_name(node: &tree_sitter::Node, source: &str) -> Option<String> {
-    let mut cursor = node.walk();
-    if !cursor.goto_first_child() {
-        return None;
+    let mut ty = node.child_by_field_name("type")?;
+    if ty.kind() == "generic_type" {
+        ty = ty.child_by_field_name("type")?;
     }
-    loop {
-        let n = cursor.node();
-        if n.kind() == "type_identifier" {
-            let r = n.byte_range();
-            return source.get(r.start..r.end).map(String::from);
-        }
-        if !cursor.goto_next_sibling() {
-            break;
-        }
-    }
-    None
+    matches!(ty.kind(), "type_identifier" | "scoped_type_identifier")
+        .then(|| type_name_from_node(&ty, source))
+        .flatten()
 }
 
 /// Trait name for trait impls only (`impl Trait for Type`). Returns None for inherent impls.
@@ -1105,6 +1099,31 @@ mod tests {
         assert!(
             payload.as_ref().is_some_and(|p| p.contains("Draw")),
             "trait node should have payload with name Draw, got {payload:?}"
+        );
+    }
+
+    fn impl_payloads(src: &str) -> Vec<String> {
+        let store = Store::new_memory().unwrap();
+        extract_ast(&store, Path::new("/t.rs"), src, Path::new("/")).unwrap();
+        let rows = Query::all_nodes(&store).unwrap();
+        rows.rows
+            .iter()
+            .filter(|r| r[1].to_string().trim_matches('"') == "impl")
+            .map(|r| r[2].to_string().trim_matches('"').to_string())
+            .collect()
+    }
+
+    #[test]
+    fn impl_payload_is_the_implemented_type() {
+        let src = "struct P<T>(T); trait Draw {} impl P<u8> {} impl Draw for P<u8> {} impl<T> m::Draw for P<T> {}";
+        assert_eq!(impl_payloads(src), vec!["P"; 3]);
+        // Unsupported self types get no payload (never the trait name).
+        let odd =
+            "trait Draw {} impl Draw for &u8 {} impl Draw for [u8] {} impl Draw for (u8, u8) {}";
+        assert!(
+            impl_payloads(odd).iter().all(|p| !p.contains("Draw")),
+            "{:?}",
+            impl_payloads(odd)
         );
     }
 

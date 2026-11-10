@@ -404,3 +404,106 @@ fn pipeline_default_entry_attributes_and_commented_tests() {
         assert_eq!(dead, vec!["unused_private"], "strict={strict}");
     }
 }
+
+/// Line numbers (1-based) of fixture definitions, keyed by their trailing `// tag` or `/* tag */`.
+fn tagged_lines(fixture: &str, file: &str) -> std::collections::HashMap<String, usize> {
+    let src = std::fs::read_to_string(fixture_path(fixture).join(file)).unwrap();
+    src.lines()
+        .enumerate()
+        .filter_map(|(i, l)| {
+            let tag = l.rsplit_once("// ").map(|(_, t)| t.trim()).or_else(|| {
+                l.split_once("/* ")
+                    .and_then(|(_, r)| r.split_once(" */"))
+                    .map(|(t, _)| t)
+            })?;
+            Some((tag.to_string(), i + 1))
+        })
+        .collect()
+}
+
+/// Dead function lines in `file` (`./src/main.rs` style ids).
+fn dead_lines(store: &Store, strict: bool, file: &str) -> Vec<usize> {
+    let ids = ferrograph::graph::Query::compute_dead_functions_opts(store, strict).unwrap();
+    let prefix = format!("./{file}#");
+    let mut v: Vec<usize> = ids
+        .iter()
+        .filter_map(|id| id.strip_prefix(&prefix))
+        .filter_map(|r| r.split(':').next()?.parse().ok())
+        .collect();
+    v.sort_unstable();
+    v
+}
+
+fn low_confidence_edges(store: &Store) -> usize {
+    store
+        .run_query(
+            "?[t, c] := *edge_confidence[_, t, \"calls\", c]",
+            std::collections::BTreeMap::new(),
+        )
+        .unwrap()
+        .rows
+        .len()
+}
+
+#[test]
+fn pipeline_same_name_fns_resolve_by_lexical_scope() {
+    let store = run_fixture("scoped_names");
+    let tags = tagged_lines("scoped_names", "src/main.rs");
+    let mut want: Vec<usize> = [
+        "outer_shadowed",
+        "s2_shadowed",
+        "m2_helper",
+        "outer_inner",
+        "tri3",
+        "e_h",
+    ]
+    .iter()
+    .map(|t| tags[*t])
+    .collect();
+    want.sort_unstable();
+    // Scope decides every case: no low-confidence edges, so default and strict agree.
+    assert_eq!(low_confidence_edges(&store), 0);
+    for strict in [false, true] {
+        let got = dead_lines(&store, strict, "src/main.rs");
+        assert_eq!(got, want, "strict={strict}");
+    }
+    // #88: both `view`s are live.
+    for live in [
+        "outer_view",
+        "b_view",
+        "s1_shadowed",
+        "m1_helper",
+        "c_inner",
+        "tri1",
+        "tri2",
+        "d_h",
+    ] {
+        assert!(!want.contains(&tags[live]), "{live} must be live");
+    }
+}
+
+#[test]
+fn pipeline_path_calls_resolve_among_same_named_assoc_fns() {
+    let store = run_fixture("path_calls");
+    let tags = tagged_lines("path_calls", "src/main.rs");
+    let lines = |names: &[&str]| -> Vec<usize> {
+        let mut v: Vec<usize> = names.iter().map(|t| tags[*t]).collect();
+        v.sort_unstable();
+        v
+    };
+    // Default: cfg variants are kept alive through low-confidence edges; wrong-type fns stay dead.
+    let default = dead_lines(&store, false, "src/main.rs");
+    assert_eq!(default, lines(&["p_mk", "y_g"]));
+    // `--strict` drops the low-confidence edges: the cfg variants (undecidable statically) show up.
+    let strict = dead_lines(&store, true, "src/main.rs");
+    assert_eq!(strict, lines(&["f_unix", "f_other", "p_mk", "y_g"]));
+    // Exactly the two cfg variants carry confidence 1/2; the rest are normal edges.
+    let rows = store
+        .run_query(
+            "?[t, c] := *edge_confidence[_, t, \"calls\", c]",
+            std::collections::BTreeMap::new(),
+        )
+        .unwrap();
+    assert_eq!(rows.rows.len(), 2, "{:?}", rows.rows);
+    assert!(rows.rows.iter().all(|r| r[1].get_float() == Some(0.5)));
+}

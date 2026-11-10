@@ -40,6 +40,7 @@ fn canonical_name(payload: &str) -> &str {
 }
 
 /// Lookup tables used to resolve call placeholders.
+#[derive(Default)]
 struct Index {
     local: HashMap<(String, String), Vec<NodeId>>,
     imports_map: HashMap<String, Vec<String>>,
@@ -47,6 +48,79 @@ struct Index {
     global_by_name: HashMap<String, Vec<NodeId>>,
     /// Ids of functions defined directly inside an `impl` or `trait`.
     methods: HashSet<String>,
+    /// `contains` edges, child id -> parent id.
+    parent: HashMap<String, String>,
+    /// Scope-forming nodes by id: (is `impl`/`trait`, payload). `mod` blocks have `false`.
+    scopes: HashMap<String, (bool, String)>,
+}
+
+impl Index {
+    /// Enclosing items of `from`, innermost first, starting with `from` itself.
+    fn ancestors<'a>(&'a self, from: &'a str) -> impl Iterator<Item = &'a str> {
+        std::iter::successors(Some(from), |n| self.parent.get(*n).map(String::as_str))
+    }
+
+    fn parent_of(&self, id: &NodeId) -> Option<&str> {
+        self.parent.get(id.as_str()).map(String::as_str)
+    }
+}
+
+/// Lexical scoping for a bare name: the same-named candidates declared in the nearest enclosing
+/// block/fn/mod of `from` (items in `impl`/`trait` bodies are not visible by bare name). `None`
+/// when no candidate is in scope.
+fn nearest_in_scope(from: &str, cands: &[NodeId], idx: &Index) -> Option<Vec<NodeId>> {
+    idx.ancestors(from)
+        .filter(|a| !idx.scopes.get(*a).is_some_and(|s| s.0))
+        .map(|a| {
+            cands
+                .iter()
+                .filter(|c| idx.parent_of(c) == Some(a))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .find(|v| !v.is_empty())
+}
+
+/// Pick among same-named candidates for a path call `owner::f()`: `Self` is the enclosing impl
+/// (all impls of its type, except `from` itself); otherwise `owner` names the type or module.
+fn pick_by_owner(owner: &str, from: &str, cands: &[NodeId], idx: &Index) -> Vec<NodeId> {
+    let of_scope = |pred: &dyn Fn(&str, &(bool, String)) -> bool| -> Vec<NodeId> {
+        cands
+            .iter()
+            .filter(|c| {
+                idx.parent_of(c)
+                    .and_then(|p| idx.scopes.get(p).map(|s| (p, s)))
+                    .is_some_and(|(p, s)| pred(p, s))
+            })
+            .cloned()
+            .collect()
+    };
+    if owner != "Self" {
+        return of_scope(&|_, (_, name)| name == owner);
+    }
+    let Some(ty) = idx
+        .ancestors(from)
+        .find_map(|a| idx.scopes.get(a).filter(|s| s.0).map(|s| &s.1))
+    else {
+        return Vec::new();
+    };
+    if ty.is_empty() || ty == "null" {
+        return Vec::new();
+    }
+    // Every impl of the type (inherent and trait): a trait-impl method calling `Self::f()` must
+    // not resolve to itself when an inherent `f` exists.
+    of_scope(&|_, (is_impl, name)| *is_impl && name == ty)
+        .into_iter()
+        .filter(|c| c.as_str() != from)
+        .collect()
+}
+
+fn resolution_of(mut v: Vec<NodeId>) -> Option<Resolution> {
+    match v.len() {
+        0 => None,
+        1 => Some(Resolution::One(v.remove(0))),
+        _ => Some(Resolution::Ambiguous(v)),
+    }
 }
 
 /// Resolve `x.name()` by name only: same-file methods first, else all methods project-wide.
@@ -88,10 +162,13 @@ enum Resolution {
 /// Resolve a single placeholder (`path_part::fn_name`).
 /// For qualified paths (`path_part` contains "::"), first try same-file resolution by file path only.
 /// `value` marks a path used as a value (fn pointer): it never uses the global name fallback and
-/// never yields ambiguous edges, since the identifier is often just a local variable.
+/// never yields ambiguous edges for bare names, since the identifier is often just a local variable.
+/// Qualified values (`S::f`) may: the owner must name a real impl type or module, so cfg variants
+/// of `S::f` stay linked.
 fn resolve_placeholder(
     path_part: &str,
     fn_name: &str,
+    from: &str,
     from_file: &str,
     value: bool,
     idx: &Index,
@@ -111,12 +188,21 @@ fn resolve_placeholder(
             if let [one] = candidates.as_slice() {
                 return Resolution::One(one.clone());
             }
+            let owner = path_part.rsplit("::").next().unwrap_or(path_part);
+            if let Some(r) = resolution_of(pick_by_owner(owner, from, candidates, idx)) {
+                return r;
+            }
         }
         // Qualified type/module path (e.g. std::collections::HashMap); do not resolve via global lookup to avoid false positives.
         return Resolution::None;
     }
     let key = (path_part.to_string(), fn_name.to_string());
     if let Some(candidates) = local.get(&key) {
+        if candidates.len() > 1 {
+            if let Some(r) = nearest_in_scope(from, candidates, idx).and_then(resolution_of) {
+                return r;
+            }
+        }
         return match candidates.as_slice() {
             [one] => Resolution::One(one.clone()),
             many if many.len() > 1 && !value => Resolution::Ambiguous(many.to_vec()),
@@ -205,6 +291,29 @@ fn method_ids(nodes: &cozo::NamedRows, edges: &cozo::NamedRows) -> HashSet<Strin
         .collect()
 }
 
+/// Fill `idx.parent` (from `contains` edges) and `idx.scopes` (impl/trait/mod nodes).
+fn fill_scopes(idx: &mut Index, nodes: &cozo::NamedRows, edges: &cozo::NamedRows) {
+    let contains = EdgeType::Contains.to_string();
+    for row in &edges.rows {
+        if row.get(2).map(unquote_datavalue).as_deref() == Some(contains.as_str()) {
+            let (Some(p), Some(c)) = (row.first(), row.get(1)) else {
+                continue;
+            };
+            idx.parent
+                .insert(unquote_datavalue(c), unquote_datavalue(p));
+        }
+    }
+    for row in &nodes.rows {
+        let t = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        let is_container = t == NodeType::Impl.to_string() || t == NodeType::Trait.to_string();
+        if is_container || t == NodeType::Module.to_string() {
+            let id = row.first().map(unquote_datavalue).unwrap_or_default();
+            let payload = row.get(2).map(unquote_datavalue).unwrap_or_default();
+            idx.scopes.insert(id, (is_container, payload));
+        }
+    }
+}
+
 /// Build or enrich call graph by resolving AST placeholder call targets to real function nodes.
 ///
 /// Same-file placeholders are resolved first; then Imports edges (from `resolve_modules`) are used
@@ -218,13 +327,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     let calls_type_str = calls_type.to_string();
 
     let nodes = Query::all_nodes(store)?;
-    let mut idx = Index {
-        local: HashMap::new(),
-        imports_map: HashMap::new(),
-        node_id_to_payload: HashMap::new(),
-        global_by_name: HashMap::new(),
-        methods: HashSet::new(),
-    };
+    let mut idx = Index::default();
     for row in &nodes.rows {
         let type_val = row.get(1).map(unquote_datavalue).unwrap_or_default();
         if type_val != function_type {
@@ -250,6 +353,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     let edges = Query::all_edges(store)?;
     idx.imports_map = imports_by_file(&edges);
     idx.methods = method_ids(&nodes, &edges);
+    fill_scopes(&mut idx, &nodes, &edges);
 
     let mut high: HashSet<(String, String)> = HashSet::new();
     let mut low: Vec<(NodeId, NodeId, f64)> = Vec::new();
@@ -289,7 +393,14 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         let resolution = if method {
             resolve_method(fn_name, from_file, &idx)
         } else {
-            resolve_placeholder(path_part.as_ref(), fn_name, from_file, value, &idx)
+            resolve_placeholder(
+                path_part.as_ref(),
+                fn_name,
+                &from_str,
+                from_file,
+                value,
+                &idx,
+            )
         };
         let from_id = NodeId(from_str.clone());
         store.remove_edge(&from_id, &NodeId(raw_to), &calls_type)?;
@@ -548,5 +659,105 @@ mod tests {
         let (store, _) = method_store(super::MAX_METHOD_CANDIDATES + 1, false);
         build_call_graph(&store).unwrap();
         assert_eq!(call_targets_of(&store).len(), 0);
+    }
+
+    fn put_fn(store: &Store, id: &str, name: &str, parent: &str) -> NodeId {
+        let id = NodeId::new(id);
+        store
+            .put_node(&id, &NodeType::Function, Some(name))
+            .unwrap();
+        store
+            .put_edge(&NodeId::new(parent), &id, &EdgeType::Contains)
+            .unwrap();
+        id
+    }
+
+    #[test]
+    fn bare_name_picks_nearest_enclosing_scope() {
+        let store = Store::new_memory().unwrap();
+        store
+            .put_node(&NodeId::new("./a.rs"), &NodeType::File, None)
+            .unwrap();
+        let outer = put_fn(&store, "./a.rs#1:1", "view", "./a.rs");
+        let a = put_fn(&store, "./a.rs#2:1", "a", "./a.rs");
+        let b = put_fn(&store, "./a.rs#3:1", "b", "./a.rs");
+        let inner = put_fn(&store, "./a.rs#3:20", "view", "./a.rs#3:1");
+        for from in [&a, &b] {
+            let ph = NodeId::new("./a.rs::view@value");
+            store.put_edge(from, &ph, &EdgeType::Calls).unwrap();
+        }
+        build_call_graph(&store).unwrap();
+        let edges: Vec<(String, String)> = Query::all_edges(&store)
+            .unwrap()
+            .rows
+            .iter()
+            .filter(|r| r[2].to_string().contains("calls"))
+            .map(|r| {
+                (
+                    r[0].to_string().trim_matches('"').to_string(),
+                    r[1].to_string().trim_matches('"').to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(edges.len(), 2, "{edges:?}");
+        assert!(edges.contains(&(a.0, outer.0)));
+        assert!(edges.contains(&(b.0, inner.0)));
+    }
+
+    #[test]
+    fn self_path_prefers_own_impl_and_keeps_cfg_variants() {
+        let store = Store::new_memory().unwrap();
+        let imp = NodeId::new("./a.rs#1:1");
+        store.put_node(&imp, &NodeType::Impl, Some("S")).unwrap();
+        let f1 = put_fn(&store, "./a.rs#2:1", "f", "./a.rs#1:1");
+        let f2 = put_fn(&store, "./a.rs#3:1", "f", "./a.rs#1:1");
+        let api = put_fn(&store, "./a.rs#4:1", "api", "./a.rs#1:1");
+        let other = NodeId::new("./a.rs#9:1");
+        store.put_node(&other, &NodeType::Impl, Some("T")).unwrap();
+        put_fn(&store, "./a.rs#10:1", "f", "./a.rs#9:1");
+        store
+            .put_edge(&api, &NodeId::new("./a.rs::Self::f"), &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let mut tos = call_targets_of(&store);
+        tos.sort();
+        assert_eq!(tos, vec![f1.0, f2.0]);
+    }
+
+    #[test]
+    fn module_path_picks_the_named_module() {
+        let store = Store::new_memory().unwrap();
+        for (m, f) in [("ma", "./a.rs#1:1"), ("mb", "./a.rs#5:1")] {
+            store
+                .put_node(&NodeId::new(f), &NodeType::Module, Some(m))
+                .unwrap();
+            put_fn(&store, &format!("{f}0"), "f", f);
+        }
+        let caller = NodeId::new("./a.rs#9:1");
+        store
+            .put_node(&caller, &NodeType::Function, Some("caller"))
+            .unwrap();
+        store
+            .put_edge(&caller, &NodeId::new("./a.rs::ma::f"), &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        assert_eq!(call_targets_of(&store), vec!["./a.rs#1:10".to_string()]);
+    }
+
+    #[test]
+    fn self_path_in_impl_without_type_payload_is_not_matched() {
+        let store = Store::new_memory().unwrap();
+        for (i, id) in ["./a.rs#1:1", "./a.rs#5:1"].iter().enumerate() {
+            store
+                .put_node(&NodeId::new(*id), &NodeType::Impl, None)
+                .unwrap();
+            put_fn(&store, &format!("./a.rs#{}:1", i * 5 + 2), "f", id);
+        }
+        let api = put_fn(&store, "./a.rs#3:1", "api", "./a.rs#1:1");
+        store
+            .put_edge(&api, &NodeId::new("./a.rs::Self::f"), &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        assert_eq!(call_targets_of(&store), Vec::<String>::new());
     }
 }
