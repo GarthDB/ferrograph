@@ -14,11 +14,24 @@ use tree_sitter_rust::LANGUAGE;
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::{unquote_datavalue, Store};
 
-/// Compute the canonical module path for a file under `root` (e.g. `crate::utils` for `src/utils.rs`).
-fn file_to_module_path(root: &Path, path: &Path) -> Option<String> {
+/// Directory of the crate owning `path`: the nearest ancestor (within `root`) holding a `Cargo.toml`.
+fn crate_dir(root: &Path, path: &Path) -> std::path::PathBuf {
+    path.ancestors()
+        .skip(1)
+        .take_while(|d| d.starts_with(root))
+        .find(|d| d.join("Cargo.toml").is_file())
+        .unwrap_or(root)
+        .to_path_buf()
+}
+
+/// Crate (directory relative to `root`) and module path within it for a file under `root`
+/// (e.g. `crate::utils` for `src/utils.rs`).
+fn file_to_module_path(root: &Path, path: &Path) -> Option<(String, String)> {
     let path = path.canonicalize().ok()?;
     let root = root.canonicalize().ok()?;
-    let rel = path.strip_prefix(&root).ok()?;
+    let dir = crate_dir(&root, &path);
+    let krate = dir.strip_prefix(&root).ok()?.to_string_lossy().into_owned();
+    let rel = path.strip_prefix(&dir).ok()?;
     let s = rel.to_string_lossy();
     let s = s
         .strip_prefix("src/")
@@ -26,27 +39,60 @@ fn file_to_module_path(root: &Path, path: &Path) -> Option<String> {
         .unwrap_or(&s);
     let s = s.strip_suffix(".rs").unwrap_or(s);
     if s.is_empty() || s == "lib" || s == "main" {
-        return Some("crate".to_string());
+        return Some((krate, "crate".to_string()));
     }
     let s = s.replace(std::path::MAIN_SEPARATOR, "::");
     let s = s.strip_suffix("::mod").unwrap_or(&s);
-    Some(format!("crate::{s}"))
+    Some((krate, format!("crate::{s}")))
 }
 
-/// Extract use path text from a `use_declaration` node (e.g. `crate::utils::add`).
+/// Extract the use tree text from a `use_declaration` node, without `pub`/`pub(..)` and `use`.
 fn use_path_from_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
-    let r = node.byte_range();
-    let full = source.get(r.start..r.end)?;
-    let s = full
-        .strip_prefix("use ")
-        .unwrap_or(full)
-        .trim_end_matches(';')
-        .trim();
+    let arg = node.child_by_field_name("argument")?;
+    let s = source.get(arg.byte_range())?.trim();
     if s.is_empty() {
         None
     } else {
         Some(s.to_string())
     }
+}
+
+/// Expand brace groups into one path per leaf: `a::{b, c::d}` -> `a::b`, `a::c::d`.
+/// A `self` leaf stays as `a::self`; renames and globs are kept (`a::b as c`, `a::*`).
+fn expand_use(path: &str) -> Vec<String> {
+    let path = path.trim();
+    let Some(open) = path.find('{') else {
+        return vec![path.to_string()];
+    };
+    let prefix = path[..open].trim_end_matches("::");
+    let close = path.rfind('}').unwrap_or(path.len());
+    let inner = &path[open + 1..close.max(open + 1)];
+    let (mut depth, mut start) = (0usize, 0usize);
+    let mut parts = Vec::new();
+    for (i, c) in inner.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&inner[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&inner[start..]);
+    parts
+        .into_iter()
+        .filter(|p| !p.trim().is_empty())
+        .flat_map(expand_use)
+        .map(|leaf| {
+            if prefix.is_empty() {
+                leaf
+            } else {
+                format!("{prefix}::{leaf}")
+            }
+        })
+        .collect()
 }
 
 /// Collect all use path strings from Rust source.
@@ -72,7 +118,7 @@ fn collect_use_paths_rec(
     let node = cursor.node();
     if node.kind() == "use_declaration" {
         if let Some(path) = use_path_from_node(&node, source) {
-            out.push(path);
+            out.extend(expand_use(&path));
         }
     }
     if cursor.goto_first_child() {
@@ -86,88 +132,96 @@ fn collect_use_paths_rec(
     }
 }
 
-/// Resolve `use_path` (e.g. `crate::utils::add`) relative to `current_module_path`.
+fn module_file<'a>(maps: &'a ModuleMaps, krate: &str, module: &str) -> Option<&'a String> {
+    maps.module_path_to_file_id
+        .get(&(krate.to_string(), module.to_string()))
+}
+
+fn join_mod(base: &str, segments: &[&str]) -> String {
+    segments
+        .iter()
+        .fold(base.to_string(), |acc, s| acc + "::" + *s)
+}
+
+/// Resolve one `use` leaf (e.g. `crate::utils::add`) relative to `current_module` of `krate`.
 /// Returns (`target_file_id`, `target_node_id_opt`). If the path refers to a module only, `node_id` is None.
 fn resolve_use_path(
     use_path: &str,
-    current_module_path: &str,
-    module_path_to_file: &BTreeMap<String, String>,
+    krate: &str,
+    current_module: &str,
+    maps: &ModuleMaps,
     store: &Store,
+    depth: usize,
 ) -> Option<(String, Option<String>)> {
-    let path = use_path.trim();
-    if path.is_empty() {
-        return None;
-    }
+    let path = use_path.split(" as ").next()?.trim();
+    let path = path.strip_prefix("::").unwrap_or(path);
+    let path = path
+        .strip_suffix("::*")
+        .or_else(|| path.strip_suffix("::self"))
+        .unwrap_or(path);
     let segments: Vec<&str> = path.split("::").filter(|s| !s.is_empty()).collect();
-    if segments.is_empty() {
-        return None;
-    }
-
-    let (module_path, item_name) = if segments[0] == "crate" {
-        if segments.len() == 1 {
-            ("crate".to_string(), None)
-        } else if segments.len() == 2 {
-            (format!("crate::{}", segments[1]), None)
-        } else {
-            let mod_path = segments[..segments.len() - 1].join("::");
-            (
-                format!("crate::{mod_path}"),
-                Some(segments[segments.len() - 1]),
-            )
-        }
-    } else if segments[0] == "self" {
-        if segments.len() == 1 {
-            (current_module_path.to_string(), None)
-        } else if segments.len() == 2 {
-            let full = if current_module_path == "crate" {
-                format!("crate::{}", segments[1])
-            } else {
-                format!("{current_module_path}::{}", segments[1])
-            };
-            (full, None)
-        } else {
-            let mod_path = segments[..segments.len() - 1].join("::");
-            let full_mod = if current_module_path == "crate" {
-                format!("crate::{mod_path}")
-            } else {
-                format!("{current_module_path}::{mod_path}")
-            };
-            (full_mod, Some(segments[segments.len() - 1]))
-        }
-    } else if segments[0] == "super" {
-        let parent = current_module_path
-            .rsplit_once("::")
-            .map_or_else(|| "crate".to_string(), |(p, _)| p.to_string());
-        if segments.len() == 1 {
-            (parent, None)
-        } else if segments.len() == 2 {
-            let full = if parent == "crate" {
-                format!("crate::{}", segments[1])
-            } else {
-                format!("{parent}::{}", segments[1])
-            };
-            (full, None)
-        } else {
-            let mod_path = segments[1..segments.len() - 1].join("::");
-            let full_mod = if parent == "crate" {
-                format!("crate::{mod_path}")
-            } else {
-                format!("{parent}::{mod_path}")
-            };
-            (full_mod, Some(segments[segments.len() - 1]))
-        }
-    } else {
-        return None;
+    let parent = |m: &str| {
+        m.rsplit_once("::")
+            .map_or_else(|| "crate".to_string(), |(p, _)| p.to_string())
     };
+    let (base, rest): (String, &[&str]) = match *segments.first()? {
+        "crate" => ("crate".to_string(), &segments[1..]),
+        "self" => (current_module.to_string(), &segments[1..]),
+        "super" => {
+            let n = segments.iter().take_while(|s| **s == "super").count();
+            let base = (0..n).fold(current_module.to_string(), |m, _| parent(&m));
+            (base, &segments[n..])
+        }
+        first if module_file(maps, krate, &join_mod(current_module, &[first])).is_some() => {
+            (current_module.to_string(), &segments[..])
+        }
+        _ => return None,
+    };
+    let Some((item, mods)) = rest.split_last() else {
+        return module_file(maps, krate, &base).map(|f| (f.clone(), None));
+    };
+    if let Some(f) = module_file(maps, krate, &join_mod(&base, rest)) {
+        return Some((f.clone(), None));
+    }
+    let module = join_mod(&base, mods);
+    let file_id = module_file(maps, krate, &module)?.clone();
+    let node = find_item_in_file(store, &file_id, item)
+        .or_else(|| follow_reexport(&file_id, item, krate, &module, maps, store, depth));
+    Some((file_id, node))
+}
 
-    let file_id = module_path_to_file.get(&module_path)?.clone();
-
-    if let Some(name) = item_name {
-        if let Some(node_id) = find_item_in_file(store, &file_id, name) {
-            return Some((file_id, Some(node_id)));
+/// Find `item` re-exported by `file_id` (`pub use self::x::item;` or a glob), following re-export chains.
+fn follow_reexport(
+    file_id: &str,
+    item: &str,
+    krate: &str,
+    module: &str,
+    maps: &ModuleMaps,
+    store: &Store,
+    depth: usize,
+) -> Option<String> {
+    if depth >= 4 {
+        return None;
+    }
+    for leaf in maps.file_uses.get(file_id)? {
+        if leaf.ends_with("::*") {
+            if let Some((f, None)) = resolve_use_path(leaf, krate, module, maps, store, depth + 1) {
+                if let Some(node) = find_item_in_file(store, &f, item) {
+                    return Some(node);
+                }
+            }
+        } else if use_leaves(leaf)
+            .iter()
+            .any(|(n, o)| n == item && o.is_none())
+        {
+            if let Some((_, Some(node))) =
+                resolve_use_path(leaf, krate, module, maps, store, depth + 1)
+            {
+                return Some(node);
+            }
         }
     }
-    Some((file_id, None))
+    None
 }
 
 /// Find a node that is contained in `file_id` (via Contains) and has payload equal to `name` or `pub::{name}`.
@@ -195,9 +249,12 @@ fn find_item_in_file(store: &Store, file_id: &str, name: &str) -> Option<String>
 }
 
 struct ModuleMaps {
-    file_id_to_path: Vec<String>,
-    file_id_to_module_path: BTreeMap<String, String>,
-    module_path_to_file_id: BTreeMap<String, String>,
+    /// File -> (crate directory, module path within the crate).
+    file_id_to_module_path: BTreeMap<String, (String, String)>,
+    /// (crate directory, module path) -> file.
+    module_path_to_file_id: BTreeMap<(String, String), String>,
+    /// File -> its `use` leaves, brace groups expanded.
+    file_uses: BTreeMap<String, Vec<String>>,
 }
 
 fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> ModuleMaps {
@@ -220,19 +277,24 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
 
     let mut file_id_to_module_path = BTreeMap::new();
     let mut module_path_to_file_id = BTreeMap::new();
+    let mut file_uses = BTreeMap::new();
 
     for file_id in &file_id_to_path {
         let path = root.join(file_id.as_str());
-        if let Some(module_path) = file_to_module_path(root, &path) {
-            file_id_to_module_path.insert(file_id.clone(), module_path.clone());
-            let prefer = module_path == "crate"
+        if let Some((krate, module_path)) = file_to_module_path(root, &path) {
+            file_id_to_module_path.insert(file_id.clone(), (krate.clone(), module_path.clone()));
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                file_uses.insert(file_id.clone(), collect_use_paths(&content));
+            }
+            let key = (krate, module_path);
+            let prefer = key.1 == "crate"
                 && module_path_to_file_id
-                    .get(&module_path)
+                    .get(&key)
                     .is_none_or(|existing: &String| {
                         !existing.contains("lib.rs") && file_id.contains("lib.rs")
                     });
-            if prefer || module_path != "crate" {
-                module_path_to_file_id.insert(module_path, file_id.clone());
+            if prefer || key.1 != "crate" {
+                module_path_to_file_id.insert(key, file_id.clone());
             }
         }
     }
@@ -258,7 +320,7 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
             .find(|r| r.first().map(unquote_datavalue).as_deref() == Some(to_id.as_str()))
             .and_then(|r| r.get(2).map(unquote_datavalue));
         if let Some(ref mod_name) = to_payload {
-            let current = file_id_to_module_path
+            let (krate, current) = file_id_to_module_path
                 .get(&from_id)
                 .cloned()
                 .unwrap_or_default();
@@ -267,22 +329,22 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
             } else {
                 format!("{current}::{mod_name}")
             };
-            if let Some(target_path) = resolve_module_to_file(&sub_path, root) {
+            if let Some(target_path) = resolve_module_to_file(&sub_path, &root.join(&krate)) {
                 let target_canon = target_path.canonicalize().ok();
                 if let Some(sub_file_id) = file_id_to_path
                     .iter()
                     .find(|fid| root.join(fid.as_str()).canonicalize().ok() == target_canon)
                 {
-                    module_path_to_file_id.insert(sub_path, sub_file_id.clone());
+                    module_path_to_file_id.insert((krate, sub_path), sub_file_id.clone());
                 }
             }
         }
     }
 
     ModuleMaps {
-        file_id_to_path,
         file_id_to_module_path,
         module_path_to_file_id,
+        file_uses,
     }
 }
 
@@ -291,23 +353,19 @@ pub(crate) const EXTERNAL_IMPORT_PREFIX: &str = "external::";
 /// Prefix of `Imports` targets that record a rename: `alias::h=>helper` for `use a::helper as h`.
 pub(crate) const ALIAS_IMPORT_PREFIX: &str = "alias::";
 
-/// A `use` that did not resolve locally and does not start with `crate`/`self`/`super` or a local module.
-fn is_external_use(
-    use_path: &str,
-    current_module_path: &str,
-    module_path_to_file: &BTreeMap<String, String>,
-) -> bool {
+/// A `use` leaf that did not resolve locally and does not start with `crate`/`self`/`super` or a local module.
+fn is_external_use(use_path: &str, krate: &str, current_module: &str, maps: &ModuleMaps) -> bool {
     let first = use_path
         .trim()
         .trim_start_matches("::")
         .split("::")
         .next()
         .unwrap_or("");
-    if first.is_empty() || matches!(first, "crate" | "self" | "super") || first.starts_with('{') {
+    if first.is_empty() || matches!(first, "crate" | "self" | "super") {
         return false;
     }
-    let local = |base: &str| module_path_to_file.contains_key(&format!("{base}::{first}"));
-    !(local("crate") || local(current_module_path))
+    let local = |base: &str| module_file(maps, krate, &format!("{base}::{first}")).is_some();
+    !(local("crate") || local(current_module))
 }
 
 /// Names a `use` path brings into scope, as (name, original name when renamed with `as`): the last
@@ -344,35 +402,28 @@ fn use_leaves(path: &str) -> Vec<(String, Option<String>)> {
     }
 }
 
-fn collect_imports_to_add(
-    maps: &ModuleMaps,
-    store: &Store,
-    root: &Path,
-) -> Vec<(NodeId, NodeId, EdgeType)> {
+fn collect_imports_to_add(maps: &ModuleMaps, store: &Store) -> Vec<(NodeId, NodeId, EdgeType)> {
     let mut out = Vec::new();
-    for file_id in &maps.file_id_to_path {
-        let Some(module_path) = maps.file_id_to_module_path.get(file_id) else {
+    for (file_id, leaves) in &maps.file_uses {
+        let Some((krate, module_path)) = maps.file_id_to_module_path.get(file_id) else {
             continue;
         };
-        let Ok(content) = std::fs::read_to_string(root.join(file_id.as_str())) else {
-            continue;
-        };
-        for use_path in collect_use_paths(&content) {
-            let from = NodeId::new(file_id.clone());
-            let leaves = use_leaves(&use_path);
+        let from = NodeId::new(file_id.clone());
+        for leaf in leaves {
+            // Glob imports stay unresolved here (they only feed `follow_reexport`).
+            if leaf.ends_with("::*") {
+                continue;
+            }
             let mut external = false;
             if let Some((target_file_id, target_node_opt)) =
-                resolve_use_path(&use_path, module_path, &maps.module_path_to_file_id, store)
+                resolve_use_path(leaf, krate, module_path, maps, store, 0)
             {
-                let to = match &target_node_opt {
-                    Some(node_id) => NodeId::new(node_id.clone()),
-                    None => NodeId::new(target_file_id),
-                };
+                let to = NodeId::new(target_node_opt.unwrap_or(target_file_id));
                 out.push((from.clone(), to, EdgeType::Imports));
-            } else if is_external_use(&use_path, module_path, &maps.module_path_to_file_id) {
+            } else if is_external_use(leaf, krate, module_path, maps) {
                 external = true;
             }
-            for (name, orig) in leaves {
+            for (name, orig) in use_leaves(leaf) {
                 if external {
                     // Remember which names come from other crates so bare calls to them are not
                     // matched against same-named local functions (#112).
@@ -414,7 +465,7 @@ pub fn resolve_modules(store: &Store, root: &Path) -> Result<()> {
     )?;
 
     let maps = build_module_maps(&root, &nodes, &edges);
-    let imports_to_add = collect_imports_to_add(&maps, store, &root);
+    let imports_to_add = collect_imports_to_add(&maps, store);
 
     for (from, to, et) in imports_to_add {
         store.put_edge(&from, &to, &et)?;
@@ -423,34 +474,37 @@ pub fn resolve_modules(store: &Store, root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn resolve_module_to_file(module_path: &str, root: &Path) -> Option<std::path::PathBuf> {
+fn resolve_module_to_file(module_path: &str, crate_dir: &Path) -> Option<std::path::PathBuf> {
     let rest = module_path.strip_prefix("crate::").unwrap_or(module_path);
+    let src = crate_dir.join("src");
     if rest.is_empty() {
-        let lib = root.join("src").join("lib.rs");
-        let main = root.join("src").join("main.rs");
-        if lib.exists() {
-            return Some(lib);
-        }
-        if main.exists() {
-            return Some(main);
-        }
-        return None;
+        return ["lib.rs", "main.rs"]
+            .iter()
+            .map(|f| src.join(f))
+            .find(|p| p.exists());
     }
     let rel = rest.replace("::", std::path::MAIN_SEPARATOR_STR);
-    let rs = root.join("src").join(format!("{rel}.rs"));
+    let rs = src.join(format!("{rel}.rs"));
     if rs.exists() {
         return Some(rs);
     }
-    let mod_rs = root.join("src").join(rel).join("mod.rs");
-    if mod_rs.exists() {
-        return Some(mod_rs);
-    }
-    None
+    let mod_rs = src.join(rel).join("mod.rs");
+    mod_rs.exists().then_some(mod_rs)
 }
 
 #[cfg(test)]
 mod leaf_tests {
     use super::use_leaves;
+
+    #[test]
+    fn expands_brace_groups() {
+        assert_eq!(
+            super::expand_use("a::{b, c::{d as e, self}, *}"),
+            ["a::b", "a::c::d as e", "a::c::self", "a::*"]
+        );
+        assert_eq!(super::expand_use("{x::y, z}"), ["x::y", "z"]);
+        assert_eq!(super::expand_use("a::b"), ["a::b"]);
+    }
 
     #[test]
     fn leaves_of_use_paths() {

@@ -778,3 +778,57 @@ fn pipeline_const_and_static_initialisers_keep_fns_alive() {
     let low = low_confidence_targets(&store);
     assert!(low.is_empty(), "{low:?}");
 }
+
+/// Targets of `calls` edges leaving the function `caller`, as (callee id, is low-confidence).
+fn call_targets(store: &Store, caller: &str) -> Vec<(String, bool)> {
+    let run = |script: &str| -> Vec<String> {
+        let script = script.replace("$p", &format!("[\"{caller}\", \"pub::{caller}\"]"));
+        let rows = store
+            .run_query(&script, std::collections::BTreeMap::new())
+            .unwrap();
+        rows.rows
+            .iter()
+            .map(|r| r[0].to_string().trim_matches('"').to_string())
+            .collect()
+    };
+    let all = run("?[t] := *nodes[f, \"function\", p], is_in(p, $p), *edges[f, t, \"calls\"]");
+    let low = run(
+        "?[t] := *nodes[f, \"function\", p], is_in(p, $p), *edge_confidence[f, t, \"calls\", _]",
+    );
+    all.into_iter()
+        .map(|t| {
+            let is_low = low.contains(&t);
+            (t, is_low)
+        })
+        .collect()
+}
+
+fn assert_one_certain_call(store: &Store, caller: &str, target_prefix: &str) {
+    let targets = call_targets(store, caller);
+    let certain: Vec<_> = targets.iter().filter(|t| !t.1).collect();
+    assert!(
+        targets.len() == 1 && certain.len() == 1 && certain[0].0.starts_with(target_prefix),
+        "{caller} should call exactly one certain {target_prefix}*, got {targets:?}"
+    );
+}
+
+#[test]
+fn pipeline_use_forms_resolve_same_named_free_fns() {
+    let store = run_fixture("use_forms");
+    for i in 1..=6 {
+        assert_one_certain_call(&store, &format!("api{i}"), &format!("./src/r{i}/a.rs#"));
+    }
+}
+
+#[test]
+fn pipeline_use_resolves_through_reexport() {
+    let store = run_fixture("reexport");
+    assert_one_certain_call(&store, "api", "./src/output/help.rs#");
+}
+
+#[test]
+fn pipeline_use_crate_paths_stay_inside_workspace_member() {
+    let store = run_fixture("ws_members");
+    assert_one_certain_call(&store, "api_m", "./m/src/a.rs#");
+    assert_one_certain_call(&store, "api_n", "./n/src/a.rs#");
+}

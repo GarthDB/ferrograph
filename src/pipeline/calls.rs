@@ -100,6 +100,19 @@ impl Index {
         std::iter::successors(Some(from), |n| self.parent.get(*n).map(String::as_str))
     }
 
+    /// Whether any of the imported targets is a module/file or a function: imports of consts, types
+    /// and other items cannot bring a bare-called function into scope.
+    fn imports_functions_or_modules(&self, imported: &[String]) -> bool {
+        imported.iter().any(|id| {
+            !id.contains('#')
+                || self.node_id_to_payload.get(id).is_some_and(|p| {
+                    self.global_by_name
+                        .get(canonical_name(p))
+                        .is_some_and(|v| v.iter().any(|n| n.as_str() == id))
+                })
+        })
+    }
+
     fn parent_of(&self, id: &NodeId) -> Option<&str> {
         self.parent.get(id.as_str()).map(String::as_str)
     }
@@ -473,8 +486,10 @@ fn resolve_placeholder(
         }
         // The `use` paths did not lead to the callee (re-exports, nested modules): fall back to the
         // project-wide free-function lookup below rather than dropping the call. The callee may also
-        // be an external function, so even a unique match is only a low-confidence edge.
-        return resolve_bare_globally(fn_name, from_file, value, true, idx);
+        // be an external function, so even a unique match is only a low-confidence edge. Imports of
+        // consts, types and other non-function items cannot bring the callee into scope.
+        let fn_or_module_import = idx.imports_functions_or_modules(imported);
+        return resolve_bare_globally(fn_name, from_file, value, fn_or_module_import, idx);
     }
     resolve_bare_globally(fn_name, from_file, value, false, idx)
 }
