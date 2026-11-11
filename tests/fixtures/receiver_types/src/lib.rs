@@ -16,6 +16,10 @@ impl A {
     fn via_new(&self) -> u32 { 1 }
     fn via_literal(&self) -> u32 { 1 }
     fn via_macro(&self) -> u32 { 1 }
+    fn via_factory(&self) -> u32 { 1 }
+    fn via_chain(&self) -> u32 { 1 }
+    fn via_mut(&self) -> u32 { 1 }
+    fn me(&self) -> &Self { self }
     fn unknown(&self) -> u32 { 1 } // unknown_a
     fn shadowed(&self) -> u32 { 1 } // shadowed_a
     pub fn new() -> A { A { v: 0 } }
@@ -28,6 +32,9 @@ impl B {
     fn via_new(&self) -> u32 { 2 } // dead_b_new
     fn via_literal(&self) -> u32 { 2 } // dead_b_literal
     fn via_macro(&self) -> u32 { 2 } // dead_b_macro
+    fn via_factory(&self) -> u32 { 2 } // dead_b_factory
+    fn via_chain(&self) -> u32 { 2 } // dead_b_chain
+    fn via_mut(&self) -> u32 { 2 } // dead_b_mut
     fn unknown(&self) -> u32 { 2 } // unknown_b
     fn shadowed(&self) -> u32 { 2 } // shadowed_b
 }
@@ -62,6 +69,24 @@ pub fn in_macro(x: &A, h: &Holder) -> u32 {
     h.field()
 }
 
+fn make_a() -> A {
+    A { v: 3 }
+}
+
+pub fn factory() -> u32 {
+    let x = make_a();
+    x.via_factory()
+}
+
+pub fn chain(x: &A) -> u32 {
+    x.me().via_chain()
+}
+
+pub fn mutable() -> u32 {
+    let mut x = A::new();
+    x.via_mut()
+}
+
 // Generic receiver: the type is unknown, both `unknown`s stay candidates.
 pub fn generic<T>(t: T) -> u32 {
     t.unknown()
@@ -73,4 +98,11 @@ pub fn shadowed<T>(t: T) -> u32 {
     let _ = x;
     let x = t;
     x.shadowed()
+}
+
+// Bindings whose initialisers refer to each other's names must not loop.
+pub fn cyclic<T>(t: T) {
+    let a = b.m();
+    let b = a.n();
+    let _ = (t, b);
 }

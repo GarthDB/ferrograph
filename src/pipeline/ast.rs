@@ -217,6 +217,7 @@ fn traverse(
                 ));
             }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
+            push_return_hint_edge(&id, &node, source, file_id, edges);
         }
         if kind == "const_item" || kind == "static_item" {
             push_const_roots(&id, &node, source, edges);
@@ -905,7 +906,7 @@ fn callee_placeholder(
             let hint = callee
                 .child_by_field_name("value")
                 .filter(|_| !on_self)
-                .and_then(|v| receiver_hint(&v, source))
+                .and_then(|v| expr_hint(&v, source))
                 .map(|h| format!("{}{h}", super::calls::RECEIVER_MARK))
                 .unwrap_or_default();
             format!("{}{suffix}{hint}", text(&field)?)
@@ -927,6 +928,31 @@ fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
             plain_type_name(&ty.child_by_field_name("type")?, source)
         }
         _ => None,
+    }
+}
+
+/// Temporary `Calls` edge from a function to `file::@ret:Type` for a plain return type, consumed by
+/// the calls phase to type `let x = f()` and `f().m()` (see `calls::RET_MARK`).
+fn push_return_hint_edge(
+    function_id: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    if let Some(ty) = node
+        .child_by_field_name("return_type")
+        .and_then(|t| plain_type_name(&t, source))
+    {
+        edges.push((
+            function_id.clone(),
+            NodeId::new(format!(
+                "{}::{}{ty}",
+                file_id.as_str(),
+                super::calls::RET_MARK
+            )),
+            EdgeType::Calls,
+        ));
     }
 }
 
@@ -959,27 +985,6 @@ fn push_field_type_edge(
     ));
 }
 
-/// Type of the value of a `let` initialiser when it is evident: `T { .. }`, `T::new(..)` /
-/// `T::default()` (optionally behind `&` or `?`).
-fn initialiser_type(v: &tree_sitter::Node, source: &str) -> Option<String> {
-    match v.kind() {
-        "struct_expression" => plain_type_name(&v.child_by_field_name("name")?, source),
-        "reference_expression" => initialiser_type(&v.child_by_field_name("value")?, source),
-        "try_expression" => initialiser_type(&v.child(0)?, source),
-        "call_expression" => {
-            let f = v.child_by_field_name("function")?;
-            let name = f.child_by_field_name("name")?;
-            let path = f.child_by_field_name("path")?;
-            let ty = source.get(path.byte_range())?.rsplit("::").next()?;
-            (f.kind() == "scoped_identifier"
-                && matches!(source.get(name.byte_range())?, "new" | "default")
-                && ty.starts_with(|c: char| c.is_ascii_uppercase()))
-            .then(|| ty.to_string())
-        }
-        _ => None,
-    }
-}
-
 /// Is `n` an identifier that introduces a binding (pattern position)?
 fn is_binder(n: &tree_sitter::Node) -> bool {
     let Some(p) = n.parent() else {
@@ -994,12 +999,10 @@ fn is_binder(n: &tree_sitter::Node) -> bool {
         ) && p.child_by_field_name("pattern") == Some(*n))
 }
 
-/// A plain `let x`/`let mut x`/`fn f(x: ..)` binding of `n`: (scope node, declared or evident type,
-/// end of the declaration).
+/// A plain `let x`/`let mut x`/`fn f(x: ..)` binding of `n`: (scope node, declaration node).
 fn simple_binding<'a>(
     n: &tree_sitter::Node<'a>,
-    source: &str,
-) -> Option<(tree_sitter::Node<'a>, Option<String>, usize)> {
+) -> Option<(tree_sitter::Node<'a>, tree_sitter::Node<'a>)> {
     let mut pat = *n;
     let mut decl = n.parent()?;
     if decl.kind() == "mut_pattern" {
@@ -1009,22 +1012,24 @@ fn simple_binding<'a>(
     if decl.child_by_field_name("pattern") != Some(pat) {
         return None;
     }
-    let declared = decl
-        .child_by_field_name("type")
-        .and_then(|t| plain_type_name(&t, source));
     match decl.kind() {
-        "let_declaration" => {
-            let ty = declared.or_else(|| {
-                decl.child_by_field_name("value")
-                    .and_then(|v| initialiser_type(&v, source))
-            });
-            Some((decl.parent()?, ty, decl.end_byte()))
-        }
+        "let_declaration" => Some((decl.parent()?, decl)),
         "parameter" if decl.parent()?.kind() == "parameters" => {
-            Some((decl.parent()?.parent()?, declared, decl.end_byte()))
+            Some((decl.parent()?.parent()?, decl))
         }
         _ => None,
     }
+}
+
+/// Declared type of a `let`/parameter, else (for `let`) the hint of its initialiser. Evaluated only
+/// for the binding in effect: initialisers of other bindings may refer back to this one.
+fn declaration_hint(decl: &tree_sitter::Node, source: &str) -> Option<String> {
+    decl.child_by_field_name("type")
+        .and_then(|t| plain_type_name(&t, source))
+        .or_else(|| {
+            decl.child_by_field_name("value")
+                .and_then(|v| expr_hint(&v, source))
+        })
 }
 
 /// Collect the identifiers named `name` below `node`.
@@ -1057,63 +1062,84 @@ fn binding_type(x: &tree_sitter::Node, source: &str) -> Option<String> {
     }
     let mut ids = Vec::new();
     named_identifiers(&func, source, name, &mut ids);
-    let mut best: Option<(usize, Option<String>)> = None;
+    let mut best: Option<(usize, tree_sitter::Node)> = None;
     for id in ids.iter().filter(|n| is_binder(n)) {
-        let (scope, ty, decl_end) = simple_binding(id, source)?;
+        let (scope, decl) = simple_binding(id)?;
         let covers = scope.start_byte() <= x.start_byte() && x.end_byte() <= scope.end_byte();
         if covers
-            && decl_end <= x.start_byte()
+            && decl.end_byte() <= x.start_byte()
             && best.as_ref().is_none_or(|b| id.start_byte() > b.0)
         {
-            best = Some((id.start_byte(), ty));
+            best = Some((id.start_byte(), decl));
         }
     }
-    best?.1
+    declaration_hint(&best?.1, source)
 }
 
-/// Receiver type hint for `recv.m()`: `Type` for a typed local, `Type.field` / `Self.field` for a
-/// field of one (`self.field.m()`); see `calls::RECEIVER_MARK`.
-fn receiver_hint(recv: &tree_sitter::Node, source: &str) -> Option<String> {
-    let base = |n: &tree_sitter::Node| match n.kind() {
+/// Recipe for the type of expression `e`, evaluated by the calls phase (`calls::eval_hint`): a type
+/// name (`T`, `Self`), `base.field`, `base.method()` or `=path::to::fn()` for the result of a call.
+/// `None` when the expression is not one of those (casts, operators, `?`, indexing, ..).
+fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
+    let text = |n: &tree_sitter::Node| source.get(n.byte_range());
+    match e.kind() {
         "self" => Some("Self".to_string()),
-        "identifier" => binding_type(n, source),
-        _ => None,
-    };
-    match recv.kind() {
-        "identifier" => binding_type(recv, source),
+        "identifier" => binding_type(e, source),
+        "struct_expression" => plain_type_name(&e.child_by_field_name("name")?, source),
+        "reference_expression" => expr_hint(&e.child_by_field_name("value")?, source),
+        "parenthesized_expression" => expr_hint(&e.child(1)?, source),
         "field_expression" => {
-            let field = recv.child_by_field_name("field")?;
+            let field = e.child_by_field_name("field")?;
             if field.kind() != "field_identifier" {
                 return None;
             }
-            let ty = base(&recv.child_by_field_name("value")?)?;
-            Some(format!("{ty}.{}", source.get(field.byte_range())?))
+            Some(format!(
+                "{}.{}",
+                expr_hint(&e.child_by_field_name("value")?, source)?,
+                text(&field)?
+            ))
+        }
+        "call_expression" => {
+            let mut f = e.child_by_field_name("function")?;
+            if f.kind() == "generic_function" {
+                f = f.child_by_field_name("function")?;
+            }
+            match f.kind() {
+                "identifier" | "scoped_identifier" => Some(format!("={}()", text(&f)?)),
+                "field_expression" => {
+                    let name = f.child_by_field_name("field")?;
+                    Some(format!(
+                        "{}.{}()",
+                        expr_hint(&f.child_by_field_name("value")?, source)?,
+                        text(&name)?
+                    ))
+                }
+                _ => None,
+            }
         }
         _ => None,
     }
 }
 
-/// `receiver_hint` for a method call inside a macro token tree, where the method name is token `i`
-/// (`x . m (` or `self . f . m (`).
+/// `expr_hint` for a method call inside a macro token tree, where the method name is token `i`
+/// (`x . m (`, `self . f . m (`): only a plain local or a field of one or of `self`.
 fn token_receiver_hint(tt: &tree_sitter::Node, i: usize, source: &str) -> Option<String> {
-    let at = |j: usize| (j < i).then(|| tt.child(i - j)).flatten();
+    let at = |j: usize| (j <= i).then(|| tt.child(i - j)).flatten();
+    let name = |n: &tree_sitter::Node| source.get(n.byte_range());
     let recv = at(2).filter(|n| n.kind() == "identifier")?;
-    match at(3).map(|n| n.kind()) {
-        Some(".") => {
-            let field = source.get(recv.byte_range())?;
-            let base = at(4)?;
-            let ty = match base.kind() {
-                "self" => "Self".to_string(),
-                "identifier" if at(5).is_none_or(|n| !matches!(n.kind(), "." | "::")) => {
-                    binding_type(&base, source)?
-                }
-                _ => return None,
-            };
-            Some(format!("{ty}.{field}"))
+    let base = |n: &tree_sitter::Node, before: Option<tree_sitter::Node>| {
+        if before.is_some_and(|b| matches!(b.kind(), "." | "::")) {
+            return None;
         }
-        Some("::") => None,
-        _ => binding_type(&recv, source),
+        match n.kind() {
+            "self" => Some("Self".to_string()),
+            "identifier" => binding_type(n, source),
+            _ => None,
+        }
+    };
+    if at(3).is_some_and(|d| d.kind() == ".") {
+        return Some(format!("{}.{}", base(&at(4)?, at(5))?, name(&recv)?));
     }
+    base(&recv, at(3))
 }
 
 /// Macro name from a `macro_invocation` node (first child is `identifier` or `scoped_identifier`; last segment for qualified).

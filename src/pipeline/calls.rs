@@ -27,12 +27,14 @@ pub(crate) const METHOD_SUFFIX: &str = "@method";
 /// Suffix for method calls whose receiver is `self` (`self.m()`): resolved against the enclosing impl first.
 pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
 /// Separator before the receiver-type hint the AST phase appends to a method placeholder:
-/// `name@method@on:Type` (receiver is a `Type`) or `name@method@on:Type.field` (receiver is a field of
-/// a `Type`; `Self` stands for the enclosing impl's type).
+/// `name@method@on:HINT`, where `HINT` is a recipe for the receiver's type: `Type`, `Self` (the enclosing
+/// impl's type), `HINT.field`, `HINT.method()` or `=path::to::f()` (the result of a call).
 pub(crate) const RECEIVER_MARK: &str = "@on:";
 /// Separator in the temporary struct-field placeholder `field@field:Type` (a `Calls` edge from the
 /// struct), consumed here to learn field types.
 pub(crate) const FIELD_MARK: &str = "@field:";
+/// Separator in the temporary return-type placeholder `@ret:Type` (a `Calls` edge from a function).
+pub(crate) const RET_MARK: &str = "@ret:";
 /// A method name with more candidates than this is dropped at the call site (no edges).
 const MAX_METHOD_CANDIDATES: usize = 8;
 use crate::graph::{query::Query, unquote_datavalue, Store};
@@ -85,6 +87,8 @@ struct Index {
     type_by_id: HashMap<String, String>,
     /// (struct name, field) -> plain types declared for it (several if same-named structs differ).
     fields: HashMap<(String, String), HashSet<String>>,
+    /// Function id -> its plain return type (`Self` for `-> Self`).
+    rets: HashMap<String, String>,
 }
 
 impl Index {
@@ -186,9 +190,79 @@ fn methods_of_type(name: &str, ty: &str, idx: &Index) -> Vec<NodeId> {
         .collect()
 }
 
+/// Type named by a hint (see `RECEIVER_MARK`), following fields and the return types of calls.
+/// `None` when a step is not a project struct/enum, has no (or several different) such field or
+/// method, or the callee cannot be told: generics, trait objects, std types stay unknown.
+fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<String> {
+    let mut parts = hint.split('.');
+    let first = parts.next()?;
+    let mut ty = match first.strip_prefix('=') {
+        Some(call) => call_return_type(call.strip_suffix("()")?, from, from_file, idx)?,
+        None if first == "Self" => enclosing_impl_type(from, idx)?.to_string(),
+        None => first.to_string(),
+    };
+    for part in parts {
+        if !idx.type_names.contains(&ty) {
+            return None;
+        }
+        ty = match part.strip_suffix("()") {
+            Some(m) => return_type_of(&methods_of_type(m, &ty, idx), &ty, idx)?,
+            None => field_type(&ty, part, idx)?,
+        };
+    }
+    Some(ty)
+}
+
+/// The one plain type declared for field `field` of the struct `ty`.
+fn field_type(ty: &str, field: &str, idx: &Index) -> Option<String> {
+    let mut tys = idx.fields.get(&(ty.to_string(), field.to_string()))?.iter();
+    match (tys.next(), tys.next()) {
+        (Some(t), None) => Some(t.clone()),
+        _ => None,
+    }
+}
+
+/// The one return type shared by `fns` (`Self` stands for `self_ty`).
+fn return_type_of(fns: &[NodeId], self_ty: &str, idx: &Index) -> Option<String> {
+    let mut tys = fns
+        .iter()
+        .map(|f| idx.rets.get(f.as_str()).map(String::as_str));
+    let first = tys.next()??;
+    tys.all(|t| t == Some(first))
+        .then(|| if first == "Self" { self_ty } else { first }.to_string())
+}
+
+/// Return type of the call `path()` (`f`, `Type::f`, `Self::f`, `module::f`).
+fn call_return_type(path: &str, from: &str, from_file: &str, idx: &Index) -> Option<String> {
+    let mut segs = path.rsplit("::");
+    let name = segs.next()?;
+    let owner = match segs.next() {
+        Some("Self") => Some(enclosing_impl_type(from, idx)?),
+        o => o,
+    };
+    if let Some(ty) = owner.filter(|o| idx.type_names.contains(*o)) {
+        return return_type_of(&methods_of_type(name, ty, idx), ty, idx);
+    }
+    let mut free: Vec<NodeId> = idx
+        .global_by_name
+        .get(name)?
+        .iter()
+        .filter(|c| !idx.methods.contains(c.as_str()))
+        .cloned()
+        .collect();
+    let prefix = format!("{from_file}#");
+    let key = crate_key(from_file);
+    if free.iter().any(|c| c.as_str().starts_with(&prefix)) {
+        free.retain(|c| c.as_str().starts_with(&prefix));
+    } else if free.iter().any(|c| crate_key(c.as_str()) == key) {
+        free.retain(|c| crate_key(c.as_str()) == key);
+    }
+    return_type_of(&free, "", idx).filter(|t| !t.is_empty())
+}
+
 /// `recv.name()` whose receiver type the AST phase could tell (`hint`, see `RECEIVER_MARK`). Only
-/// project structs/enums count; generics, trait objects and std types stay unknown. `None` (type
-/// unknown, or it has no such method: `Deref`, trait default methods) falls back to the name lookup.
+/// project structs/enums count. `None` (type unknown, or it has no such method: `Deref`, trait
+/// default methods) falls back to the name lookup.
 fn resolve_typed_method(
     name: &str,
     hint: &str,
@@ -196,29 +270,8 @@ fn resolve_typed_method(
     from_file: &str,
     idx: &Index,
 ) -> Option<Resolution> {
-    let (ty, field) = match hint.split_once('.') {
-        Some((t, f)) => (t, Some(f)),
-        None => (hint, None),
-    };
-    let ty = if ty == "Self" {
-        enclosing_impl_type(from, idx)?
-    } else {
-        ty
-    };
-    let ty = match field {
-        Some(f) => {
-            let mut tys = idx.fields.get(&(ty.to_string(), f.to_string()))?.iter();
-            match (tys.next(), tys.next()) {
-                (Some(t), None) => t.as_str(),
-                _ => return None,
-            }
-        }
-        None => ty,
-    };
-    if !idx.type_names.contains(ty) {
-        return None;
-    }
-    let mut cands = methods_of_type(name, ty, idx);
+    let ty = eval_hint(hint, from, from_file, idx).filter(|t| idx.type_names.contains(t))?;
+    let mut cands = methods_of_type(name, &ty, idx);
     let key = crate_key(from_file);
     if cands.iter().any(|c| crate_key(c.as_str()) == key) {
         cands.retain(|c| crate_key(c.as_str()) == key);
@@ -631,7 +684,8 @@ fn split_placeholder<'a>(to_str: &'a str, from_file: &'a str) -> (Cow<'a, str>, 
 }
 
 /// Fill `idx.type_names`/`idx.type_by_id` from struct and enum nodes, then `idx.fields` from the
-/// temporary field-type placeholders (`FIELD_MARK`), which are removed from the store.
+/// temporary field-type placeholders (`FIELD_MARK`) and `idx.rets` from return-type ones (`RET_MARK`);
+/// both kinds are removed from the store.
 fn fill_fields(
     store: &Store,
     idx: &mut Index,
@@ -652,6 +706,11 @@ fn fill_fields(
     for row in &edges.rows {
         let from = row.first().map(unquote_datavalue).unwrap_or_default();
         let to = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        if let Some((_, ty)) = to.rsplit_once(RET_MARK) {
+            idx.rets.insert(from.clone(), ty.to_string());
+            store.remove_edge(&NodeId(from), &NodeId(to), &calls)?;
+            continue;
+        }
         let Some((path, ty)) = to.rsplit_once(FIELD_MARK) else {
             continue;
         };
@@ -756,7 +815,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         }
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
         let raw_to = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if raw_to.contains(FIELD_MARK) {
+        if raw_to.contains(FIELD_MARK) || raw_to.contains(RET_MARK) {
             continue;
         }
         let (to_str, value, self_method, method, hint) = parse_target(&raw_to);

@@ -492,7 +492,7 @@ fn pipeline_typed_receivers_resolve_to_their_type() {
         .map(|(_, l)| *l)
         .collect();
     certain.sort_unstable();
-    assert_eq!(certain.len(), 6);
+    assert_eq!(certain.len(), 9);
     // Default mode: unknown receivers keep both candidates alive (low confidence).
     assert_eq!(dead_lines(&store, false, "src/lib.rs"), certain);
     // `--strict` drops the low-confidence edges: only the two untyped call sites lose their callees.
