@@ -433,10 +433,11 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
 /// See `attribute_contains_identifier` for the distinction.
 fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let name = name_of_node(node, source)?;
-    // Only bare `pub` is externally visible; `pub(crate)`/`pub(super)`/`pub(in ..)` are not roots (#91).
-    let is_pub = node.child(0).is_some_and(|c| {
-        c.kind() == "visibility_modifier" && source.get(c.byte_range()) == Some("pub")
-    });
+    // `pub(crate)`/`pub(super)` still count as roots: until method and path calls resolve far better,
+    // dropping them floods `dead` with false positives (see #91 and the accuracy harness).
+    let is_pub = node
+        .child(0)
+        .is_some_and(|c| c.kind() == "visibility_modifier");
     let is_test =
         has_attribute(node, source, "test") || has_attribute_on_prev_sibling(node, source, "test");
     let is_bench = has_attribute(node, source, "bench")

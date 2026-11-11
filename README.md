@@ -303,9 +303,9 @@ The schema defines 12 edge types; all 12 are currently populated:
 Dead-code and blast-radius results are a review aid, not proof.
 
 - **What is analysed**: syntactic (tree-sitter) extraction with name-based call resolution. Ambiguous names become low-confidence edges, which `--strict` (and `--exclude-low-confidence`) ignore.
-- **Always live**: all plain `pub` items (`pub(crate)`, `pub(super)` and `pub(in ..)` are not roots), trait impl methods, entry attributes, `main`, and test code.
+- **Always live**: all `pub` items, trait impl methods, entry attributes, `main`, and test code.
 - **Known false positives** (live code reported dead): names used only in attribute or macro arguments ([#89](https://github.com/GarthDB/ferrograph/issues/89)), attribute-macro impls ([#102](https://github.com/GarthDB/ferrograph/issues/102)), `write!` calling `write_fmt` ([#101](https://github.com/GarthDB/ferrograph/issues/101)), some cross-file qualified paths, methods above the 8-candidate cap, and `dyn Trait` dynamic dispatch.
-- **Known false negatives** (dead code not reported): anything plain `pub` (including `pub` in private modules and in binary crates), trait impls, and name collisions.
+- **Known false negatives** (dead code not reported): anything `pub` or `pub(crate)` (including in private modules and binary crates), trait impls, and name collisions ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
 - **Recall**: measured against rustc's `dead_code` with `scripts/accuracy/` (5.6% of rustc-dead functions in v4.0.4, mostly lost to the `pub` rule). A short list may reflect over-approximation of liveness rather than a clean codebase.
 - Hand-checked samples of what is still reported showed poor precision (about 1 true-dead in 45 sampled reports) as of v4.0.4 (2026-11-10); see [#92](https://github.com/GarthDB/ferrograph/issues/92) and [#103](https://github.com/GarthDB/ferrograph/pull/103).
 
