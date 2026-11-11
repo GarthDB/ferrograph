@@ -100,19 +100,6 @@ impl Index {
         std::iter::successors(Some(from), |n| self.parent.get(*n).map(String::as_str))
     }
 
-    /// Whether any of the imported targets is a module/file or a function: imports of consts, types
-    /// and other items cannot bring a bare-called function into scope.
-    fn imports_functions_or_modules(&self, imported: &[String]) -> bool {
-        imported.iter().any(|id| {
-            !id.contains('#')
-                || self.node_id_to_payload.get(id).is_some_and(|p| {
-                    self.global_by_name
-                        .get(canonical_name(p))
-                        .is_some_and(|v| v.iter().any(|n| n.as_str() == id))
-                })
-        })
-    }
-
     fn parent_of(&self, id: &NodeId) -> Option<&str> {
         self.parent.get(id.as_str()).map(String::as_str)
     }
@@ -487,9 +474,10 @@ fn resolve_placeholder(
         // The `use` paths did not lead to the callee (re-exports, nested modules): fall back to the
         // project-wide free-function lookup below rather than dropping the call. The callee may also
         // be an external function, so even a unique match is only a low-confidence edge. Imports of
-        // consts, types and other non-function items cannot bring the callee into scope.
-        let fn_or_module_import = idx.imports_functions_or_modules(imported);
-        return resolve_bare_globally(fn_name, from_file, value, fn_or_module_import, idx);
+        // a resolved item (const, fn, type) cannot bring the callee into scope, only a module-level import
+        // (glob, or an item that was not found in its module) can.
+        let module_import = imported.iter().any(|t| !t.contains('#'));
+        return resolve_bare_globally(fn_name, from_file, value, module_import, idx);
     }
     resolve_bare_globally(fn_name, from_file, value, false, idx)
 }
@@ -1175,11 +1163,15 @@ mod tests {
     fn bare_call_not_resolved_by_imports_is_only_a_low_confidence_guess() {
         let store = Store::new_memory().unwrap();
         let local = put_fn(&store, "./lib.rs#1:1", "from_str", "./lib.rs");
-        let helper = put_fn(&store, "./util.rs#1:1", "helper", "./util.rs");
+        put_fn(&store, "./util.rs#1:1", "helper", "./util.rs");
         let caller = put_fn(&store, "./a.rs#1:1", "run", "./a.rs");
-        // `a.rs` imports `helper` (resolved) and `from_str` from an external crate (not recorded).
+        // `a.rs` imports the module `util.rs` (no item resolved) and `from_str` from an external crate (not recorded).
         store
-            .put_edge(&NodeId::new("./a.rs"), &helper, &EdgeType::Imports)
+            .put_edge(
+                &NodeId::new("./a.rs"),
+                &NodeId::new("./util.rs"),
+                &EdgeType::Imports,
+            )
             .unwrap();
         store
             .put_edge(&caller, &NodeId::new("./a.rs::from_str"), &EdgeType::Calls)
