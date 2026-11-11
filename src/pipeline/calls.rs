@@ -277,7 +277,11 @@ fn resolve_placeholder(
                 }
             }
         }
-        return candidate.map_or(Resolution::None, Resolution::One);
+        if let Some(c) = candidate {
+            return Resolution::One(c);
+        }
+        // The `use` paths did not lead to the callee (re-exports, nested modules): fall back to the
+        // project-wide free-function lookup below rather than dropping the call.
     }
     if value {
         return Resolution::None;
@@ -289,6 +293,17 @@ fn resolve_placeholder(
         .flatten()
         .filter(|n| !idx.methods.contains(n.as_str()))
         .collect();
+    let key = crate_key(from_file);
+    let same_crate: Vec<&NodeId> = free
+        .iter()
+        .filter(|n| key.is_none() || crate_key(n.as_str()) == key)
+        .copied()
+        .collect();
+    let free = if same_crate.is_empty() {
+        free
+    } else {
+        same_crate
+    };
     match free.as_slice() {
         [] => Resolution::None,
         [one] => Resolution::One((*one).clone()),

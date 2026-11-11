@@ -1,3 +1,4 @@
+use crate::derives::generate_two;
 use crate::S;
 use crate::S as Alias;
 
@@ -8,5 +9,6 @@ pub(crate) fn run() {
     crate::util::tool();
     util::other();
     crate::derives::generate();
+    generate_two();
     Alias::made_via_alias();
 }
