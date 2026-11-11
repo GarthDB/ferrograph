@@ -417,8 +417,7 @@ fn resolve_placeholder(
             }
         }
         // `m::alias()` where module `m` re-exports `orig as alias` (#117).
-        let owner = path_part.rsplit("::").next().unwrap_or(path_part);
-        if let Some(r) = resolve_module_alias(owner, fn_name, from, value, idx) {
+        if let Some(r) = resolve_module_alias(path_part, fn_name, from, value, idx) {
             return r;
         }
         // Not in this file: the owner may be a type or module defined elsewhere in the project (#106).
@@ -494,13 +493,17 @@ fn resolve_placeholder(
 
 /// `owner::alias()` where the file of module `owner` has an `alias::alias=>orig` import: resolve
 /// `orig` through that file's own imports. `None` unless exactly one such module file exists.
+/// The edge is certain only when the path's leading segments (`a::b::owner`) also appear in that
+/// file's path; otherwise `somecrate::util::alias()` could be an external call, so it is a guess.
 fn resolve_module_alias(
-    owner: &str,
+    path_part: &str,
     alias: &str,
     from: &str,
     value: bool,
     idx: &Index,
 ) -> Option<Resolution> {
+    let mut segs = path_part.split("::").skip(1).collect::<Vec<_>>();
+    let owner = segs.pop()?;
     if matches!(owner, "crate" | "self" | "super") {
         return None;
     }
@@ -512,11 +515,19 @@ fn resolve_module_alias(
     let ((file, orig, target), None) = (hits.next()?, hits.next()) else {
         return None;
     };
-    if let Some(item) = target {
-        return Some(Resolution::One(NodeId::new(item.clone())));
-    }
-    match resolve_placeholder(file, orig, from, file, value, idx) {
+    let confirmed = segs.iter().all(|s| {
+        matches!(*s, "crate" | "self" | "super")
+            || std::path::Path::new(file)
+                .components()
+                .any(|c| c.as_os_str().to_str().map(|c| c.trim_end_matches(".rs")) == Some(s))
+    });
+    let resolved = match target {
+        Some(item) => Resolution::One(NodeId::new(item.clone())),
+        None => resolve_placeholder(file, orig, from, file, value, idx),
+    };
+    match resolved {
         Resolution::None => None,
+        Resolution::One(n) if !confirmed => Some(Resolution::Ambiguous(vec![n])),
         r => Some(r),
     }
 }

@@ -1,4 +1,7 @@
 mod chain;
+mod dup_a;
+mod dup_b;
+mod ext;
 mod flags;
 mod other;
 mod util;
@@ -21,4 +24,12 @@ pub fn api_chain() -> u32 {
 
 pub fn api_negative() -> String {
     other::gen_bash()
+}
+
+pub fn api_two_stems() -> String {
+    flags::gen_dup()
+}
+
+pub fn api_external_path() -> u32 {
+    somecrate::util::ext_alias()
 }

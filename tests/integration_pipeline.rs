@@ -864,3 +864,17 @@ fn pipeline_qualified_call_alias_is_owner_specific() {
     let store = run_fixture("alias_calls");
     assert_eq!(call_targets(&store, "api_negative"), vec![]);
 }
+
+#[test]
+fn pipeline_qualified_alias_in_two_same_named_modules_is_not_certain() {
+    let store = run_fixture("alias_calls");
+    assert!(call_targets(&store, "api_two_stems").iter().all(|t| t.1));
+}
+
+#[test]
+fn pipeline_qualified_alias_behind_foreign_leading_segment_is_low_confidence() {
+    // `somecrate::util::ext_alias()` must not be a certain edge into the project's `ext/util`.
+    let store = run_fixture("alias_calls");
+    let targets = call_targets(&store, "api_external_path");
+    assert!(targets.iter().all(|t| t.1), "{targets:?}");
+}
