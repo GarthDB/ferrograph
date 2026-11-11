@@ -42,6 +42,9 @@ jobs:
       - name: Test (all features)
         run: cargo test --all-features
 
+      - name: Accuracy harness self-test (synthetic corpus only)
+        run: python3 scripts/accuracy/test_harness.py
+
       - name: Doc
         run: cargo doc --no-deps
 
