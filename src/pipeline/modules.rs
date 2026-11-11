@@ -183,14 +183,15 @@ fn join_mod(base: &str, segments: &[&str]) -> String {
 }
 
 /// Resolve one `use` leaf (e.g. `crate::utils::add`) relative to `current_module` of `krate`.
-/// Returns (`target_file_id`, `target_node_id_opt`). If the path refers to a module only, `node_id` is None.
+/// Returns (`target_file_id`, `target_node_id_opt`, `names_module`): the node is None when the path
+/// names a module (`names_module`) or an item that was not found in its module.
 fn resolve_use_path(
     use_path: &str,
     krate: &str,
     current_module: &str,
     maps: &ModuleMaps,
     depth: usize,
-) -> Option<(String, Option<String>)> {
+) -> Option<(String, Option<String>, bool)> {
     let path = use_path.split(" as ").next()?.trim();
     let path = path.strip_prefix("::").unwrap_or(path);
     let path = path
@@ -216,10 +217,10 @@ fn resolve_use_path(
         _ => return None,
     };
     let Some((item, mods)) = rest.split_last() else {
-        return module_file(maps, krate, &base).map(|f| (f.clone(), None));
+        return module_file(maps, krate, &base).map(|f| (f.clone(), None, true));
     };
     if let Some(f) = module_file(maps, krate, &join_mod(&base, rest)) {
-        return Some((f.clone(), None));
+        return Some((f.clone(), None, true));
     }
     let module = join_mod(&base, mods);
     let file_id = module_file(maps, krate, &module)?.clone();
@@ -230,7 +231,7 @@ fn resolve_use_path(
     if node.is_none() && item.starts_with(char::is_uppercase) {
         return None;
     }
-    Some((file_id, node))
+    Some((file_id, node, false))
 }
 
 /// Find `item` re-exported by `file_id` (`pub use self::x::item;` or a glob), following re-export chains.
@@ -247,7 +248,7 @@ fn follow_reexport(
     }
     for leaf in maps.file_uses.get(file_id)? {
         if leaf.ends_with("::*") {
-            if let Some((f, None)) = resolve_use_path(leaf, krate, module, maps, depth + 1) {
+            if let Some((f, None, _)) = resolve_use_path(leaf, krate, module, maps, depth + 1) {
                 if let Some(node) = find_item_in_file(maps, &f, item) {
                     return Some(node);
                 }
@@ -256,7 +257,8 @@ fn follow_reexport(
             .iter()
             .any(|(n, o)| n == item && o.is_none())
         {
-            if let Some((_, Some(node))) = resolve_use_path(leaf, krate, module, maps, depth + 1) {
+            if let Some((_, Some(node), _)) = resolve_use_path(leaf, krate, module, maps, depth + 1)
+            {
                 return Some(node);
             }
         }
@@ -508,11 +510,14 @@ fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> 
                 continue;
             }
             let mut external = false;
-            if let Some((target_file_id, target_node_opt)) =
+            if let Some((target_file_id, target_node_opt, names_module)) =
                 resolve_use_path(leaf, krate, module_path, maps, 0)
             {
-                let to = NodeId::new(target_node_opt.unwrap_or(target_file_id));
-                out.push((from.clone(), to, EdgeType::Imports));
+                // Importing a module itself brings no function into scope, so it leaves no edge.
+                if !names_module {
+                    let to = NodeId::new(target_node_opt.unwrap_or(target_file_id));
+                    out.push((from.clone(), to, EdgeType::Imports));
+                }
             } else if is_external_use(leaf, krate, module_path, maps) {
                 external = true;
             }
@@ -647,7 +652,7 @@ mod tests {
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
             src.join("lib.rs"),
-            "mod utils;\nuse crate::utils;\npub fn greet() {}",
+            "mod utils;\nuse crate::utils::add;\npub fn greet() {}",
         )
         .unwrap();
         std::fs::write(src.join("utils.rs"), "pub fn add() {}").unwrap();
