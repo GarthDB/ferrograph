@@ -482,6 +482,26 @@ fn pipeline_self_method_calls_resolve_to_the_enclosing_impl() {
     }
 }
 
+#[test]
+fn pipeline_typed_receivers_resolve_to_their_type() {
+    let store = run_fixture("receiver_types");
+    let tags = tagged_lines("receiver_types", "src/lib.rs");
+    let mut certain: Vec<usize> = tags
+        .iter()
+        .filter(|(k, _)| k.starts_with("dead_b_"))
+        .map(|(_, l)| *l)
+        .collect();
+    certain.sort_unstable();
+    assert_eq!(certain.len(), 6);
+    // Default mode: unknown receivers keep both candidates alive (low confidence).
+    assert_eq!(dead_lines(&store, false, "src/lib.rs"), certain);
+    // `--strict` drops the low-confidence edges: only the two untyped call sites lose their callees.
+    let mut strict = certain;
+    strict.extend(["unknown_a", "unknown_b", "shadowed_a", "shadowed_b"].map(|t| tags[t]));
+    strict.sort_unstable();
+    assert_eq!(dead_lines(&store, true, "src/lib.rs"), strict);
+}
+
 /// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness
 /// measured ~1.5% judgeable precision (643 reported, 8 right) because method and path calls are not
 /// resolved well enough yet. Remove the `ignore` together with the `is_pub` change in `ast.rs`.
