@@ -464,6 +464,23 @@ fn pipeline_bare_call_to_external_import_does_not_keep_local_fn_alive() {
     }
 }
 
+#[test]
+fn pipeline_self_method_calls_resolve_to_the_enclosing_impl() {
+    let store = run_fixture("self_methods");
+    let tags = tagged_lines("self_methods", "src/lib.rs");
+    let mut want = vec![tags["dead_b_find"], tags["dead_b_macro"]];
+    want.sort_unstable();
+    // Both modes: `self.find()` is a certain edge to `A::find`, so `B::find` is dead and `A::find`
+    // is not (with `--strict` it used to be the other way round).
+    for strict in [false, true] {
+        assert_eq!(
+            dead_lines(&store, strict, "src/lib.rs"),
+            want,
+            "strict={strict}"
+        );
+    }
+}
+
 /// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness
 /// measured ~1.5% judgeable precision (643 reported, 8 right) because method and path calls are not
 /// resolved well enough yet. Remove the `ignore` together with the `is_pub` change in `ast.rs`.

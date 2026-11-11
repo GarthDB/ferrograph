@@ -24,6 +24,8 @@ use super::modules::EXTERNAL_IMPORT_PREFIX;
 pub(crate) const VALUE_SUFFIX: &str = "@value";
 /// Suffix the AST phase puts on method-call placeholders (`x.m()`).
 pub(crate) const METHOD_SUFFIX: &str = "@method";
+/// Suffix for method calls whose receiver is `self` (`self.m()`): resolved against the enclosing impl first.
+pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
 /// A method name with more candidates than this is dropped at the call site (no edges).
 const MAX_METHOD_CANDIDATES: usize = 8;
 use crate::graph::{query::Query, unquote_datavalue, Store};
@@ -140,6 +142,30 @@ fn resolution_of(mut v: Vec<NodeId>) -> Option<Resolution> {
 }
 
 /// Resolve `x.name()` by name only: same-file methods first, else all methods project-wide.
+/// `self.m()`: the methods named `m` of the impls/trait enclosing the caller, i.e. of its `Self` type
+/// (every impl block of that type, in any file). `None` when the type is unknown or has no such
+/// method, so the caller falls back to the name-based lookup (`Deref`, trait methods, ..).
+fn resolve_self_method(name: &str, from: &str, idx: &Index) -> Option<Resolution> {
+    let ty = idx
+        .ancestors(from)
+        .find_map(|a| idx.scopes.get(a).filter(|s| s.0).map(|s| s.1.as_str()))?;
+    if ty.is_empty() || ty == "null" {
+        return None;
+    }
+    let all = idx.global_by_name.get(name)?;
+    let own: Vec<NodeId> = all
+        .iter()
+        .filter(|c| idx.methods.contains(c.as_str()))
+        .filter(|c| {
+            idx.parent_of(c)
+                .and_then(|p| idx.scopes.get(p))
+                .is_some_and(|s| s.0 && s.1 == ty)
+        })
+        .cloned()
+        .collect();
+    resolution_of(own)
+}
+
 fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
     let all = idx.global_by_name.get(name).map_or(&[][..], Vec::as_slice);
     let prefix = format!("{from_file}#");
@@ -583,14 +609,23 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
             Some(t) => (t.to_string(), true),
             None => (raw_to.clone(), false),
         };
-        let (to_str, method) = match to_str.strip_suffix(METHOD_SUFFIX) {
+        let (to_str, self_method) = match to_str.strip_suffix(SELF_METHOD_SUFFIX) {
             Some(t) => (t.to_string(), true),
             None => (to_str, false),
+        };
+        let (to_str, method) = match to_str.strip_suffix(METHOD_SUFFIX) {
+            Some(t) => (t.to_string(), true),
+            None => (to_str, self_method),
         };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let (path_part, fn_name) = split_placeholder(&to_str, from_file);
         let resolution = if method {
-            resolve_method(fn_name, from_file, &idx)
+            let own = if self_method {
+                resolve_self_method(fn_name, &from_str, &idx)
+            } else {
+                None
+            };
+            own.unwrap_or_else(|| resolve_method(fn_name, from_file, &idx))
         } else {
             resolve_placeholder(
                 path_part.as_ref(),
