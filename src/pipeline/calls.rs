@@ -64,6 +64,9 @@ fn canonical_name(payload: &str) -> &str {
     s
 }
 
+/// A `use .. as ..` rename seen from outside: (importing file, original name, resolved item id).
+type AliasTarget = (String, String, Option<String>);
+
 /// Lookup tables used to resolve call placeholders.
 #[derive(Default)]
 struct Index {
@@ -73,6 +76,8 @@ struct Index {
     external_imports: HashSet<(String, String)>,
     /// (file, alias) -> original name of `use .. as ..` renames.
     aliases: HashMap<(String, String), String>,
+    /// alias -> (file, original name, resolved item) of the same renames, for qualified calls.
+    aliases_by_name: HashMap<String, Vec<AliasTarget>>,
     node_id_to_payload: HashMap<String, String>,
     global_by_name: HashMap<String, Vec<NodeId>>,
     /// Ids of functions defined directly inside an `impl` or `trait`.
@@ -411,6 +416,10 @@ fn resolve_placeholder(
                 return r;
             }
         }
+        // `m::alias()` where module `m` re-exports `orig as alias` (#117).
+        if let Some(r) = resolve_module_alias(path_part, fn_name, from, value, idx) {
+            return r;
+        }
         // Not in this file: the owner may be a type or module defined elsewhere in the project (#106).
         // Paths into external crates (`std::collections::HashMap`) find no owner and stay unresolved.
         let segs: Vec<&str> = path_part.split("::").skip(1).collect();
@@ -480,6 +489,59 @@ fn resolve_placeholder(
         return resolve_bare_globally(fn_name, from_file, value, module_import, idx);
     }
     resolve_bare_globally(fn_name, from_file, value, false, idx)
+}
+
+/// `owner::alias()` where the file of module `owner` has an `alias::alias=>orig` import: resolve
+/// `orig` through that file's own imports. `None` unless exactly one such module file exists.
+/// The edge is certain only when the path's leading segments (`a::b::owner`) also appear in that
+/// file's path; otherwise `somecrate::util::alias()` could be an external call, so it is a guess.
+fn resolve_module_alias(
+    path_part: &str,
+    alias: &str,
+    from: &str,
+    value: bool,
+    idx: &Index,
+) -> Option<Resolution> {
+    let mut segs = path_part.split("::").skip(1).collect::<Vec<_>>();
+    let owner = segs.pop()?;
+    if matches!(owner, "crate" | "self" | "super") {
+        return None;
+    }
+    let mut hits = idx
+        .aliases_by_name
+        .get(alias)?
+        .iter()
+        .filter(|(file, ..)| is_module_file(file, owner));
+    let ((file, orig, target), None) = (hits.next()?, hits.next()) else {
+        return None;
+    };
+    let confirmed = segs.iter().all(|s| {
+        matches!(*s, "crate" | "self" | "super")
+            || std::path::Path::new(file)
+                .components()
+                .any(|c| c.as_os_str().to_str().map(|c| c.trim_end_matches(".rs")) == Some(s))
+    });
+    let resolved = match target {
+        Some(item) => Resolution::One(NodeId::new(item.clone())),
+        None => resolve_placeholder(file, orig, from, file, value, idx),
+    };
+    match resolved {
+        Resolution::None => None,
+        Resolution::One(n) if !confirmed => Some(Resolution::Ambiguous(vec![n])),
+        r => Some(r),
+    }
+}
+
+/// `file` is exactly the file of module `name`: `name.rs` or `name/mod.rs`.
+fn is_module_file(file: &str, name: &str) -> bool {
+    let path = std::path::Path::new(file);
+    let stem = path.file_stem().and_then(|s| s.to_str());
+    stem == Some(name)
+        || (stem == Some("mod")
+            && path
+                .parent()
+                .and_then(|d| d.file_name())
+                .is_some_and(|d| d == name))
 }
 
 fn resolve_bare_globally(
@@ -623,6 +685,7 @@ struct ImportMaps {
     external: HashSet<(String, String)>,
     /// (file, alias) -> original name, for `use a::f as g`.
     aliases: HashMap<(String, String), String>,
+    aliases_by_name: HashMap<String, Vec<AliasTarget>>,
 }
 
 fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
@@ -630,6 +693,7 @@ fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
     idx.imports_map = imports.by_file;
     idx.external_imports = imports.external;
     idx.aliases = imports.aliases;
+    idx.aliases_by_name = imports.aliases_by_name;
 }
 
 fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
@@ -648,6 +712,13 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
             .strip_prefix(ALIAS_IMPORT_PREFIX)
             .and_then(|r| r.split_once("=>"))
         {
+            let (orig, target) = orig
+                .split_once("=>")
+                .map_or((orig, None), |(o, t)| (o, Some(t.to_string())));
+            maps.aliases_by_name
+                .entry(alias.to_string())
+                .or_default()
+                .push((file.clone(), orig.to_string(), target));
             maps.aliases
                 .insert((file, alias.to_string()), orig.to_string());
         } else {

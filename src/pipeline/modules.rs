@@ -445,7 +445,8 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
 
 /// Prefix of `Imports` targets that name an item imported from another crate (`std`, `serde_json`, ..).
 pub(crate) const EXTERNAL_IMPORT_PREFIX: &str = "external::";
-/// Prefix of `Imports` targets that record a rename: `alias::h=>helper` for `use a::helper as h`.
+/// Prefix of `Imports` targets that record a rename: `alias::h=>helper` for `use a::helper as h`,
+/// with `=>ID` appended when the renamed item resolved to the node `ID`.
 pub(crate) const ALIAS_IMPORT_PREFIX: &str = "alias::";
 
 /// A `use` leaf that did not resolve locally and does not start with `crate`/`self`/`super` or a local module.
@@ -510,11 +511,13 @@ fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> 
                 continue;
             }
             let mut external = false;
+            let mut item_node = None;
             if let Some((target_file_id, target_node_opt, names_module)) =
                 resolve_use_path(leaf, krate, module_path, maps, 0)
             {
                 // Importing a module itself brings no function into scope, so it leaves no edge.
                 if !names_module {
+                    item_node.clone_from(&target_node_opt);
                     let to = NodeId::new(target_node_opt.unwrap_or(target_file_id));
                     out.push((from.clone(), to, EdgeType::Imports));
                 }
@@ -531,9 +534,12 @@ fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> 
                         EdgeType::Imports,
                     ));
                 } else if let Some(orig) = orig {
+                    let target = item_node
+                        .as_ref()
+                        .map_or_else(String::new, |n| format!("=>{n}"));
                     out.push((
                         from.clone(),
-                        NodeId::new(format!("{ALIAS_IMPORT_PREFIX}{name}=>{orig}")),
+                        NodeId::new(format!("{ALIAS_IMPORT_PREFIX}{name}=>{orig}{target}")),
                         EdgeType::Imports,
                     ));
                 }
