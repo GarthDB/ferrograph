@@ -3,7 +3,10 @@
 //! Resolves placeholder call targets (`file_path::fn_name`) to real function node IDs
 //! (`file_path#line:col`). Tries same-file first, then global `fn_name` lookup for cross-file calls.
 //!
-//! Method calls (`x.m()`, placeholders ending in `METHOD_SUFFIX`) resolve by name only, among
+//! Method calls (`x.m()`, placeholders ending in `METHOD_SUFFIX`) first use the receiver type when
+//! the AST phase could tell it (`RECEIVER_MARK`: typed parameters and locals, `self.field`, call
+//! results; only project structs/enums count): the methods named `m` in that type's impls. Otherwise
+//! they resolve by name only, among
 //! functions defined inside an `impl`/`trait` (never free functions): same-file methods win, else
 //! every method with that name in the project. Several candidates become low-confidence edges
 //! (1/N); more than `MAX_METHOD_CANDIDATES` are dropped, so std-like names (`len`, `get`, `push`)
