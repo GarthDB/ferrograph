@@ -482,9 +482,63 @@ fn pipeline_self_method_calls_resolve_to_the_enclosing_impl() {
     }
 }
 
+#[test]
+fn pipeline_typed_receivers_resolve_to_their_type() {
+    let store = run_fixture("receiver_types");
+    let tags = tagged_lines("receiver_types", "src/lib.rs");
+    let mut certain: Vec<usize> = tags
+        .iter()
+        .filter(|(k, _)| k.starts_with("dead_b_"))
+        .map(|(_, l)| *l)
+        .collect();
+    certain.sort_unstable();
+    assert_eq!(certain.len(), 9);
+    // Default mode: unknown receivers keep both candidates alive (low confidence).
+    assert_eq!(dead_lines(&store, false, "src/lib.rs"), certain);
+    // `--strict` drops the low-confidence edges: only the two untyped call sites lose their callees.
+    let mut strict = certain;
+    strict.extend(
+        [
+            "unknown_a",
+            "unknown_b",
+            "shadowed_a",
+            "shadowed_b",
+            "library_push_a",
+            "library_push_b",
+            "args_a",
+            "args_b",
+        ]
+        .map(|t| tags[t]),
+    );
+    strict.sort_unstable();
+    assert_eq!(dead_lines(&store, true, "src/lib.rs"), strict);
+    let other = tagged_lines("receiver_types", "src/other.rs");
+    // `e.describe()` on a `std::io::Error` binds to the same-file `B::describe`, not `other::Error`.
+    for strict in [false, true] {
+        assert_eq!(
+            dead_lines(&store, strict, "src/other.rs"),
+            [other["describe_error"]]
+        );
+    }
+}
+
+#[test]
+fn pipeline_bare_call_does_not_bind_to_a_method_of_the_same_file() {
+    let store = run_fixture("bare_vs_method");
+    let tags = tagged_lines("bare_vs_method", "src/lib.rs");
+    for strict in [false, true] {
+        assert_eq!(
+            dead_lines(&store, strict, "src/lib.rs"),
+            [tags["dead_method"]],
+            "strict={strict}"
+        );
+    }
+}
+
 /// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness
-/// measured ~1.5% judgeable precision (643 reported, 8 right) because method and path calls are not
-/// resolved well enough yet. Remove the `ignore` together with the `is_pub` change in `ast.rs`.
+/// measured 3.8% judgeable precision (280 reported, 8 right; 8/207 judgeable) even with receiver
+/// types, because `use` paths and pattern/loop-bound receivers are not resolved (#114, #115).
+/// Remove the `ignore` together with the `is_pub` change in `ast.rs`.
 #[test]
 #[ignore = "#91: needs better method/path call resolution first"]
 fn pipeline_restricted_visibility_fns_are_not_roots() {

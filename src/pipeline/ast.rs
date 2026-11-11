@@ -144,6 +144,9 @@ fn classify_node(
         }
         "field_declaration" | "parameter" => {
             push_owns_or_borrows_edge(parent, node, source, file_id, edges);
+            if kind == "field_declaration" {
+                push_field_type_edge(parent, node, source, file_id, edges);
+            }
             (None, None, None)
         }
         "ordered_field_declaration_list" => {
@@ -214,6 +217,7 @@ fn traverse(
                 ));
             }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
+            push_return_hint_edge(&id, &node, source, file_id, edges);
         }
         if kind == "const_item" || kind == "static_item" {
             push_const_roots(&id, &node, source, edges);
@@ -899,7 +903,13 @@ fn callee_placeholder(
             } else {
                 super::calls::METHOD_SUFFIX
             };
-            format!("{}{suffix}", text(&field)?)
+            let hint = callee
+                .child_by_field_name("value")
+                .filter(|_| !on_self)
+                .and_then(|v| expr_hint(&v, source))
+                .map(|h| format!("{}{h}", super::calls::RECEIVER_MARK))
+                .unwrap_or_default();
+            format!("{}{suffix}{hint}", text(&field)?)
         }
         "generic_function" => {
             return callee_placeholder(&callee.child_by_field_name("function")?, source, file_id)
@@ -907,6 +917,237 @@ fn callee_placeholder(
         _ => return None,
     };
     Some(NodeId::new(format!("{}::{}", file_id.as_str(), name)))
+}
+
+/// Name of a plain type: `T`, `a::T`, `T<..>`, `&T`, `&mut T`. Anything else (tuples, slices, `dyn`,
+/// `impl`, pointers) is `None`.
+fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
+    match ty.kind() {
+        "type_identifier" => type_name_from_node(ty, source),
+        // `std::io::Error` is not the project's `Error`: only project-relative paths count.
+        "scoped_type_identifier" => {
+            let first = ty.child_by_field_name("path")?;
+            let first = source.get(first.byte_range())?.split("::").next()?;
+            matches!(first, "crate" | "self" | "super")
+                .then(|| type_name_from_node(ty, source))
+                .flatten()
+        }
+        "generic_type" | "reference_type" => {
+            plain_type_name(&ty.child_by_field_name("type")?, source)
+        }
+        _ => None,
+    }
+}
+
+/// Temporary `Calls` edge from a function to `file::@ret:Type` for a plain return type, consumed by
+/// the calls phase to type `let x = f()` and `f().m()` (see `calls::RET_MARK`).
+fn push_return_hint_edge(
+    function_id: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    if let Some(ty) = node
+        .child_by_field_name("return_type")
+        .and_then(|t| plain_type_name(&t, source))
+    {
+        edges.push((
+            function_id.clone(),
+            NodeId::new(format!(
+                "{}::{}{ty}",
+                file_id.as_str(),
+                super::calls::RET_MARK
+            )),
+            EdgeType::Calls,
+        ));
+    }
+}
+
+/// Temporary `Calls` edge from a struct to `file::field@field:Type`, consumed by the calls phase
+/// to resolve `self.field.m()` (see `calls::FIELD_MARK`).
+fn push_field_type_edge(
+    parent: Option<&NodeId>,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let (Some(from), Some(name), Some(ty)) = (
+        parent,
+        node.child_by_field_name("name")
+            .and_then(|n| source.get(n.byte_range())),
+        node.child_by_field_name("type")
+            .and_then(|t| plain_type_name(&t, source)),
+    ) else {
+        return;
+    };
+    edges.push((
+        from.clone(),
+        NodeId::new(format!(
+            "{}::{name}{}{ty}",
+            file_id.as_str(),
+            super::calls::FIELD_MARK
+        )),
+        EdgeType::Calls,
+    ));
+}
+
+/// Is `n` an identifier that introduces a binding (pattern position)?
+fn is_binder(n: &tree_sitter::Node) -> bool {
+    let Some(p) = n.parent() else {
+        return false;
+    };
+    let k = p.kind();
+    k.ends_with("_pattern")
+        || k == "closure_parameters"
+        || (matches!(
+            k,
+            "let_declaration" | "parameter" | "for_expression" | "let_condition"
+        ) && p.child_by_field_name("pattern") == Some(*n))
+}
+
+/// A plain `let x`/`let mut x`/`fn f(x: ..)` binding of `n`: (scope node, declaration node).
+fn simple_binding<'a>(
+    n: &tree_sitter::Node<'a>,
+) -> Option<(tree_sitter::Node<'a>, tree_sitter::Node<'a>)> {
+    let mut pat = *n;
+    let mut decl = n.parent()?;
+    if decl.kind() == "mut_pattern" {
+        pat = decl;
+        decl = decl.parent()?;
+    }
+    if decl.child_by_field_name("pattern") != Some(pat) {
+        return None;
+    }
+    match decl.kind() {
+        "let_declaration" => Some((decl.parent()?, decl)),
+        "parameter" if decl.parent()?.kind() == "parameters" => {
+            Some((decl.parent()?.parent()?, decl))
+        }
+        _ => None,
+    }
+}
+
+/// Declared type of a `let`/parameter, else (for `let`) the hint of its initialiser. Evaluated only
+/// for the binding in effect: initialisers of other bindings may refer back to this one.
+fn declaration_hint(decl: &tree_sitter::Node, source: &str) -> Option<String> {
+    decl.child_by_field_name("type")
+        .and_then(|t| plain_type_name(&t, source))
+        .or_else(|| {
+            decl.child_by_field_name("value")
+                .and_then(|v| expr_hint(&v, source))
+        })
+}
+
+/// Collect the identifiers named `name` below `node`.
+fn named_identifiers<'a>(
+    node: &tree_sitter::Node<'a>,
+    source: &str,
+    name: &str,
+    out: &mut Vec<tree_sitter::Node<'a>>,
+) {
+    let mut i = 0;
+    while let Some(c) = node.child(i) {
+        if matches!(c.kind(), "identifier" | "shorthand_field_identifier")
+            && source.get(c.byte_range()) == Some(name)
+        {
+            out.push(c);
+        }
+        named_identifiers(&c, source, name, out);
+        i += 1;
+    }
+}
+
+/// Type of the local `x` (an identifier at the call site) from its nearest `let`/parameter binding
+/// in the enclosing function. Any other kind of binding of the same name (closure parameter,
+/// pattern, `for`, `if let`) makes it unknown: shadowing is not tracked.
+fn binding_type(x: &tree_sitter::Node, source: &str) -> Option<String> {
+    let name = source.get(x.byte_range())?;
+    let mut func = x.parent()?;
+    while func.kind() != "function_item" {
+        func = func.parent()?;
+    }
+    let mut ids = Vec::new();
+    named_identifiers(&func, source, name, &mut ids);
+    let mut best: Option<(usize, tree_sitter::Node)> = None;
+    for id in ids.iter().filter(|n| is_binder(n)) {
+        let (scope, decl) = simple_binding(id)?;
+        let covers = scope.start_byte() <= x.start_byte() && x.end_byte() <= scope.end_byte();
+        if covers
+            && decl.end_byte() <= x.start_byte()
+            && best.as_ref().is_none_or(|b| id.start_byte() > b.0)
+        {
+            best = Some((id.start_byte(), decl));
+        }
+    }
+    declaration_hint(&best?.1, source)
+}
+
+/// Recipe for the type of expression `e`, evaluated by the calls phase (`calls::eval_hint`): a type
+/// name (`T`, `Self`), `base.field`, `base.method()` or `=path::to::fn()` for the result of a call.
+/// `None` when the expression is not one of those (casts, operators, `?`, indexing, ..).
+fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
+    let text = |n: &tree_sitter::Node| source.get(n.byte_range());
+    match e.kind() {
+        "self" => Some("Self".to_string()),
+        "identifier" => binding_type(e, source),
+        "struct_expression" => plain_type_name(&e.child_by_field_name("name")?, source),
+        "reference_expression" => expr_hint(&e.child_by_field_name("value")?, source),
+        "parenthesized_expression" => expr_hint(&e.child(1)?, source),
+        "field_expression" => {
+            let field = e.child_by_field_name("field")?;
+            if field.kind() != "field_identifier" {
+                return None;
+            }
+            Some(format!(
+                "{}.{}",
+                expr_hint(&e.child_by_field_name("value")?, source)?,
+                text(&field)?
+            ))
+        }
+        "call_expression" => {
+            let mut f = e.child_by_field_name("function")?;
+            if f.kind() == "generic_function" {
+                f = f.child_by_field_name("function")?;
+            }
+            match f.kind() {
+                "identifier" | "scoped_identifier" => Some(format!("={}()", text(&f)?)),
+                "field_expression" => {
+                    let name = f.child_by_field_name("field")?;
+                    Some(format!(
+                        "{}.{}()",
+                        expr_hint(&f.child_by_field_name("value")?, source)?,
+                        text(&name)?
+                    ))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// `expr_hint` for a method call inside a macro token tree, where the method name is token `i`
+/// (`x . m (`, `self . f . m (`): only a plain local or a field of one or of `self`.
+fn token_receiver_hint(tt: &tree_sitter::Node, i: usize, source: &str) -> Option<String> {
+    let at = |j: usize| (j <= i).then(|| tt.child(i - j)).flatten();
+    let name = |n: &tree_sitter::Node| source.get(n.byte_range());
+    let recv = at(2).filter(|n| n.kind() == "identifier")?;
+    let base = |n: &tree_sitter::Node, before: Option<tree_sitter::Node>| {
+        if before.is_some_and(|b| matches!(b.kind(), "." | "::")) {
+            return None;
+        }
+        match n.kind() {
+            "self" => Some("Self".to_string()),
+            "identifier" => binding_type(n, source),
+            _ => None,
+        }
+    };
+    if at(3).is_some_and(|d| d.kind() == ".") {
+        return Some(format!("{}.{}", base(&at(4)?, at(5))?, name(&recv)?));
+    }
+    base(&recv, at(3))
 }
 
 /// Macro name from a `macro_invocation` node (first child is `identifier` or `scoped_identifier`; last segment for qualified).
@@ -1187,16 +1428,26 @@ fn scan_token_tree_for_calls(
                 if let Some(name) = source.get(child.byte_range()) {
                     let (path, suffix) = if prev_is_dot {
                         let on_self = i >= 2 && tt.child(i - 2).is_some_and(|n| n.kind() == "self");
+                        let hint = if on_self {
+                            None
+                        } else {
+                            token_receiver_hint(tt, i, source)
+                        };
                         (
                             String::new(),
-                            if on_self {
-                                super::calls::SELF_METHOD_SUFFIX
-                            } else {
-                                super::calls::METHOD_SUFFIX
-                            },
+                            format!(
+                                "{}{}",
+                                if on_self {
+                                    super::calls::SELF_METHOD_SUFFIX
+                                } else {
+                                    super::calls::METHOD_SUFFIX
+                                },
+                                hint.map(|h| format!("{}{h}", super::calls::RECEIVER_MARK))
+                                    .unwrap_or_default()
+                            ),
                         )
                     } else {
-                        (path_prefix(tt, i, source), "")
+                        (path_prefix(tt, i, source), String::new())
                     };
                     let callee_id =
                         NodeId::new(format!("{}::{}{}{}", file_id.as_str(), path, name, suffix));
@@ -1275,8 +1526,8 @@ mod tests {
             "/t.rs::b@method",
             "/t.rs::c@method",
             "/t.rs::g",
-            "/t.rs::k@method",
-            "/t.rs::m@method",
+            "/t.rs::k@method@on:S",
+            "/t.rs::m@method@on:S",
         ]
         .map(String::from)
         .to_vec();
@@ -1297,7 +1548,8 @@ mod tests {
         );
         for n in ["m", "k"] {
             assert!(
-                got.iter().any(|g| g.ends_with(&format!("::{n}@method"))),
+                got.iter()
+                    .any(|g| g.ends_with(&format!("::{n}@method@on:S"))),
                 "{got:?}"
             );
         }
@@ -1312,7 +1564,10 @@ mod tests {
     #[test]
     fn method_calls_in_macro_args_become_placeholders() {
         let got = call_targets(r#"fn f(x: S) { println!("{}", x.m()); }"#);
-        assert!(got.iter().any(|g| g.ends_with("::m@method")), "{got:?}");
+        assert!(
+            got.iter().any(|g| g.ends_with("::m@method@on:S")),
+            "{got:?}"
+        );
     }
 
     #[test]

@@ -3,7 +3,10 @@
 //! Resolves placeholder call targets (`file_path::fn_name`) to real function node IDs
 //! (`file_path#line:col`). Tries same-file first, then global `fn_name` lookup for cross-file calls.
 //!
-//! Method calls (`x.m()`, placeholders ending in `METHOD_SUFFIX`) resolve by name only, among
+//! Method calls (`x.m()`, placeholders ending in `METHOD_SUFFIX`) first use the receiver type when
+//! the AST phase could tell it (`RECEIVER_MARK`: typed parameters and locals, `self.field`, call
+//! results; only project structs/enums count): the methods named `m` in that type's impls. Otherwise
+//! they resolve by name only, among
 //! functions defined inside an `impl`/`trait` (never free functions): same-file methods win, else
 //! every method with that name in the project. Several candidates become low-confidence edges
 //! (1/N); more than `MAX_METHOD_CANDIDATES` are dropped, so std-like names (`len`, `get`, `push`)
@@ -26,6 +29,15 @@ pub(crate) const VALUE_SUFFIX: &str = "@value";
 pub(crate) const METHOD_SUFFIX: &str = "@method";
 /// Suffix for method calls whose receiver is `self` (`self.m()`): resolved against the enclosing impl first.
 pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
+/// Separator before the receiver-type hint the AST phase appends to a method placeholder:
+/// `name@method@on:HINT`, where `HINT` is a recipe for the receiver's type: `Type`, `Self` (the enclosing
+/// impl's type), `HINT.field`, `HINT.method()` or `=path::to::f()` (the result of a call).
+pub(crate) const RECEIVER_MARK: &str = "@on:";
+/// Separator in the temporary struct-field placeholder `field@field:Type` (a `Calls` edge from the
+/// struct), consumed here to learn field types.
+pub(crate) const FIELD_MARK: &str = "@field:";
+/// Separator in the temporary return-type placeholder `@ret:Type` (a `Calls` edge from a function).
+pub(crate) const RET_MARK: &str = "@ret:";
 /// A method name with more candidates than this is dropped at the call site (no edges).
 const MAX_METHOD_CANDIDATES: usize = 8;
 use crate::graph::{query::Query, unquote_datavalue, Store};
@@ -72,6 +84,14 @@ struct Index {
     consts_by_name: HashMap<String, Vec<NodeId>>,
     /// Scope-forming nodes by id: (is `impl`/`trait`, payload). `mod` blocks have `false`.
     scopes: HashMap<String, (bool, String)>,
+    /// Names of the project's structs and enums, the only receiver types we trust.
+    type_names: HashSet<String>,
+    /// Struct/enum id -> name, to attribute field placeholders.
+    type_by_id: HashMap<String, String>,
+    /// (struct name, field) -> plain types declared for it (several if same-named structs differ).
+    fields: HashMap<(String, String), HashSet<String>>,
+    /// Function id -> its plain return type (`Self` for `-> Self`).
+    rets: HashMap<String, String>,
 }
 
 impl Index {
@@ -148,15 +168,21 @@ fn resolution_of(mut v: Vec<NodeId>) -> Option<Resolution> {
 /// (every impl block of that type, in any file). `None` when the type is unknown or has no such
 /// method, so the caller falls back to the name-based lookup (`Deref`, trait methods, ..).
 fn resolve_self_method(name: &str, from: &str, idx: &Index) -> Option<Resolution> {
+    resolution_of(methods_of_type(name, enclosing_impl_type(from, idx)?, idx))
+}
+
+/// The `Self` type of the impl/trait enclosing `from`.
+fn enclosing_impl_type<'a>(from: &str, idx: &'a Index) -> Option<&'a str> {
     let ty = idx
         .ancestors(from)
         .find_map(|a| idx.scopes.get(a).filter(|s| s.0).map(|s| s.1.as_str()))?;
-    if ty.is_empty() || ty == "null" {
-        return None;
-    }
-    let all = idx.global_by_name.get(name)?;
-    let own: Vec<NodeId> = all
-        .iter()
+    (!ty.is_empty() && ty != "null").then_some(ty)
+}
+
+/// The methods named `name` in any impl block of the type `ty`.
+fn methods_of_type(name: &str, ty: &str, idx: &Index) -> Vec<NodeId> {
+    let all = idx.global_by_name.get(name).map_or(&[][..], Vec::as_slice);
+    all.iter()
         .filter(|c| idx.methods.contains(c.as_str()))
         .filter(|c| {
             idx.parent_of(c)
@@ -164,8 +190,115 @@ fn resolve_self_method(name: &str, from: &str, idx: &Index) -> Option<Resolution
                 .is_some_and(|s| s.0 && s.1 == ty)
         })
         .cloned()
+        .collect()
+}
+
+/// Type named by a hint (see `RECEIVER_MARK`), following fields and the return types of calls.
+/// `None` when a step is not a project struct/enum, has no (or several different) such field or
+/// method, or the callee cannot be told: generics, trait objects, std types stay unknown.
+fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<String> {
+    let mut parts = hint.split('.');
+    let first = parts.next()?;
+    let mut ty = match first.strip_prefix('=') {
+        Some(call) => call_return_type(call.strip_suffix("()")?, from, from_file, idx)?,
+        None if first == "Self" => enclosing_impl_type(from, idx)?.to_string(),
+        None => first.to_string(),
+    };
+    for part in parts {
+        if !idx.type_names.contains(&ty) {
+            return None;
+        }
+        ty = match part.strip_suffix("()") {
+            Some(m) => return_type_of(&methods_of_type(m, &ty, idx), &ty, idx)?,
+            None => field_type(&ty, part, idx)?,
+        };
+    }
+    Some(ty)
+}
+
+/// The one plain type declared for field `field` of the struct `ty`.
+fn field_type(ty: &str, field: &str, idx: &Index) -> Option<String> {
+    let mut tys = idx.fields.get(&(ty.to_string(), field.to_string()))?.iter();
+    match (tys.next(), tys.next()) {
+        (Some(t), None) => Some(t.clone()),
+        _ => None,
+    }
+}
+
+/// The one return type shared by `fns` (`Self` stands for `self_ty`).
+fn return_type_of(fns: &[NodeId], self_ty: &str, idx: &Index) -> Option<String> {
+    let mut tys = fns
+        .iter()
+        .map(|f| idx.rets.get(f.as_str()).map(String::as_str));
+    let first = tys.next()??;
+    tys.all(|t| t == Some(first))
+        .then(|| if first == "Self" { self_ty } else { first }.to_string())
+}
+
+/// Return type of the call `path()` (`f`, `Type::f`, `Self::f`, `module::f`).
+fn call_return_type(path: &str, from: &str, from_file: &str, idx: &Index) -> Option<String> {
+    let mut segs = path.rsplit("::");
+    let name = segs.next()?;
+    let owner = match segs.next() {
+        Some("Self") => Some(enclosing_impl_type(from, idx)?),
+        o => o,
+    };
+    if let Some(ty) = owner.filter(|o| idx.type_names.contains(*o)) {
+        return return_type_of(&methods_of_type(name, ty, idx), ty, idx);
+    }
+    // `Vec::new()`, `fs::read()`, an imported `args()`: library paths must not pick a project fn
+    // that merely shares the name.
+    let by_module = |c: &NodeId| {
+        owner.is_none_or(|o| {
+            matches!(o, "crate" | "self" | "super")
+                || file_is_module(c.as_str().split('#').next().unwrap_or(""), o)
+                || idx
+                    .parent_of(c)
+                    .and_then(|p| idx.scopes.get(p))
+                    .is_some_and(|s| !s.0 && s.1 == o)
+        })
+    };
+    if owner.is_none()
+        && idx
+            .external_imports
+            .contains(&(from_file.to_string(), name.to_string()))
+    {
+        return None;
+    }
+    let mut free: Vec<NodeId> = idx
+        .global_by_name
+        .get(name)?
+        .iter()
+        .filter(|c| !idx.methods.contains(c.as_str()) && by_module(c))
+        .cloned()
         .collect();
-    resolution_of(own)
+    let prefix = format!("{from_file}#");
+    let key = crate_key(from_file);
+    if free.iter().any(|c| c.as_str().starts_with(&prefix)) {
+        free.retain(|c| c.as_str().starts_with(&prefix));
+    } else if free.iter().any(|c| crate_key(c.as_str()) == key) {
+        free.retain(|c| crate_key(c.as_str()) == key);
+    }
+    return_type_of(&free, "", idx).filter(|t| !t.is_empty())
+}
+
+/// `recv.name()` whose receiver type the AST phase could tell (`hint`, see `RECEIVER_MARK`). Only
+/// project structs/enums count. `None` (type unknown, or it has no such method: `Deref`, trait
+/// default methods) falls back to the name lookup.
+fn resolve_typed_method(
+    name: &str,
+    hint: &str,
+    from: &str,
+    from_file: &str,
+    idx: &Index,
+) -> Option<Resolution> {
+    let ty = eval_hint(hint, from, from_file, idx).filter(|t| idx.type_names.contains(t))?;
+    let mut cands = methods_of_type(name, &ty, idx);
+    let key = crate_key(from_file);
+    if cands.iter().any(|c| crate_key(c.as_str()) == key) {
+        cands.retain(|c| crate_key(c.as_str()) == key);
+    }
+    resolution_of(cands)
 }
 
 fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
@@ -284,7 +417,16 @@ fn resolve_placeholder(
         return resolve_qualified_elsewhere(&segs, fn_name, from, from_file, idx);
     }
     let key = (path_part.to_string(), fn_name.to_string());
-    if let Some(candidates) = local.get(&key) {
+    // A bare name never calls a method of the same file (`helper()` is not `S::helper`).
+    let free_here: Vec<NodeId> = local
+        .get(&key)
+        .into_iter()
+        .flatten()
+        .filter(|n| !idx.methods.contains(n.as_str()))
+        .cloned()
+        .collect();
+    if !free_here.is_empty() {
+        let candidates = &free_here;
         if candidates.len() > 1 {
             if let Some(r) = nearest_in_scope(from, candidates, idx).and_then(resolution_of) {
                 return r;
@@ -572,6 +714,48 @@ fn split_placeholder<'a>(to_str: &'a str, from_file: &'a str) -> (Cow<'a, str>, 
     }
 }
 
+/// Fill `idx.type_names`/`idx.type_by_id` from struct and enum nodes, then `idx.fields` from the
+/// temporary field-type placeholders (`FIELD_MARK`) and `idx.rets` from return-type ones (`RET_MARK`);
+/// both kinds are removed from the store.
+fn fill_fields(
+    store: &Store,
+    idx: &mut Index,
+    nodes: &cozo::NamedRows,
+    edges: &cozo::NamedRows,
+) -> Result<()> {
+    let kinds = [NodeType::Struct.to_string(), NodeType::Enum.to_string()];
+    for row in &nodes.rows {
+        let t = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        let name = row.get(2).map(unquote_datavalue).unwrap_or_default();
+        if kinds.contains(&t) && !name.is_empty() {
+            idx.type_names.insert(name.clone());
+            idx.type_by_id
+                .insert(row.first().map(unquote_datavalue).unwrap_or_default(), name);
+        }
+    }
+    let calls = EdgeType::Calls;
+    for row in &edges.rows {
+        let from = row.first().map(unquote_datavalue).unwrap_or_default();
+        let to = row.get(1).map(unquote_datavalue).unwrap_or_default();
+        if let Some((_, ty)) = to.rsplit_once(RET_MARK) {
+            idx.rets.insert(from.clone(), ty.to_string());
+            store.remove_edge(&NodeId(from), &NodeId(to), &calls)?;
+            continue;
+        }
+        let Some((path, ty)) = to.rsplit_once(FIELD_MARK) else {
+            continue;
+        };
+        if let (Some(owner), Some(field)) = (idx.type_by_id.get(&from), path.rsplit("::").next()) {
+            idx.fields
+                .entry((owner.clone(), field.to_string()))
+                .or_default()
+                .insert(ty.to_string());
+        }
+        store.remove_edge(&NodeId(from), &NodeId(to), &calls)?;
+    }
+    Ok(())
+}
+
 /// Fill `idx.consts` from const and static nodes.
 fn fill_consts(idx: &mut Index, nodes: &cozo::NamedRows) {
     let kinds = [NodeType::Const.to_string(), NodeType::Static.to_string()];
@@ -589,6 +773,25 @@ fn fill_consts(idx: &mut Index, nodes: &cozo::NamedRows) {
             idx.consts.entry((file, name)).or_default().push(node_id);
         }
     }
+}
+
+/// Split a call placeholder into (path and name, is `VALUE_SUFFIX`, is `self.m()`, is any method
+/// call, receiver-type hint).
+fn parse_target(raw_to: &str) -> (String, bool, bool, bool, Option<&str>) {
+    let (core, hint) = match raw_to.rsplit_once(RECEIVER_MARK) {
+        Some((c, h)) => (c, Some(h)),
+        None => (raw_to, None),
+    };
+    let (core, value) = core
+        .strip_suffix(VALUE_SUFFIX)
+        .map_or((core, false), |t| (t, true));
+    let (core, self_method) = core
+        .strip_suffix(SELF_METHOD_SUFFIX)
+        .map_or((core, false), |t| (t, true));
+    let (core, method) = core
+        .strip_suffix(METHOD_SUFFIX)
+        .map_or((core, self_method), |t| (t, true));
+    (core.to_string(), value, self_method, method, hint)
 }
 
 /// Build or enrich call graph by resolving AST placeholder call targets to real function nodes.
@@ -632,6 +835,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     idx.methods = method_ids(&nodes, &edges);
     fill_scopes(&mut idx, &nodes, &edges);
     fill_consts(&mut idx, &nodes);
+    fill_fields(store, &mut idx, &nodes, &edges)?;
 
     let mut high: HashSet<(String, String)> = HashSet::new();
     let mut low: Vec<(NodeId, NodeId, f64)> = Vec::new();
@@ -642,25 +846,17 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
         }
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
         let raw_to = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        let (to_str, value) = match raw_to.strip_suffix(VALUE_SUFFIX) {
-            Some(t) => (t.to_string(), true),
-            None => (raw_to.clone(), false),
-        };
-        let (to_str, self_method) = match to_str.strip_suffix(SELF_METHOD_SUFFIX) {
-            Some(t) => (t.to_string(), true),
-            None => (to_str, false),
-        };
-        let (to_str, method) = match to_str.strip_suffix(METHOD_SUFFIX) {
-            Some(t) => (t.to_string(), true),
-            None => (to_str, self_method),
-        };
+        if raw_to.contains(FIELD_MARK) || raw_to.contains(RET_MARK) {
+            continue;
+        }
+        let (to_str, value, self_method, method, hint) = parse_target(&raw_to);
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let (path_part, fn_name) = split_placeholder(&to_str, from_file);
         let resolution = if method {
             let own = if self_method {
                 resolve_self_method(fn_name, &from_str, &idx)
             } else {
-                None
+                hint.and_then(|h| resolve_typed_method(fn_name, h, &from_str, from_file, &idx))
             };
             own.unwrap_or_else(|| resolve_method(fn_name, from_file, &idx))
         } else {
