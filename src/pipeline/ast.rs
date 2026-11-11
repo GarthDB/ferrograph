@@ -38,6 +38,7 @@ pub fn extract_ast(store: &Store, path: &Path, content: &str, root: &Path) -> Re
         content,
         &file_id,
         &mut stack,
+        &mut Vec::new(),
         &mut nodes,
         &mut edges,
     );
@@ -158,12 +159,19 @@ fn traverse(
     source: &str,
     file_id: &NodeId,
     stack: &mut Vec<NodeId>,
+    fns: &mut Vec<NodeId>,
     nodes: &mut Vec<(NodeId, NodeType, Option<String>)>,
     edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
 ) {
     let node = cursor.node();
     let kind = node.kind();
     let parent = stack.last().cloned();
+    if matches!(kind, "attribute_item" | "inner_attribute_item") {
+        // The enclosing fn (or the file) anchors the edges: attribute arguments are evaluated by
+        // derive/attribute macros whose output we do not see, so the annotated type is not a reliable owner.
+        let anchor = fns.last().unwrap_or(file_id);
+        scan_attribute_refs(&node, source, file_id, anchor, edges);
+    }
     let (node_type, name_opt, extra_edge) =
         classify_node(kind, &node, source, file_id, parent.as_ref(), edges);
 
@@ -216,6 +224,9 @@ fn traverse(
         if let Some((to_id, edge_type)) = extra {
             edges.push((id.clone(), to_id, edge_type));
         }
+        if kind == "function_item" {
+            fns.push(id.clone());
+        }
         stack.push(id);
         true
     } else {
@@ -224,7 +235,7 @@ fn traverse(
 
     if cursor.goto_first_child() {
         loop {
-            traverse(cursor, source, file_id, stack, nodes, edges);
+            traverse(cursor, source, file_id, stack, fns, nodes, edges);
             if !cursor.goto_next_sibling() {
                 break;
             }
@@ -234,6 +245,9 @@ fn traverse(
 
     if added {
         stack.pop();
+        if kind == "function_item" {
+            fns.pop();
+        }
     }
 }
 
@@ -419,11 +433,17 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
 /// See `attribute_contains_identifier` for the distinction.
 fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let name = name_of_node(node, source)?;
+    // `pub(crate)`/`pub(super)` still count as roots: until method and path calls resolve far better,
+    // dropping them floods `dead` with false positives (see #91 and the accuracy harness).
     let is_pub = node
         .child(0)
         .is_some_and(|c| c.kind() == "visibility_modifier");
-    let is_test =
-        has_attribute(node, source, "test") || has_attribute_on_prev_sibling(node, source, "test");
+    // `test_case`/`rstest`/`wasm_bindgen_test` expand to test functions (#107).
+    let is_test = ["test", "test_case", "rstest", "wasm_bindgen_test"]
+        .iter()
+        .any(|name| {
+            has_attribute(node, source, name) || has_attribute_on_prev_sibling(node, source, name)
+        });
     let is_bench = has_attribute(node, source, "bench")
         || has_attribute_on_prev_sibling(node, source, "bench");
     let prefix = match (is_pub, is_test, is_bench) {
@@ -940,6 +960,130 @@ fn scan_macro_rules_body(
             scan_token_tree_for_calls(&body, source, file_id, macro_id, edges);
         }
     }
+}
+
+/// Attribute keys whose string value names a function (`#[serde(skip_serializing_if = "is_default")]`).
+const FN_NAMING_ATTR_KEYS: [&str; 4] = [
+    "skip_serializing_if",
+    "serialize_with",
+    "deserialize_with",
+    "default",
+];
+
+/// Reference edges for functions named in attribute arguments (#89): the value after `=`
+/// (`#[arg(value_parser = parse_hex)]`, `#[command(about = about())]`, `.map(f)` inside it) and
+/// string values of [`FN_NAMING_ATTR_KEYS`]. Bare flags such as `#[arg(short, long)]` are not references.
+fn scan_attribute_refs(
+    item: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    anchor: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let mut cursor = item.walk();
+    for attr in item.children(&mut cursor) {
+        if attr.kind() != "attribute" {
+            continue;
+        }
+        let mut inner = attr.walk();
+        for child in attr.children(&mut inner) {
+            if child.kind() == "token_tree" {
+                scan_attribute_tree(&child, source, file_id, anchor, false, edges);
+            }
+        }
+    }
+}
+
+fn scan_attribute_tree(
+    tt: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    anchor: &NodeId,
+    inherited_expr: bool,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let mut in_expr = inherited_expr;
+    let mut key: Option<&str> = None;
+    let mut prev_kind = "";
+    let mut i = 0;
+    while let Some(child) = tt.child(i) {
+        let kind = child.kind();
+        match kind {
+            "=" => in_expr = true,
+            "," if !inherited_expr => in_expr = false,
+            "identifier" if !in_expr => key = source.get(child.byte_range()),
+            "identifier" if prev_kind != "." && tt.child(i + 1).map(|n| n.kind()) != Some("!") => {
+                if !is_path_segment(tt, i) {
+                    push_attribute_ref(tt, i, &child, source, file_id, anchor, edges);
+                }
+            }
+            "string_literal" if in_expr && prev_kind == "=" => {
+                let path = source
+                    .get(child.byte_range())
+                    .map(|t| t.trim_matches('"'))
+                    .filter(|_| key.is_some_and(|k| FN_NAMING_ATTR_KEYS.contains(&k)))
+                    .filter(|t| {
+                        !t.is_empty() && t.split("::").all(|seg| !seg.is_empty() && is_ident(seg))
+                    });
+                if let Some(path) = path {
+                    edges.push((
+                        anchor.clone(),
+                        NodeId::new(format!(
+                            "{}::{path}{}",
+                            file_id.as_str(),
+                            super::calls::VALUE_SUFFIX
+                        )),
+                        EdgeType::Calls,
+                    ));
+                }
+            }
+            "token_tree" => scan_attribute_tree(&child, source, file_id, anchor, in_expr, edges),
+            _ => {}
+        }
+        prev_kind = kind;
+        i += 1;
+    }
+}
+
+fn is_ident(s: &str) -> bool {
+    s.chars()
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
+        && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Edge for the path ending at identifier `i` of an attribute token tree: a call if it is followed
+/// by `( .. )` (or a turbofish and `( .. )`), otherwise a value reference.
+fn push_attribute_ref(
+    tt: &tree_sitter::Node,
+    i: usize,
+    ident: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    anchor: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let Some(name) = source.get(ident.byte_range()) else {
+        return;
+    };
+    let called = tt
+        .child(i + 1)
+        .is_some_and(|n| n.kind() == "token_tree" && token_tree_starts_with_paren(&n, source))
+        || turbofish_then_paren(tt, i + 1, source);
+    let suffix = if called {
+        ""
+    } else {
+        super::calls::VALUE_SUFFIX
+    };
+    edges.push((
+        anchor.clone(),
+        NodeId::new(format!(
+            "{}::{}{name}{suffix}",
+            file_id.as_str(),
+            path_prefix(tt, i, source)
+        )),
+        EdgeType::Calls,
+    ));
 }
 
 /// True if the tokens from `start` are `::<...>` (angle brackets balanced) followed by `( ... )`.

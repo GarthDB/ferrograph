@@ -23,4 +23,18 @@ mod more {
     /* block */
     fn d() {}
 }
+#[cfg(test)]
+mod frameworks {
+    use test_case::test_case;
+
+    #[test_case(1 ; "one")]
+    #[test_case(2 ; "two")]
+    fn parametrized(_n: u32) {}
+
+    #[rstest::rstest]
+    fn with_rstest() {}
+
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    fn wasm() {}
+}
 fn unused_private() {}

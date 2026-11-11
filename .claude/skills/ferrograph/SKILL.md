@@ -307,6 +307,6 @@ Each tool produces independent output — ferrograph in `.ferrograph`, graphify 
 
 ## Honesty rules
 
-- ferrograph uses static, name-based analysis. Dead-code results can include false positives (`dyn Trait` dynamic dispatch, names used only in macro/attribute arguments, attribute-macro impls, some cross-file paths) and false negatives (anything `pub` or `pub(crate)`, trait impls and name collisions keep code alive). Treat them as a review aid, not proof, and always mention this caveat. Recall is not yet measured; see https://github.com/GarthDB/ferrograph/issues/92.
+- ferrograph uses static, name-based analysis. Dead-code results can include false positives (`dyn Trait` dynamic dispatch, names used only in macro/attribute arguments, attribute-macro impls, some cross-file paths) and false negatives (anything `pub` or `pub(crate)`, trait impls and name collisions keep code alive). Treat them as a review aid, not proof, and always mention this caveat. Recall is measured by `scripts/accuracy/` (5.6% of rustc-dead functions in v4.0.4); see https://github.com/GarthDB/ferrograph/issues/92.
 - The `changes_with` edge type requires the `git` feature and may not be populated.
 - Node IDs are positional (line:col). Reindex after significant code changes or IDs may be stale.

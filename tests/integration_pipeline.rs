@@ -405,6 +405,78 @@ fn pipeline_default_entry_attributes_and_commented_tests() {
     }
 }
 
+#[test]
+fn pipeline_fns_named_in_attribute_arguments_are_live() {
+    let store = run_fixture("attr_args");
+    for strict in [false, true] {
+        let mut dead = dead_names(&store, strict);
+        dead.sort();
+        assert_eq!(dead, ["long", "short", "unused_private"], "strict={strict}");
+    }
+}
+
+#[test]
+fn pipeline_cross_file_qualified_paths_resolve() {
+    let store = run_fixture("xfile_paths");
+    // `pub(crate)` targets are roots, so check the call edges themselves.
+    let called: std::collections::HashSet<String> = store
+        .run_query(
+            "?[p] := *nodes[t, \"function\", p], *edges[_, t, \"calls\"]",
+            std::collections::BTreeMap::new(),
+        )
+        .unwrap()
+        .rows
+        .iter()
+        .map(|r| r[0].to_string().trim_matches('"').to_string())
+        .collect();
+    for name in [
+        "helper",
+        "sup",
+        "new",
+        "tool",
+        "other",
+        "generate",
+        "generate_two",
+        "from_mod",
+    ] {
+        assert!(
+            called.contains(name) || called.contains(&format!("pub::{name}")),
+            "{name} has no call edge: {called:?}"
+        );
+    }
+    assert!(!called.contains("unused_in_lib") && !called.contains("pub::unused_in_util"));
+    // An aliased owner (`use S as Alias`) is only a low-confidence edge, which `--strict` ignores.
+    let mut strict = dead_names(&store, true);
+    strict.sort();
+    assert_eq!(strict, ["made_via_alias", "unused_in_lib"]);
+    let mut dead = dead_names(&store, false);
+    dead.sort();
+    assert_eq!(dead, ["unused_in_lib"]);
+}
+
+/// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness
+/// measured ~1.5% judgeable precision (643 reported, 8 right) because method and path calls are not
+/// resolved well enough yet. Remove the `ignore` together with the `is_pub` change in `ast.rs`.
+#[test]
+#[ignore = "#91: needs better method/path call resolution first"]
+fn pipeline_restricted_visibility_fns_are_not_roots() {
+    let store = run_fixture("restricted_vis");
+    for strict in [false, true] {
+        let mut dead = dead_names(&store, strict);
+        dead.sort();
+        assert_eq!(
+            dead,
+            [
+                "unused_crate",
+                "unused_in_path",
+                "unused_nested",
+                "unused_super"
+            ],
+            "strict={strict}"
+        );
+    }
+}
+
 /// Line numbers (1-based) of fixture definitions, keyed by their trailing `// tag` or `/* tag */`.
 fn tagged_lines(fixture: &str, file: &str) -> std::collections::HashMap<String, usize> {
     let src = std::fs::read_to_string(fixture_path(fixture).join(file)).unwrap();

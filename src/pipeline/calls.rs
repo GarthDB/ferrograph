@@ -229,8 +229,10 @@ fn resolve_placeholder(
                 return r;
             }
         }
-        // Qualified type/module path (e.g. std::collections::HashMap); do not resolve via global lookup to avoid false positives.
-        return Resolution::None;
+        // Not in this file: the owner may be a type or module defined elsewhere in the project (#106).
+        // Paths into external crates (`std::collections::HashMap`) find no owner and stay unresolved.
+        let segs: Vec<&str> = path_part.split("::").skip(1).collect();
+        return resolve_qualified_elsewhere(&segs, fn_name, from, from_file, idx);
     }
     let key = (path_part.to_string(), fn_name.to_string());
     if let Some(candidates) = local.get(&key) {
@@ -275,8 +277,25 @@ fn resolve_placeholder(
                 }
             }
         }
-        return candidate.map_or(Resolution::None, Resolution::One);
+        if let Some(c) = candidate {
+            return Resolution::One(c);
+        }
+        // The `use` paths did not lead to the callee (re-exports, nested modules): fall back to the
+        // project-wide free-function lookup below rather than dropping the call. The callee may also
+        // be an external function, so even a unique match is only a low-confidence edge.
+        return resolve_bare_globally(fn_name, from_file, value, true, idx);
     }
+    resolve_bare_globally(fn_name, from_file, value, false, idx)
+}
+
+fn resolve_bare_globally(
+    fn_name: &str,
+    from_file: &str,
+    value: bool,
+    imports_unresolved: bool,
+    idx: &Index,
+) -> Resolution {
+    let Index { global_by_name, .. } = idx;
     if value {
         return Resolution::None;
     }
@@ -287,11 +306,112 @@ fn resolve_placeholder(
         .flatten()
         .filter(|n| !idx.methods.contains(n.as_str()))
         .collect();
+    let key = crate_key(from_file);
+    let same_crate: Vec<&NodeId> = free
+        .iter()
+        .filter(|n| key.is_none() || crate_key(n.as_str()) == key)
+        .copied()
+        .collect();
+    let free = if same_crate.is_empty() {
+        free
+    } else {
+        same_crate
+    };
     match free.as_slice() {
         [] => Resolution::None,
-        [one] => Resolution::One((*one).clone()),
+        [one] if !imports_unresolved => Resolution::One((*one).clone()),
         many => Resolution::Ambiguous(many.iter().map(|n| (*n).clone()).collect()),
     }
+}
+
+/// Source root of a file: the path through its `/src/`, so `crate::`/`super::` paths stay inside one
+/// crate. `None` for files outside any `src/` (tests, examples), which are then unrestricted.
+fn crate_key(file: &str) -> Option<&str> {
+    file.find("/src/").map(|i| &file[..i + 5])
+}
+
+/// Whether `file` belongs to the module `name`: it is `name.rs`, `name/mod.rs`, or sits inside a
+/// `name/` directory (items re-exported through `pub use`, e.g. `derives::f` defined in `derives/x.rs`).
+fn file_is_module(file: &str, name: &str) -> bool {
+    let path = std::path::Path::new(file);
+    let stem = path.file_stem().and_then(|s| s.to_str());
+    stem == Some(name)
+        || path
+            .parent()
+            .is_some_and(|d| d.components().any(|c| c.as_os_str() == name))
+}
+
+/// Number of leading path components `a` and `b` share.
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.split('/')
+        .zip(b.split('/'))
+        .take_while(|(x, y)| x == y)
+        .count()
+}
+
+/// Resolve a qualified call whose owner is not in the calling file (`Type::f`, `module::f`,
+/// `crate::f`, `super::f`, `self::f`) among the whole project. The owner (last path segment) picks
+/// an impl/trait/`mod` block by name or a module file by name; `crate`/`super`/`self` pick free
+/// functions of the same crate. A unique match is a certain edge, several are low-confidence.
+fn resolve_qualified_elsewhere(
+    segs: &[&str],
+    fn_name: &str,
+    from: &str,
+    from_file: &str,
+    idx: &Index,
+) -> Resolution {
+    let (Some(all), Some(&owner)) = (idx.global_by_name.get(fn_name), segs.last()) else {
+        return Resolution::None;
+    };
+    let relative = matches!(owner, "crate" | "super" | "self");
+    let mut cands: Vec<NodeId> = if relative {
+        all.iter()
+            .filter(|c| !idx.methods.contains(c.as_str()))
+            .cloned()
+            .collect()
+    } else {
+        let by_scope = pick_by_owner(owner, from, all, idx);
+        if by_scope.is_empty() {
+            all.iter()
+                .filter(|c| !idx.methods.contains(c.as_str()))
+                .filter(|c| file_is_module(c.as_str().split('#').next().unwrap_or(""), owner))
+                .cloned()
+                .collect()
+        } else {
+            by_scope
+        }
+    };
+    let key = crate_key(from_file);
+    let same_crate: Vec<NodeId> = cands
+        .iter()
+        .filter(|c| key.is_none() || crate_key(c.as_str()) == key)
+        .cloned()
+        .collect();
+    if !same_crate.is_empty() {
+        cands = same_crate;
+    }
+    if relative && cands.len() > 1 {
+        let near = |c: &NodeId| common_prefix_len(c.as_str(), from_file);
+        let best = cands.iter().map(near).max().unwrap_or(0);
+        cands.retain(|c| near(c) == best);
+    }
+    if cands.is_empty() && !relative && owner != "Self" {
+        // Unknown owner (a `use .. as` alias, a re-exported type): fall back to the same-named
+        // items of the crate, as low-confidence edges, unless the name is too common to mean anything.
+        cands = all
+            .iter()
+            .filter(|c| key.is_none() || crate_key(c.as_str()) == key)
+            .cloned()
+            .collect();
+        if cands.len() > MAX_METHOD_CANDIDATES {
+            return Resolution::None;
+        }
+        return match cands.len() {
+            0 => Resolution::None,
+            _ => Resolution::Ambiguous(cands),
+        };
+    }
+    resolution_of(cands).unwrap_or(Resolution::None)
 }
 
 /// Imports edges grouped by importing file.
@@ -747,6 +867,34 @@ mod tests {
             .put_edge(&NodeId::new(parent), &id, &EdgeType::Contains)
             .unwrap();
         id
+    }
+
+    #[test]
+    fn bare_call_not_resolved_by_imports_is_only_a_low_confidence_guess() {
+        let store = Store::new_memory().unwrap();
+        let local = put_fn(&store, "./lib.rs#1:1", "from_str", "./lib.rs");
+        let helper = put_fn(&store, "./util.rs#1:1", "helper", "./util.rs");
+        let caller = put_fn(&store, "./a.rs#1:1", "run", "./a.rs");
+        // `a.rs` imports `helper` (resolved) and `from_str` from an external crate (not recorded).
+        store
+            .put_edge(&NodeId::new("./a.rs"), &helper, &EdgeType::Imports)
+            .unwrap();
+        store
+            .put_edge(&caller, &NodeId::new("./a.rs::from_str"), &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let low = store
+            .run_query(
+                "?[t] := *edge_confidence[_, t, \"calls\", _]",
+                std::collections::BTreeMap::new(),
+            )
+            .unwrap();
+        let low: Vec<String> = low
+            .rows
+            .iter()
+            .map(|r| r[0].to_string().trim_matches('"').to_string())
+            .collect();
+        assert_eq!(low, vec![local.as_str().to_string()]);
     }
 
     #[test]
