@@ -251,10 +251,15 @@ fn resolve_placeholder(
         let file_only = path_part.split("::").next().unwrap_or(path_part);
         let key = (file_only.to_string(), fn_name.to_string());
         if let Some(candidates) = local.get(&key) {
-            if let [one] = candidates.as_slice() {
+            let owner = path_part.rsplit("::").next().unwrap_or(path_part);
+            // A lone same-file candidate only counts if the owner is relative (`crate`/`self`/`super`)
+            // or names it: `HaystackBuilder::new()` must not bind to an unrelated `new` in this file.
+            if let ([one], true) = (
+                candidates.as_slice(),
+                matches!(owner, "crate" | "self" | "super"),
+            ) {
                 return Resolution::One(one.clone());
             }
-            let owner = path_part.rsplit("::").next().unwrap_or(path_part);
             if let Some(r) = resolution_of(pick_by_owner(owner, from, candidates, idx)) {
                 return r;
             }
