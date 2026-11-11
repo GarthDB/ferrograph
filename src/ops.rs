@@ -127,7 +127,7 @@ pub const DEAD_CODE_CAVEAT: &str =
      It can report live code as dead (false positives), e.g. functions called via dyn Trait \
      (dynamic dispatch), names used only in macro or attribute arguments, attribute-macro \
      impls, and some cross-file paths. It can also miss dead code (false negatives): anything \
-     `pub` or `pub(crate)`, trait impls, and name collisions keep code alive. \
+     plain `pub` items (including `pub` in private modules), trait impls, and name collisions keep code alive. \
      See https://github.com/GarthDB/ferrograph/issues/92.";
 
 /// A function that the change under review leaves dead (see [`crate::pr`]).

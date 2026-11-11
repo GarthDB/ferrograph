@@ -405,6 +405,35 @@ fn pipeline_default_entry_attributes_and_commented_tests() {
     }
 }
 
+#[test]
+fn pipeline_fns_named_in_attribute_arguments_are_live() {
+    let store = run_fixture("attr_args");
+    for strict in [false, true] {
+        let mut dead = dead_names(&store, strict);
+        dead.sort();
+        assert_eq!(dead, ["long", "short", "unused_private"], "strict={strict}");
+    }
+}
+
+#[test]
+fn pipeline_restricted_visibility_fns_are_not_roots() {
+    let store = run_fixture("restricted_vis");
+    for strict in [false, true] {
+        let mut dead = dead_names(&store, strict);
+        dead.sort();
+        assert_eq!(
+            dead,
+            [
+                "unused_crate",
+                "unused_in_path",
+                "unused_nested",
+                "unused_super"
+            ],
+            "strict={strict}"
+        );
+    }
+}
+
 /// Line numbers (1-based) of fixture definitions, keyed by their trailing `// tag` or `/* tag */`.
 fn tagged_lines(fixture: &str, file: &str) -> std::collections::HashMap<String, usize> {
     let src = std::fs::read_to_string(fixture_path(fixture).join(file)).unwrap();
