@@ -67,7 +67,7 @@ class SyntheticCorpus(unittest.TestCase):
         tmp = Path(self.tmp.name)
         subprocess.run(
             [sys.executable, str(HERE / "mutation.py"), "--config", str(tmp / "c.toml"), "--corpus", "synthetic",
-             "--ferrograph", find_binary(), "--work", str(tmp / "w"), "--n", "3",
+             "--ferrograph", find_binary(), "--work", str(tmp / "w"), "--n", "10",
              "--out-md", str(tmp / "m.md"), "--out-json", str(tmp / "m.json")],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
         )
