@@ -77,6 +77,7 @@ TP/FN/FP per mutation and pooled, FN buckets (graph replay on the mutated tree),
 
 ## What is not measured / limitations
 
+- `RUSTFLAGS` is set to `--force-warn dead_code`, which makes cargo ignore `build.rustflags`/`target.*.rustflags` from a corpus's `.cargo/config.toml`. In the pinned corpora those are Windows-only (fd, ripgrep), so nothing changes on macOS/Linux; check before adding a corpus that needs e.g. `--cfg tokio_unstable`.
 - rustc's view depends on cfg, features, target and platform; ferrograph is cfg-agnostic. One platform, one feature set per run.
   Disagreements caused by that appear as "not judgeable (cfg)" or "dead in some unit only", not as errors.
 - Trait-impl methods and `pub` items of library crates are invisible to rustc, so neither recall nor precision says anything
