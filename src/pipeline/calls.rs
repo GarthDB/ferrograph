@@ -229,8 +229,10 @@ fn resolve_placeholder(
                 return r;
             }
         }
-        // Qualified type/module path (e.g. std::collections::HashMap); do not resolve via global lookup to avoid false positives.
-        return Resolution::None;
+        // Not in this file: the owner may be a type or module defined elsewhere in the project (#106).
+        // Paths into external crates (`std::collections::HashMap`) find no owner and stay unresolved.
+        let segs: Vec<&str> = path_part.split("::").skip(1).collect();
+        return resolve_qualified_elsewhere(&segs, fn_name, from, from_file, idx);
     }
     let key = (path_part.to_string(), fn_name.to_string());
     if let Some(candidates) = local.get(&key) {
@@ -292,6 +294,85 @@ fn resolve_placeholder(
         [one] => Resolution::One((*one).clone()),
         many => Resolution::Ambiguous(many.iter().map(|n| (*n).clone()).collect()),
     }
+}
+
+/// Source root of a file: the path through its `/src/`, so `crate::`/`super::` paths stay inside one
+/// crate. `None` for files outside any `src/` (tests, examples), which are then unrestricted.
+fn crate_key(file: &str) -> Option<&str> {
+    file.find("/src/").map(|i| &file[..i + 5])
+}
+
+/// Whether `file` is the module `name`: `name.rs`, or `name/mod.rs`.
+fn file_is_module(file: &str, name: &str) -> bool {
+    let path = std::path::Path::new(file);
+    let stem = path.file_stem().and_then(|s| s.to_str());
+    match stem {
+        Some("mod") => {
+            path.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                == Some(name)
+        }
+        Some(st) => st == name,
+        None => false,
+    }
+}
+
+/// Number of leading path components `a` and `b` share.
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.split('/')
+        .zip(b.split('/'))
+        .take_while(|(x, y)| x == y)
+        .count()
+}
+
+/// Resolve a qualified call whose owner is not in the calling file (`Type::f`, `module::f`,
+/// `crate::f`, `super::f`, `self::f`) among the whole project. The owner (last path segment) picks
+/// an impl/trait/`mod` block by name or a module file by name; `crate`/`super`/`self` pick free
+/// functions of the same crate. A unique match is a certain edge, several are low-confidence.
+fn resolve_qualified_elsewhere(
+    segs: &[&str],
+    fn_name: &str,
+    from: &str,
+    from_file: &str,
+    idx: &Index,
+) -> Resolution {
+    let (Some(all), Some(&owner)) = (idx.global_by_name.get(fn_name), segs.last()) else {
+        return Resolution::None;
+    };
+    let relative = matches!(owner, "crate" | "super" | "self");
+    let mut cands: Vec<NodeId> = if relative {
+        all.iter()
+            .filter(|c| !idx.methods.contains(c.as_str()))
+            .cloned()
+            .collect()
+    } else {
+        let by_scope = pick_by_owner(owner, from, all, idx);
+        if by_scope.is_empty() {
+            all.iter()
+                .filter(|c| !idx.methods.contains(c.as_str()))
+                .filter(|c| file_is_module(c.as_str().split('#').next().unwrap_or(""), owner))
+                .cloned()
+                .collect()
+        } else {
+            by_scope
+        }
+    };
+    let key = crate_key(from_file);
+    let same_crate: Vec<NodeId> = cands
+        .iter()
+        .filter(|c| key.is_none() || crate_key(c.as_str()) == key)
+        .cloned()
+        .collect();
+    if !same_crate.is_empty() {
+        cands = same_crate;
+    }
+    if relative && cands.len() > 1 {
+        let near = |c: &NodeId| common_prefix_len(c.as_str(), from_file);
+        let best = cands.iter().map(near).max().unwrap_or(0);
+        cands.retain(|c| near(c) == best);
+    }
+    resolution_of(cands).unwrap_or(Resolution::None)
 }
 
 /// Imports edges grouped by importing file.

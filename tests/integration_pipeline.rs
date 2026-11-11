@@ -416,6 +416,16 @@ fn pipeline_fns_named_in_attribute_arguments_are_live() {
 }
 
 #[test]
+fn pipeline_cross_file_qualified_paths_resolve() {
+    let store = run_fixture("xfile_paths");
+    for strict in [false, true] {
+        let mut dead = dead_names(&store, strict);
+        dead.sort();
+        assert_eq!(dead, ["unused_in_lib", "unused_in_util"], "strict={strict}");
+    }
+}
+
+#[test]
 fn pipeline_restricted_visibility_fns_are_not_roots() {
     let store = run_fixture("restricted_vis");
     for strict in [false, true] {
