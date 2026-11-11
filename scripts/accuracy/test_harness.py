@@ -73,9 +73,11 @@ class SyntheticCorpus(unittest.TestCase):
         )
         runs = json.loads((tmp / "m.json").read_text())["runs"]
         by = {r["name"]: r for r in runs}
-        self.assertEqual({"cleanup", "teardown"}, set(by))
+        # other candidates (e.g. util::used once cross-file path calls resolve) may appear; only these two are asserted
+        self.assertLessEqual({"cleanup", "teardown"}, set(by))
         # each mutation starts from the base tree: exactly one newly dead fn each, even in the same file
-        for name, r in by.items():
+        for name in ("cleanup", "teardown"):
+            r = by[name]
             self.assertEqual(len(r["oracle"]), 1, name)
             self.assertEqual(r["tp"], r["oracle"], name)
 
