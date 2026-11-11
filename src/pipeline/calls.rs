@@ -302,20 +302,15 @@ fn crate_key(file: &str) -> Option<&str> {
     file.find("/src/").map(|i| &file[..i + 5])
 }
 
-/// Whether `file` is the module `name`: `name.rs`, or `name/mod.rs`.
+/// Whether `file` belongs to the module `name`: it is `name.rs`, `name/mod.rs`, or sits inside a
+/// `name/` directory (items re-exported through `pub use`, e.g. `derives::f` defined in `derives/x.rs`).
 fn file_is_module(file: &str, name: &str) -> bool {
     let path = std::path::Path::new(file);
     let stem = path.file_stem().and_then(|s| s.to_str());
-    match stem {
-        Some("mod") => {
-            path.parent()
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                == Some(name)
-        }
-        Some(st) => st == name,
-        None => false,
-    }
+    stem == Some(name)
+        || path
+            .parent()
+            .is_some_and(|d| d.components().any(|c| c.as_os_str() == name))
 }
 
 /// Number of leading path components `a` and `b` share.
@@ -371,6 +366,22 @@ fn resolve_qualified_elsewhere(
         let near = |c: &NodeId| common_prefix_len(c.as_str(), from_file);
         let best = cands.iter().map(near).max().unwrap_or(0);
         cands.retain(|c| near(c) == best);
+    }
+    if cands.is_empty() && !relative && owner != "Self" {
+        // Unknown owner (a `use .. as` alias, a re-exported type): fall back to the same-named
+        // items of the crate, as low-confidence edges, unless the name is too common to mean anything.
+        cands = all
+            .iter()
+            .filter(|c| key.is_none() || crate_key(c.as_str()) == key)
+            .cloned()
+            .collect();
+        if cands.len() > MAX_METHOD_CANDIDATES {
+            return Resolution::None;
+        }
+        return match cands.len() {
+            0 => Resolution::None,
+            _ => Resolution::Ambiguous(cands),
+        };
     }
     resolution_of(cands).unwrap_or(Resolution::None)
 }

@@ -418,11 +418,16 @@ fn pipeline_fns_named_in_attribute_arguments_are_live() {
 #[test]
 fn pipeline_cross_file_qualified_paths_resolve() {
     let store = run_fixture("xfile_paths");
-    for strict in [false, true] {
-        let mut dead = dead_names(&store, strict);
-        dead.sort();
-        assert_eq!(dead, ["unused_in_lib", "unused_in_util"], "strict={strict}");
-    }
+    let mut dead = dead_names(&store, false);
+    dead.sort();
+    assert_eq!(dead, ["unused_in_lib", "unused_in_util"]);
+    // An aliased owner (`use S as Alias`) is only a low-confidence edge, which `--strict` ignores.
+    let mut strict = dead_names(&store, true);
+    strict.sort();
+    assert_eq!(
+        strict,
+        ["made_via_alias", "unused_in_lib", "unused_in_util"]
+    );
 }
 
 #[test]
