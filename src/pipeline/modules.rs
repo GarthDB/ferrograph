@@ -189,7 +189,6 @@ fn resolve_use_path(
     krate: &str,
     current_module: &str,
     maps: &ModuleMaps,
-    store: &Store,
     depth: usize,
 ) -> Option<(String, Option<String>)> {
     let path = use_path.split(" as ").next()?.trim();
@@ -224,8 +223,8 @@ fn resolve_use_path(
     }
     let module = join_mod(&base, mods);
     let file_id = module_file(maps, krate, &module)?.clone();
-    let node = find_item_in_file(store, &file_id, item)
-        .or_else(|| follow_reexport(&file_id, item, krate, &module, maps, store, depth));
+    let node = find_item_in_file(maps, &file_id, item)
+        .or_else(|| follow_reexport(&file_id, item, krate, &module, maps, depth));
     Some((file_id, node))
 }
 
@@ -236,7 +235,6 @@ fn follow_reexport(
     krate: &str,
     module: &str,
     maps: &ModuleMaps,
-    store: &Store,
     depth: usize,
 ) -> Option<String> {
     if depth >= 4 {
@@ -244,8 +242,8 @@ fn follow_reexport(
     }
     for leaf in maps.file_uses.get(file_id)? {
         if leaf.ends_with("::*") {
-            if let Some((f, None)) = resolve_use_path(leaf, krate, module, maps, store, depth + 1) {
-                if let Some(node) = find_item_in_file(store, &f, item) {
+            if let Some((f, None)) = resolve_use_path(leaf, krate, module, maps, depth + 1) {
+                if let Some(node) = find_item_in_file(maps, &f, item) {
                     return Some(node);
                 }
             }
@@ -253,9 +251,7 @@ fn follow_reexport(
             .iter()
             .any(|(n, o)| n == item && o.is_none())
         {
-            if let Some((_, Some(node))) =
-                resolve_use_path(leaf, krate, module, maps, store, depth + 1)
-            {
+            if let Some((_, Some(node))) = resolve_use_path(leaf, krate, module, maps, depth + 1) {
                 return Some(node);
             }
         }
@@ -264,27 +260,34 @@ fn follow_reexport(
 }
 
 /// Find a node that is contained in `file_id` (via Contains) and has payload equal to `name` or `pub::{name}`.
-fn find_item_in_file(store: &Store, file_id: &str, name: &str) -> Option<String> {
-    let edge_contains = EdgeType::Contains.to_string();
-    let mut params = BTreeMap::new();
-    params.insert("file_id".to_string(), cozo::DataValue::from(file_id));
-    let script = format!(
-        r#"
-        reachable[to_id] := *edges[from_id, to_id, edge_type], from_id = $file_id, edge_type = "{edge_contains}"
-        reachable[to_id] := reachable[from_id], *edges[from_id, to_id, edge_type], edge_type = "{edge_contains}"
-        ?[id, payload] := reachable[id], *nodes[id, type, payload], id != $file_id
-        "#
-    );
-    let rows = store.run_query(script.trim(), params).ok()?;
-    for row in &rows.rows {
-        let id = row.first().map(unquote_datavalue)?;
-        let payload = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        let canonical = payload.strip_prefix("pub::").unwrap_or(&payload);
-        if canonical == name {
-            return Some(id);
+fn find_item_in_file(maps: &ModuleMaps, file_id: &str, name: &str) -> Option<String> {
+    maps.items
+        .get(&(file_id.to_string(), name.to_string()))
+        .cloned()
+}
+
+/// (file, canonical name) -> first node contained in the file, directly or nested.
+fn items_by_file(
+    file_ids: &[String],
+    payloads: &BTreeMap<String, (String, String)>,
+    children: &BTreeMap<String, Vec<String>>,
+) -> BTreeMap<(String, String), String> {
+    let mut items = BTreeMap::new();
+    for file_id in file_ids {
+        let mut stack = vec![file_id.as_str()];
+        while let Some(id) = stack.pop() {
+            for child in children.get(id).into_iter().flatten() {
+                stack.push(child);
+                if let Some((_, payload)) = payloads.get(child) {
+                    let name = payload.strip_prefix("pub::").unwrap_or(payload);
+                    items
+                        .entry((file_id.clone(), name.to_string()))
+                        .or_insert_with(|| child.clone());
+                }
+            }
         }
     }
-    None
+    items
 }
 
 struct ModuleMaps {
@@ -292,8 +295,20 @@ struct ModuleMaps {
     file_id_to_module_path: BTreeMap<String, (String, String)>,
     /// (crate directory, module path) -> file.
     module_path_to_file_id: BTreeMap<(String, String), String>,
+    /// (file, item name) -> node contained in the file.
+    items: BTreeMap<(String, String), String>,
     /// File -> its `use` leaves, brace groups expanded.
     file_uses: BTreeMap<String, Vec<String>>,
+}
+
+fn canonical_files<'a>(
+    root: &Path,
+    file_ids: &'a [String],
+) -> BTreeMap<std::path::PathBuf, &'a String> {
+    file_ids
+        .iter()
+        .filter_map(|f| Some((root.join(f).canonicalize().ok()?, f)))
+        .collect()
 }
 
 /// Re-home files declared with `#[path = ".."] mod name;` under the module that declares them.
@@ -303,10 +318,7 @@ fn apply_path_mods(
     file_to_module: &mut BTreeMap<String, (String, String)>,
     module_to_file: &mut BTreeMap<(String, String), String>,
 ) {
-    let by_canonical: BTreeMap<std::path::PathBuf, &String> = file_ids
-        .iter()
-        .filter_map(|f| Some((root.join(f).canonicalize().ok()?, f)))
-        .collect();
+    let by_canonical = canonical_files(root, file_ids);
     for file_id in file_ids {
         let Some((krate, module)) = file_to_module.get(file_id).cloned() else {
             continue;
@@ -378,51 +390,48 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
         &mut module_path_to_file_id,
     );
 
+    let by_canonical = canonical_files(root, &file_id_to_path);
+    let payloads: BTreeMap<String, (String, String)> = nodes
+        .rows
+        .iter()
+        .filter_map(|r| {
+            let id = r.first().map(unquote_datavalue)?;
+            let ty = r.get(1).map(unquote_datavalue).unwrap_or_default();
+            let payload = r.get(2).map(unquote_datavalue).unwrap_or_default();
+            Some((id, (ty, payload)))
+        })
+        .collect();
+    let mut children: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for row in &edges.rows {
         let from_id = row.first().map(unquote_datavalue).unwrap_or_default();
         let to_id = row.get(1).map(unquote_datavalue).unwrap_or_default();
         let edge_type = row.get(2).map(unquote_datavalue).unwrap_or_default();
-        if edge_type != edge_contains || !file_id_to_module_path.contains_key(&from_id) {
+        if edge_type != edge_contains {
             continue;
         }
-        let to_type = nodes
-            .rows
-            .iter()
-            .find(|r| r.first().map(unquote_datavalue).as_deref() == Some(to_id.as_str()))
-            .and_then(|r| r.get(1).map(unquote_datavalue));
-        if to_type.as_deref() != Some(type_module.as_str()) {
-            continue;
-        }
-        let to_payload = nodes
-            .rows
-            .iter()
-            .find(|r| r.first().map(unquote_datavalue).as_deref() == Some(to_id.as_str()))
-            .and_then(|r| r.get(2).map(unquote_datavalue));
-        if let Some(ref mod_name) = to_payload {
-            let (krate, current) = file_id_to_module_path
-                .get(&from_id)
-                .cloned()
-                .unwrap_or_default();
-            let sub_path = if current == "crate" {
-                format!("crate::{mod_name}")
-            } else {
-                format!("{current}::{mod_name}")
-            };
-            if let Some(target_path) = resolve_module_to_file(&sub_path, &root.join(&krate)) {
-                let target_canon = target_path.canonicalize().ok();
-                if let Some(sub_file_id) = file_id_to_path
-                    .iter()
-                    .find(|fid| root.join(fid.as_str()).canonicalize().ok() == target_canon)
-                {
+        if let (true, Some((ty, mod_name))) = (
+            file_id_to_module_path.contains_key(&from_id),
+            payloads.get(&to_id),
+        ) {
+            if *ty == type_module {
+                let (krate, current) = file_id_to_module_path[&from_id].clone();
+                let sub_path = join_mod(&current, &[mod_name]);
+                let target = resolve_module_to_file(&sub_path, &root.join(&krate))
+                    .and_then(|p| p.canonicalize().ok())
+                    .and_then(|c| by_canonical.get(&c).copied());
+                if let Some(sub_file_id) = target {
                     module_path_to_file_id.insert((krate, sub_path), sub_file_id.clone());
                 }
             }
         }
+        children.entry(from_id).or_default().push(to_id);
     }
+    let items = items_by_file(&file_id_to_path, &payloads, &children);
 
     ModuleMaps {
         file_id_to_module_path,
         module_path_to_file_id,
+        items,
         file_uses,
     }
 }
@@ -481,7 +490,7 @@ fn use_leaves(path: &str) -> Vec<(String, Option<String>)> {
     }
 }
 
-fn collect_imports_to_add(maps: &ModuleMaps, store: &Store) -> Vec<(NodeId, NodeId, EdgeType)> {
+fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> {
     let mut out = Vec::new();
     for (file_id, leaves) in &maps.file_uses {
         let Some((krate, module_path)) = maps.file_id_to_module_path.get(file_id) else {
@@ -495,7 +504,7 @@ fn collect_imports_to_add(maps: &ModuleMaps, store: &Store) -> Vec<(NodeId, Node
             }
             let mut external = false;
             if let Some((target_file_id, target_node_opt)) =
-                resolve_use_path(leaf, krate, module_path, maps, store, 0)
+                resolve_use_path(leaf, krate, module_path, maps, 0)
             {
                 let to = NodeId::new(target_node_opt.unwrap_or(target_file_id));
                 out.push((from.clone(), to, EdgeType::Imports));
@@ -544,7 +553,7 @@ pub fn resolve_modules(store: &Store, root: &Path) -> Result<()> {
     )?;
 
     let maps = build_module_maps(&root, &nodes, &edges);
-    let imports_to_add = collect_imports_to_add(&maps, store);
+    let imports_to_add = collect_imports_to_add(&maps);
 
     for (from, to, et) in imports_to_add {
         store.put_edge(&from, &to, &et)?;
