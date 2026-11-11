@@ -18,6 +18,8 @@ use anyhow::Result;
 
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 
+use super::modules::EXTERNAL_IMPORT_PREFIX;
+
 /// Suffix the AST phase puts on call placeholders for paths used as values (see `ast.rs`).
 pub(crate) const VALUE_SUFFIX: &str = "@value";
 /// Suffix the AST phase puts on method-call placeholders (`x.m()`).
@@ -53,6 +55,8 @@ fn canonical_name(payload: &str) -> &str {
 struct Index {
     local: HashMap<(String, String), Vec<NodeId>>,
     imports_map: HashMap<String, Vec<String>>,
+    /// (file, name) pairs imported from other crates (`use serde_json::from_str`).
+    external_imports: HashSet<(String, String)>,
     node_id_to_payload: HashMap<String, String>,
     global_by_name: HashMap<String, Vec<NodeId>>,
     /// Ids of functions defined directly inside an `impl` or `trait`.
@@ -296,6 +300,13 @@ fn resolve_bare_globally(
     idx: &Index,
 ) -> Resolution {
     let Index { global_by_name, .. } = idx;
+    // Imported from another crate: not a local function, whatever local functions share the name (#112).
+    if idx
+        .external_imports
+        .contains(&(from_file.to_string(), fn_name.to_string()))
+    {
+        return Resolution::None;
+    }
     if value {
         return Resolution::None;
     }
@@ -415,9 +426,13 @@ fn resolve_qualified_elsewhere(
 }
 
 /// Imports edges grouped by importing file.
-fn imports_by_file(edges: &cozo::NamedRows) -> HashMap<String, Vec<String>> {
+/// Imports edges grouped by importing file, plus the (file, name) pairs imported from other crates.
+type ImportMaps = (HashMap<String, Vec<String>>, HashSet<(String, String)>);
+
+fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
     let imports = EdgeType::Imports.to_string();
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut external = HashSet::new();
     for row in &edges.rows {
         if row.get(2).map(unquote_datavalue).as_deref() != Some(imports.as_str()) {
             continue;
@@ -425,9 +440,13 @@ fn imports_by_file(edges: &cozo::NamedRows) -> HashMap<String, Vec<String>> {
         let from = row.first().map(unquote_datavalue).unwrap_or_default();
         let to = row.get(1).map(unquote_datavalue).unwrap_or_default();
         let file = from.split('#').next().unwrap_or(&from).to_string();
+        if let Some(name) = to.strip_prefix(EXTERNAL_IMPORT_PREFIX) {
+            external.insert((file, name.to_string()));
+            continue;
+        }
         map.entry(file).or_default().push(to);
     }
-    map
+    (map, external)
 }
 
 /// Ids of nodes directly contained in an `impl` or `trait` node.
@@ -546,7 +565,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     }
 
     let edges = Query::all_edges(store)?;
-    idx.imports_map = imports_by_file(&edges);
+    (idx.imports_map, idx.external_imports) = imports_by_file(&edges);
     idx.methods = method_ids(&nodes, &edges);
     fill_scopes(&mut idx, &nodes, &edges);
     fill_consts(&mut idx, &nodes);

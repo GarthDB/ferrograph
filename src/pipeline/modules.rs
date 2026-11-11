@@ -286,6 +286,62 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
     }
 }
 
+/// Prefix of `Imports` targets that name an item imported from another crate (`std`, `serde_json`, ..).
+pub(crate) const EXTERNAL_IMPORT_PREFIX: &str = "external::";
+
+/// A `use` that did not resolve locally and does not start with `crate`/`self`/`super` or a local module.
+fn is_external_use(
+    use_path: &str,
+    current_module_path: &str,
+    module_path_to_file: &BTreeMap<String, String>,
+) -> bool {
+    let first = use_path
+        .trim()
+        .trim_start_matches("::")
+        .split("::")
+        .next()
+        .unwrap_or("");
+    if first.is_empty() || matches!(first, "crate" | "self" | "super") || first.starts_with('{') {
+        return false;
+    }
+    let local = |base: &str| module_path_to_file.contains_key(&format!("{base}::{first}"));
+    !(local("crate") || local(current_module_path))
+}
+
+/// Names a `use` path brings into scope: the last segment (or the `as` alias) of each leaf, with
+/// brace groups expanded. Globs and `self` leaves are skipped.
+fn use_leaves(path: &str) -> Vec<String> {
+    let path = path.trim();
+    if let Some(open) = path.find('{') {
+        let close = path.rfind('}').unwrap_or(path.len());
+        let inner = &path[open + 1..close.max(open + 1)];
+        let (mut depth, mut start, mut out) = (0usize, 0usize, Vec::new());
+        for (i, c) in inner.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    out.extend(use_leaves(&inner[start..i]));
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        out.extend(use_leaves(&inner[start..]));
+        return out;
+    }
+    let leaf = path.rsplit_once(" as ").map_or_else(
+        || path.rsplit("::").next().unwrap_or(path),
+        |(_, alias)| alias,
+    );
+    let leaf = leaf.trim();
+    if leaf.is_empty() || leaf == "*" || leaf == "self" {
+        Vec::new()
+    } else {
+        vec![leaf.to_string()]
+    }
+}
+
 fn collect_imports_to_add(
     maps: &ModuleMaps,
     store: &Store,
@@ -300,15 +356,25 @@ fn collect_imports_to_add(
             continue;
         };
         for use_path in collect_use_paths(&content) {
+            let from = NodeId::new(file_id.clone());
             if let Some((target_file_id, target_node_opt)) =
                 resolve_use_path(&use_path, module_path, &maps.module_path_to_file_id, store)
             {
-                let from = NodeId::new(file_id.clone());
                 let to = match &target_node_opt {
                     Some(node_id) => NodeId::new(node_id.clone()),
                     None => NodeId::new(target_file_id),
                 };
                 out.push((from, to, EdgeType::Imports));
+            } else if is_external_use(&use_path, module_path, &maps.module_path_to_file_id) {
+                // Remember which names come from other crates so bare calls to them are not
+                // matched against same-named local functions (#112).
+                for leaf in use_leaves(&use_path) {
+                    out.push((
+                        from.clone(),
+                        NodeId::new(format!("{EXTERNAL_IMPORT_PREFIX}{leaf}")),
+                        EdgeType::Imports,
+                    ));
+                }
             }
         }
     }
@@ -367,6 +433,21 @@ fn resolve_module_to_file(module_path: &str, root: &Path) -> Option<std::path::P
         return Some(mod_rs);
     }
     None
+}
+
+#[cfg(test)]
+mod leaf_tests {
+    use super::use_leaves;
+
+    #[test]
+    fn leaves_of_use_paths() {
+        assert_eq!(use_leaves("serde_json::from_str"), ["from_str"]);
+        assert_eq!(
+            use_leaves("std::{fs::read, io::{self, Write}, path::*}"),
+            ["read", "Write"]
+        );
+        assert_eq!(use_leaves("a::b as c"), ["c"]);
+    }
 }
 
 #[cfg(test)]

@@ -454,6 +454,16 @@ fn pipeline_cross_file_qualified_paths_resolve() {
     assert_eq!(dead, ["unused_in_lib"]);
 }
 
+#[test]
+fn pipeline_bare_call_to_external_import_does_not_keep_local_fn_alive() {
+    let store = run_fixture("ext_import");
+    for strict in [false, true] {
+        let mut dead = dead_names(&store, strict);
+        dead.sort();
+        assert_eq!(dead, ["from_str", "read"], "strict={strict}");
+    }
+}
+
 /// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness
 /// measured ~1.5% judgeable precision (643 reported, 8 right) because method and path calls are not
 /// resolved well enough yet. Remove the `ignore` together with the `is_pub` change in `ast.rs`.
