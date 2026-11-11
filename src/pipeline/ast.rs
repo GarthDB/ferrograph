@@ -438,8 +438,12 @@ fn function_payload(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let is_pub = node
         .child(0)
         .is_some_and(|c| c.kind() == "visibility_modifier");
-    let is_test =
-        has_attribute(node, source, "test") || has_attribute_on_prev_sibling(node, source, "test");
+    // `test_case`/`rstest`/`wasm_bindgen_test` expand to test functions (#107).
+    let is_test = ["test", "test_case", "rstest", "wasm_bindgen_test"]
+        .iter()
+        .any(|name| {
+            has_attribute(node, source, name) || has_attribute_on_prev_sibling(node, source, name)
+        });
     let is_bench = has_attribute(node, source, "bench")
         || has_attribute_on_prev_sibling(node, source, "bench");
     let prefix = match (is_pub, is_test, is_bench) {
