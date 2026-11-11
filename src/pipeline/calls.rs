@@ -395,7 +395,16 @@ fn resolve_placeholder(
         return resolve_qualified_elsewhere(&segs, fn_name, from, from_file, idx);
     }
     let key = (path_part.to_string(), fn_name.to_string());
-    if let Some(candidates) = local.get(&key) {
+    // A bare name never calls a method of the same file (`helper()` is not `S::helper`).
+    let free_here: Vec<NodeId> = local
+        .get(&key)
+        .into_iter()
+        .flatten()
+        .filter(|n| !idx.methods.contains(n.as_str()))
+        .cloned()
+        .collect();
+    if !free_here.is_empty() {
+        let candidates = &free_here;
         if candidates.len() > 1 {
             if let Some(r) = nearest_in_scope(from, candidates, idx).and_then(resolution_of) {
                 return r;

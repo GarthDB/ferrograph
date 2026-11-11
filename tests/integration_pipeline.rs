@@ -502,6 +502,19 @@ fn pipeline_typed_receivers_resolve_to_their_type() {
     assert_eq!(dead_lines(&store, true, "src/lib.rs"), strict);
 }
 
+#[test]
+fn pipeline_bare_call_does_not_bind_to_a_method_of_the_same_file() {
+    let store = run_fixture("bare_vs_method");
+    let tags = tagged_lines("bare_vs_method", "src/lib.rs");
+    for strict in [false, true] {
+        assert_eq!(
+            dead_lines(&store, strict, "src/lib.rs"),
+            [tags["dead_method"]],
+            "strict={strict}"
+        );
+    }
+}
+
 /// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness
 /// measured ~1.5% judgeable precision (643 reported, 8 right) because method and path calls are not
 /// resolved well enough yet. Remove the `ignore` together with the `is_pub` change in `ast.rs`.
