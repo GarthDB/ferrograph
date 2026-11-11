@@ -281,8 +281,21 @@ fn resolve_placeholder(
             return Resolution::One(c);
         }
         // The `use` paths did not lead to the callee (re-exports, nested modules): fall back to the
-        // project-wide free-function lookup below rather than dropping the call.
+        // project-wide free-function lookup below rather than dropping the call. The callee may also
+        // be an external function, so even a unique match is only a low-confidence edge.
+        return resolve_bare_globally(fn_name, from_file, value, true, idx);
     }
+    resolve_bare_globally(fn_name, from_file, value, false, idx)
+}
+
+fn resolve_bare_globally(
+    fn_name: &str,
+    from_file: &str,
+    value: bool,
+    imports_unresolved: bool,
+    idx: &Index,
+) -> Resolution {
+    let Index { global_by_name, .. } = idx;
     if value {
         return Resolution::None;
     }
@@ -306,7 +319,7 @@ fn resolve_placeholder(
     };
     match free.as_slice() {
         [] => Resolution::None,
-        [one] => Resolution::One((*one).clone()),
+        [one] if !imports_unresolved => Resolution::One((*one).clone()),
         many => Resolution::Ambiguous(many.iter().map(|n| (*n).clone()).collect()),
     }
 }
@@ -854,6 +867,34 @@ mod tests {
             .put_edge(&NodeId::new(parent), &id, &EdgeType::Contains)
             .unwrap();
         id
+    }
+
+    #[test]
+    fn bare_call_not_resolved_by_imports_is_only_a_low_confidence_guess() {
+        let store = Store::new_memory().unwrap();
+        let local = put_fn(&store, "./lib.rs#1:1", "from_str", "./lib.rs");
+        let helper = put_fn(&store, "./util.rs#1:1", "helper", "./util.rs");
+        let caller = put_fn(&store, "./a.rs#1:1", "run", "./a.rs");
+        // `a.rs` imports `helper` (resolved) and `from_str` from an external crate (not recorded).
+        store
+            .put_edge(&NodeId::new("./a.rs"), &helper, &EdgeType::Imports)
+            .unwrap();
+        store
+            .put_edge(&caller, &NodeId::new("./a.rs::from_str"), &EdgeType::Calls)
+            .unwrap();
+        build_call_graph(&store).unwrap();
+        let low = store
+            .run_query(
+                "?[t] := *edge_confidence[_, t, \"calls\", _]",
+                std::collections::BTreeMap::new(),
+            )
+            .unwrap();
+        let low: Vec<String> = low
+            .rows
+            .iter()
+            .map(|r| r[0].to_string().trim_matches('"').to_string())
+            .collect();
+        assert_eq!(low, vec![local.as_str().to_string()]);
     }
 
     #[test]
