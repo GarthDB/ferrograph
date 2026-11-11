@@ -438,6 +438,7 @@ fn pipeline_cross_file_qualified_paths_resolve() {
         "generate",
         "generate_two",
         "from_mod",
+        "renamed_target",
     ] {
         assert!(
             called.contains(name) || called.contains(&format!("pub::{name}")),

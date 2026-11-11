@@ -66,7 +66,9 @@ pub fn resolve_placeholder_edges(
         }
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
         let to_str = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if to_str.starts_with(super::modules::EXTERNAL_IMPORT_PREFIX) {
+        if to_str.starts_with(super::modules::EXTERNAL_IMPORT_PREFIX)
+            || to_str.starts_with(super::modules::ALIAS_IMPORT_PREFIX)
+        {
             continue;
         }
         let from_file = from_str.split('#').next().unwrap_or(&from_str).to_string();

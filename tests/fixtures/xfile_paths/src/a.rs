@@ -1,4 +1,5 @@
 use crate::derives::{from_mod, generate_two};
+use crate::util::renamed_target as rt;
 use crate::S;
 use crate::S as Alias;
 
@@ -11,5 +12,6 @@ pub(crate) fn run() {
     crate::derives::generate();
     generate_two();
     from_mod();
+    rt();
     Alias::made_via_alias();
 }

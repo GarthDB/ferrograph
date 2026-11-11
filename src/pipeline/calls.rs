@@ -18,7 +18,7 @@ use anyhow::Result;
 
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 
-use super::modules::EXTERNAL_IMPORT_PREFIX;
+use super::modules::{ALIAS_IMPORT_PREFIX, EXTERNAL_IMPORT_PREFIX};
 
 /// Suffix the AST phase puts on call placeholders for paths used as values (see `ast.rs`).
 pub(crate) const VALUE_SUFFIX: &str = "@value";
@@ -59,6 +59,8 @@ struct Index {
     imports_map: HashMap<String, Vec<String>>,
     /// (file, name) pairs imported from other crates (`use serde_json::from_str`).
     external_imports: HashSet<(String, String)>,
+    /// (file, alias) -> original name of `use .. as ..` renames.
+    aliases: HashMap<(String, String), String>,
     node_id_to_payload: HashMap<String, String>,
     global_by_name: HashMap<String, Vec<NodeId>>,
     /// Ids of functions defined directly inside an `impl` or `trait`.
@@ -246,6 +248,18 @@ fn resolve_placeholder(
         global_by_name,
         ..
     } = idx;
+    if !path_part.contains("::") {
+        if let Some(orig) = idx
+            .aliases
+            .get(&(from_file.to_string(), fn_name.to_string()))
+            .filter(|o| {
+                !idx.aliases
+                    .contains_key(&(from_file.to_string(), (*o).clone()))
+            })
+        {
+            return resolve_placeholder(path_part, orig, from, from_file, value, idx);
+        }
+    }
     if path_part.contains("::") {
         // TODO: qualified path resolution only uses file-level (first path segment); module path within the file (e.g. mod::submod::foo()) is not considered.
         let file_only = path_part.split("::").next().unwrap_or(path_part);
@@ -458,12 +472,24 @@ fn resolve_qualified_elsewhere(
 
 /// Imports edges grouped by importing file.
 /// Imports edges grouped by importing file, plus the (file, name) pairs imported from other crates.
-type ImportMaps = (HashMap<String, Vec<String>>, HashSet<(String, String)>);
+#[derive(Default)]
+struct ImportMaps {
+    by_file: HashMap<String, Vec<String>>,
+    external: HashSet<(String, String)>,
+    /// (file, alias) -> original name, for `use a::f as g`.
+    aliases: HashMap<(String, String), String>,
+}
+
+fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
+    let imports = imports_by_file(edges);
+    idx.imports_map = imports.by_file;
+    idx.external_imports = imports.external;
+    idx.aliases = imports.aliases;
+}
 
 fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
     let imports = EdgeType::Imports.to_string();
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
-    let mut external = HashSet::new();
+    let mut maps = ImportMaps::default();
     for row in &edges.rows {
         if row.get(2).map(unquote_datavalue).as_deref() != Some(imports.as_str()) {
             continue;
@@ -472,12 +498,18 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
         let to = row.get(1).map(unquote_datavalue).unwrap_or_default();
         let file = from.split('#').next().unwrap_or(&from).to_string();
         if let Some(name) = to.strip_prefix(EXTERNAL_IMPORT_PREFIX) {
-            external.insert((file, name.to_string()));
-            continue;
+            maps.external.insert((file, name.to_string()));
+        } else if let Some((alias, orig)) = to
+            .strip_prefix(ALIAS_IMPORT_PREFIX)
+            .and_then(|r| r.split_once("=>"))
+        {
+            maps.aliases
+                .insert((file, alias.to_string()), orig.to_string());
+        } else {
+            maps.by_file.entry(file).or_default().push(to);
         }
-        map.entry(file).or_default().push(to);
     }
-    (map, external)
+    maps
 }
 
 /// Ids of nodes directly contained in an `impl` or `trait` node.
@@ -596,7 +628,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     }
 
     let edges = Query::all_edges(store)?;
-    (idx.imports_map, idx.external_imports) = imports_by_file(&edges);
+    fill_imports(&mut idx, &edges);
     idx.methods = method_ids(&nodes, &edges);
     fill_scopes(&mut idx, &nodes, &edges);
     fill_consts(&mut idx, &nodes);
