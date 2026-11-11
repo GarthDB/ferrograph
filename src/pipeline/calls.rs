@@ -246,11 +246,30 @@ fn call_return_type(path: &str, from: &str, from_file: &str, idx: &Index) -> Opt
     if let Some(ty) = owner.filter(|o| idx.type_names.contains(*o)) {
         return return_type_of(&methods_of_type(name, ty, idx), ty, idx);
     }
+    // `Vec::new()`, `fs::read()`, an imported `args()`: library paths must not pick a project fn
+    // that merely shares the name.
+    let by_module = |c: &NodeId| {
+        owner.is_none_or(|o| {
+            matches!(o, "crate" | "self" | "super")
+                || file_is_module(c.as_str().split('#').next().unwrap_or(""), o)
+                || idx
+                    .parent_of(c)
+                    .and_then(|p| idx.scopes.get(p))
+                    .is_some_and(|s| !s.0 && s.1 == o)
+        })
+    };
+    if owner.is_none()
+        && idx
+            .external_imports
+            .contains(&(from_file.to_string(), name.to_string()))
+    {
+        return None;
+    }
     let mut free: Vec<NodeId> = idx
         .global_by_name
         .get(name)?
         .iter()
-        .filter(|c| !idx.methods.contains(c.as_str()))
+        .filter(|c| !idx.methods.contains(c.as_str()) && by_module(c))
         .cloned()
         .collect();
     let prefix = format!("{from_file}#");

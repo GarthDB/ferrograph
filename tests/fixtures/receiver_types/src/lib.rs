@@ -20,6 +20,7 @@ impl A {
     fn via_chain(&self) -> u32 { 1 }
     fn via_mut(&self) -> u32 { 1 }
     fn me(&self) -> &Self { self }
+    fn push(&mut self, _n: u32) {} // library_push_a
     fn unknown(&self) -> u32 { 1 } // unknown_a
     fn shadowed(&self) -> u32 { 1 } // shadowed_a
     pub fn new() -> A { A { v: 0 } }
@@ -35,6 +36,7 @@ impl B {
     fn via_factory(&self) -> u32 { 2 } // dead_b_factory
     fn via_chain(&self) -> u32 { 2 } // dead_b_chain
     fn via_mut(&self) -> u32 { 2 } // dead_b_mut
+    fn push(&mut self, _n: u32) {} // library_push_b
     fn unknown(&self) -> u32 { 2 } // unknown_b
     fn shadowed(&self) -> u32 { 2 } // shadowed_b
 }
@@ -105,4 +107,15 @@ pub fn cyclic<T>(t: T) {
     let a = b.m();
     let b = a.n();
     let _ = (t, b);
+}
+
+// `Vec::new()` is a library path: it must not take the return type of this project free fn
+// `new` (that would make `A::push` certain and `B::push` dead).
+pub fn new() -> A {
+    A { v: 0 }
+}
+
+pub fn library_call() {
+    let mut v = Vec::new();
+    v.push(1);
 }

@@ -497,7 +497,17 @@ fn pipeline_typed_receivers_resolve_to_their_type() {
     assert_eq!(dead_lines(&store, false, "src/lib.rs"), certain);
     // `--strict` drops the low-confidence edges: only the two untyped call sites lose their callees.
     let mut strict = certain;
-    strict.extend(["unknown_a", "unknown_b", "shadowed_a", "shadowed_b"].map(|t| tags[t]));
+    strict.extend(
+        [
+            "unknown_a",
+            "unknown_b",
+            "shadowed_a",
+            "shadowed_b",
+            "library_push_a",
+            "library_push_b",
+        ]
+        .map(|t| tags[t]),
+    );
     strict.sort_unstable();
     assert_eq!(dead_lines(&store, true, "src/lib.rs"), strict);
 }

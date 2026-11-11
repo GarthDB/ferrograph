@@ -923,7 +923,15 @@ fn callee_placeholder(
 /// `impl`, pointers) is `None`.
 fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
     match ty.kind() {
-        "type_identifier" | "scoped_type_identifier" => type_name_from_node(ty, source),
+        "type_identifier" => type_name_from_node(ty, source),
+        // `std::io::Error` is not the project's `Error`: only project-relative paths count.
+        "scoped_type_identifier" => {
+            let first = ty.child_by_field_name("path")?;
+            let first = source.get(first.byte_range())?.split("::").next()?;
+            matches!(first, "crate" | "self" | "super")
+                .then(|| type_name_from_node(ty, source))
+                .flatten()
+        }
         "generic_type" | "reference_type" => {
             plain_type_name(&ty.child_by_field_name("type")?, source)
         }
