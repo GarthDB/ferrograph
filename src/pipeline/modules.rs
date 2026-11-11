@@ -225,6 +225,11 @@ fn resolve_use_path(
     let file_id = module_file(maps, krate, &module)?.clone();
     let node = find_item_in_file(maps, &file_id, item)
         .or_else(|| follow_reexport(&file_id, item, krate, &module, maps, depth));
+    // An unfound CamelCase leaf is a type or const (e.g. re-exported from another crate), never a
+    // function, so it says nothing about where a bare call goes.
+    if node.is_none() && item.starts_with(char::is_uppercase) {
+        return None;
+    }
     Some((file_id, node))
 }
 
