@@ -516,8 +516,9 @@ fn pipeline_bare_call_does_not_bind_to_a_method_of_the_same_file() {
 }
 
 /// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness
-/// measured ~1.5% judgeable precision (643 reported, 8 right) because method and path calls are not
-/// resolved well enough yet. Remove the `ignore` together with the `is_pub` change in `ast.rs`.
+/// measured 3.8% judgeable precision (280 reported, 8 right; 8/207 judgeable) even with receiver
+/// types, because `use` paths and pattern/loop-bound receivers are not resolved (#114, #115).
+/// Remove the `ignore` together with the `is_pub` change in `ast.rs`.
 #[test]
 #[ignore = "#91: needs better method/path call resolution first"]
 fn pipeline_restricted_visibility_fns_are_not_roots() {
