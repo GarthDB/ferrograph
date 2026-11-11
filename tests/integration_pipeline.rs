@@ -838,3 +838,29 @@ fn pipeline_use_super_in_path_attribute_module() {
     let store = run_fixture("path_mods");
     assert_one_certain_call(&store, "caller", "./src/a.rs#");
 }
+
+#[test]
+fn pipeline_qualified_call_through_use_alias() {
+    let store = run_fixture("alias_calls");
+    assert_one_certain_call(&store, "api_bash", "./src/flags/complete/bash.rs#");
+    assert_one_certain_call(&store, "api_fish", "./src/flags/complete/fish.rs#");
+}
+
+#[test]
+fn pipeline_qualified_call_through_alias_to_nested_free_fn() {
+    let store = run_fixture("alias_calls");
+    assert_one_certain_call(&store, "api_nested", "./src/util/inner/deep.rs#");
+}
+
+#[test]
+fn pipeline_qualified_call_through_alias_of_reexport() {
+    let store = run_fixture("alias_calls");
+    assert_one_certain_call(&store, "api_chain", "./src/chain/mid/leaf.rs#");
+}
+
+#[test]
+fn pipeline_qualified_call_alias_is_owner_specific() {
+    // `other` has no `gen_bash`; `flags`' alias of that name must not leak into it.
+    let store = run_fixture("alias_calls");
+    assert_eq!(call_targets(&store, "api_negative"), vec![]);
+}
