@@ -832,3 +832,9 @@ fn pipeline_use_crate_paths_stay_inside_workspace_member() {
     assert_one_certain_call(&store, "api_m", "./m/src/a.rs#");
     assert_one_certain_call(&store, "api_n", "./n/src/a.rs#");
 }
+
+#[test]
+fn pipeline_use_super_in_path_attribute_module() {
+    let store = run_fixture("path_mods");
+    assert_one_certain_call(&store, "caller", "./src/a.rs#");
+}

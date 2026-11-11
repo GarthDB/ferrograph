@@ -110,6 +110,45 @@ fn collect_use_paths(content: &str) -> Vec<String> {
     out
 }
 
+/// `#[path = "x.rs"] mod name;` declarations as (name, path): the file is not at the default location.
+fn collect_path_mods(content: &str) -> Vec<(String, String)> {
+    let mut parser = Parser::new();
+    if !content.contains("#[path") || parser.set_language(&LANGUAGE.into()).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(content, None) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+        if node.kind() != "mod_item" || node.child_by_field_name("body").is_some() {
+            continue;
+        }
+        let Some(name) = node
+            .child_by_field_name("name")
+            .and_then(|n| content.get(n.byte_range()))
+        else {
+            continue;
+        };
+        let mut attr = node.prev_sibling();
+        while let Some(a) = attr.filter(|a| a.kind() == "attribute_item") {
+            let text = content.get(a.byte_range()).unwrap_or("");
+            let rel = text
+                .strip_prefix("#[path")
+                .and_then(|t| t.split('"').nth(1));
+            if let Some(rel) = rel {
+                out.push((name.to_string(), rel.to_string()));
+                break;
+            }
+            attr = a.prev_sibling();
+        }
+    }
+    out
+}
+
 fn collect_use_paths_rec(
     cursor: &mut tree_sitter::TreeCursor,
     source: &str,
@@ -257,6 +296,39 @@ struct ModuleMaps {
     file_uses: BTreeMap<String, Vec<String>>,
 }
 
+/// Re-home files declared with `#[path = ".."] mod name;` under the module that declares them.
+fn apply_path_mods(
+    root: &Path,
+    file_ids: &[String],
+    file_to_module: &mut BTreeMap<String, (String, String)>,
+    module_to_file: &mut BTreeMap<(String, String), String>,
+) {
+    let by_canonical: BTreeMap<std::path::PathBuf, &String> = file_ids
+        .iter()
+        .filter_map(|f| Some((root.join(f).canonicalize().ok()?, f)))
+        .collect();
+    for file_id in file_ids {
+        let Some((krate, module)) = file_to_module.get(file_id).cloned() else {
+            continue;
+        };
+        let path = root.join(file_id);
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (name, rel) in collect_path_mods(&content) {
+            let target = path
+                .parent()
+                .and_then(|d| d.join(rel).canonicalize().ok())
+                .and_then(|c| by_canonical.get(&c).copied());
+            if let Some(target) = target {
+                let sub = join_mod(&module, &[&name]);
+                file_to_module.insert(target.clone(), (krate.clone(), sub.clone()));
+                module_to_file.insert((krate.clone(), sub), target.clone());
+            }
+        }
+    }
+}
+
 fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> ModuleMaps {
     let type_file = NodeType::File.to_string();
     let type_module = NodeType::Module.to_string();
@@ -298,6 +370,13 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
             }
         }
     }
+
+    apply_path_mods(
+        root,
+        &file_id_to_path,
+        &mut file_id_to_module_path,
+        &mut module_path_to_file_id,
+    );
 
     for row in &edges.rows {
         let from_id = row.first().map(unquote_datavalue).unwrap_or_default();
@@ -504,6 +583,16 @@ mod leaf_tests {
         );
         assert_eq!(super::expand_use("{x::y, z}"), ["x::y", "z"]);
         assert_eq!(super::expand_use("a::b"), ["a::b"]);
+    }
+
+    #[test]
+    fn finds_path_attribute_mods() {
+        let src =
+            "#[path = \"x_tests.rs\"]\n#[cfg(test)]\nmod tests;\nmod plain;\nmod inline { }\n";
+        assert_eq!(
+            super::collect_path_mods(src),
+            [("tests".to_string(), "x_tests.rs".to_string())]
+        );
     }
 
     #[test]
