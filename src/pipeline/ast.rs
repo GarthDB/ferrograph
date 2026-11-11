@@ -891,7 +891,15 @@ fn callee_placeholder(
             if field.kind() != "field_identifier" {
                 return None;
             }
-            format!("{}{}", text(&field)?, super::calls::METHOD_SUFFIX)
+            let on_self = callee
+                .child_by_field_name("value")
+                .is_some_and(|v| v.kind() == "self");
+            let suffix = if on_self {
+                super::calls::SELF_METHOD_SUFFIX
+            } else {
+                super::calls::METHOD_SUFFIX
+            };
+            format!("{}{suffix}", text(&field)?)
         }
         "generic_function" => {
             return callee_placeholder(&callee.child_by_field_name("function")?, source, file_id)
@@ -1178,7 +1186,15 @@ fn scan_token_tree_for_calls(
             if called {
                 if let Some(name) = source.get(child.byte_range()) {
                     let (path, suffix) = if prev_is_dot {
-                        (String::new(), super::calls::METHOD_SUFFIX)
+                        let on_self = i >= 2 && tt.child(i - 2).is_some_and(|n| n.kind() == "self");
+                        (
+                            String::new(),
+                            if on_self {
+                                super::calls::SELF_METHOD_SUFFIX
+                            } else {
+                                super::calls::METHOD_SUFFIX
+                            },
+                        )
                     } else {
                         (path_prefix(tt, i, source), "")
                     };

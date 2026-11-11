@@ -438,6 +438,7 @@ fn pipeline_cross_file_qualified_paths_resolve() {
         "generate",
         "generate_two",
         "from_mod",
+        "renamed_target",
     ] {
         assert!(
             called.contains(name) || called.contains(&format!("pub::{name}")),
@@ -452,6 +453,33 @@ fn pipeline_cross_file_qualified_paths_resolve() {
     let mut dead = dead_names(&store, false);
     dead.sort();
     assert_eq!(dead, ["unused_in_lib"]);
+}
+
+#[test]
+fn pipeline_bare_call_to_external_import_does_not_keep_local_fn_alive() {
+    let store = run_fixture("ext_import");
+    for strict in [false, true] {
+        let mut dead = dead_names(&store, strict);
+        dead.sort();
+        assert_eq!(dead, ["from_str", "read"], "strict={strict}");
+    }
+}
+
+#[test]
+fn pipeline_self_method_calls_resolve_to_the_enclosing_impl() {
+    let store = run_fixture("self_methods");
+    let tags = tagged_lines("self_methods", "src/lib.rs");
+    let mut want = vec![tags["dead_b_find"], tags["dead_b_macro"]];
+    want.sort_unstable();
+    // Both modes: `self.find()` is a certain edge to `A::find`, so `B::find` is dead and `A::find`
+    // is not (with `--strict` it used to be the other way round).
+    for strict in [false, true] {
+        assert_eq!(
+            dead_lines(&store, strict, "src/lib.rs"),
+            want,
+            "strict={strict}"
+        );
+    }
 }
 
 /// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness

@@ -18,10 +18,14 @@ use anyhow::Result;
 
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 
+use super::modules::{ALIAS_IMPORT_PREFIX, EXTERNAL_IMPORT_PREFIX};
+
 /// Suffix the AST phase puts on call placeholders for paths used as values (see `ast.rs`).
 pub(crate) const VALUE_SUFFIX: &str = "@value";
 /// Suffix the AST phase puts on method-call placeholders (`x.m()`).
 pub(crate) const METHOD_SUFFIX: &str = "@method";
+/// Suffix for method calls whose receiver is `self` (`self.m()`): resolved against the enclosing impl first.
+pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
 /// A method name with more candidates than this is dropped at the call site (no edges).
 const MAX_METHOD_CANDIDATES: usize = 8;
 use crate::graph::{query::Query, unquote_datavalue, Store};
@@ -53,6 +57,10 @@ fn canonical_name(payload: &str) -> &str {
 struct Index {
     local: HashMap<(String, String), Vec<NodeId>>,
     imports_map: HashMap<String, Vec<String>>,
+    /// (file, name) pairs imported from other crates (`use serde_json::from_str`).
+    external_imports: HashSet<(String, String)>,
+    /// (file, alias) -> original name of `use .. as ..` renames.
+    aliases: HashMap<(String, String), String>,
     node_id_to_payload: HashMap<String, String>,
     global_by_name: HashMap<String, Vec<NodeId>>,
     /// Ids of functions defined directly inside an `impl` or `trait`.
@@ -136,6 +144,30 @@ fn resolution_of(mut v: Vec<NodeId>) -> Option<Resolution> {
 }
 
 /// Resolve `x.name()` by name only: same-file methods first, else all methods project-wide.
+/// `self.m()`: the methods named `m` of the impls/trait enclosing the caller, i.e. of its `Self` type
+/// (every impl block of that type, in any file). `None` when the type is unknown or has no such
+/// method, so the caller falls back to the name-based lookup (`Deref`, trait methods, ..).
+fn resolve_self_method(name: &str, from: &str, idx: &Index) -> Option<Resolution> {
+    let ty = idx
+        .ancestors(from)
+        .find_map(|a| idx.scopes.get(a).filter(|s| s.0).map(|s| s.1.as_str()))?;
+    if ty.is_empty() || ty == "null" {
+        return None;
+    }
+    let all = idx.global_by_name.get(name)?;
+    let own: Vec<NodeId> = all
+        .iter()
+        .filter(|c| idx.methods.contains(c.as_str()))
+        .filter(|c| {
+            idx.parent_of(c)
+                .and_then(|p| idx.scopes.get(p))
+                .is_some_and(|s| s.0 && s.1 == ty)
+        })
+        .cloned()
+        .collect();
+    resolution_of(own)
+}
+
 fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
     let all = idx.global_by_name.get(name).map_or(&[][..], Vec::as_slice);
     let prefix = format!("{from_file}#");
@@ -216,15 +248,32 @@ fn resolve_placeholder(
         global_by_name,
         ..
     } = idx;
+    if !path_part.contains("::") {
+        if let Some(orig) = idx
+            .aliases
+            .get(&(from_file.to_string(), fn_name.to_string()))
+            .filter(|o| {
+                !idx.aliases
+                    .contains_key(&(from_file.to_string(), (*o).clone()))
+            })
+        {
+            return resolve_placeholder(path_part, orig, from, from_file, value, idx);
+        }
+    }
     if path_part.contains("::") {
         // TODO: qualified path resolution only uses file-level (first path segment); module path within the file (e.g. mod::submod::foo()) is not considered.
         let file_only = path_part.split("::").next().unwrap_or(path_part);
         let key = (file_only.to_string(), fn_name.to_string());
         if let Some(candidates) = local.get(&key) {
-            if let [one] = candidates.as_slice() {
+            let owner = path_part.rsplit("::").next().unwrap_or(path_part);
+            // A lone same-file candidate only counts if the owner is relative (`crate`/`self`/`super`)
+            // or names it: `HaystackBuilder::new()` must not bind to an unrelated `new` in this file.
+            if let ([one], true) = (
+                candidates.as_slice(),
+                matches!(owner, "crate" | "self" | "super"),
+            ) {
                 return Resolution::One(one.clone());
             }
-            let owner = path_part.rsplit("::").next().unwrap_or(path_part);
             if let Some(r) = resolution_of(pick_by_owner(owner, from, candidates, idx)) {
                 return r;
             }
@@ -296,6 +345,13 @@ fn resolve_bare_globally(
     idx: &Index,
 ) -> Resolution {
     let Index { global_by_name, .. } = idx;
+    // Imported from another crate: not a local function, whatever local functions share the name (#112).
+    if idx
+        .external_imports
+        .contains(&(from_file.to_string(), fn_name.to_string()))
+    {
+        return Resolution::None;
+    }
     if value {
         return Resolution::None;
     }
@@ -415,9 +471,25 @@ fn resolve_qualified_elsewhere(
 }
 
 /// Imports edges grouped by importing file.
-fn imports_by_file(edges: &cozo::NamedRows) -> HashMap<String, Vec<String>> {
+/// Imports edges grouped by importing file, plus the (file, name) pairs imported from other crates.
+#[derive(Default)]
+struct ImportMaps {
+    by_file: HashMap<String, Vec<String>>,
+    external: HashSet<(String, String)>,
+    /// (file, alias) -> original name, for `use a::f as g`.
+    aliases: HashMap<(String, String), String>,
+}
+
+fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
+    let imports = imports_by_file(edges);
+    idx.imports_map = imports.by_file;
+    idx.external_imports = imports.external;
+    idx.aliases = imports.aliases;
+}
+
+fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
     let imports = EdgeType::Imports.to_string();
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut maps = ImportMaps::default();
     for row in &edges.rows {
         if row.get(2).map(unquote_datavalue).as_deref() != Some(imports.as_str()) {
             continue;
@@ -425,9 +497,19 @@ fn imports_by_file(edges: &cozo::NamedRows) -> HashMap<String, Vec<String>> {
         let from = row.first().map(unquote_datavalue).unwrap_or_default();
         let to = row.get(1).map(unquote_datavalue).unwrap_or_default();
         let file = from.split('#').next().unwrap_or(&from).to_string();
-        map.entry(file).or_default().push(to);
+        if let Some(name) = to.strip_prefix(EXTERNAL_IMPORT_PREFIX) {
+            maps.external.insert((file, name.to_string()));
+        } else if let Some((alias, orig)) = to
+            .strip_prefix(ALIAS_IMPORT_PREFIX)
+            .and_then(|r| r.split_once("=>"))
+        {
+            maps.aliases
+                .insert((file, alias.to_string()), orig.to_string());
+        } else {
+            maps.by_file.entry(file).or_default().push(to);
+        }
     }
-    map
+    maps
 }
 
 /// Ids of nodes directly contained in an `impl` or `trait` node.
@@ -546,7 +628,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     }
 
     let edges = Query::all_edges(store)?;
-    idx.imports_map = imports_by_file(&edges);
+    fill_imports(&mut idx, &edges);
     idx.methods = method_ids(&nodes, &edges);
     fill_scopes(&mut idx, &nodes, &edges);
     fill_consts(&mut idx, &nodes);
@@ -564,14 +646,23 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
             Some(t) => (t.to_string(), true),
             None => (raw_to.clone(), false),
         };
-        let (to_str, method) = match to_str.strip_suffix(METHOD_SUFFIX) {
+        let (to_str, self_method) = match to_str.strip_suffix(SELF_METHOD_SUFFIX) {
             Some(t) => (t.to_string(), true),
             None => (to_str, false),
+        };
+        let (to_str, method) = match to_str.strip_suffix(METHOD_SUFFIX) {
+            Some(t) => (t.to_string(), true),
+            None => (to_str, self_method),
         };
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let (path_part, fn_name) = split_placeholder(&to_str, from_file);
         let resolution = if method {
-            resolve_method(fn_name, from_file, &idx)
+            let own = if self_method {
+                resolve_self_method(fn_name, &from_str, &idx)
+            } else {
+                None
+            };
+            own.unwrap_or_else(|| resolve_method(fn_name, from_file, &idx))
         } else {
             resolve_placeholder(
                 path_part.as_ref(),

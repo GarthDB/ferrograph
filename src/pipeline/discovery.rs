@@ -12,15 +12,23 @@ use ignore::WalkBuilder;
 /// Respects `.gitignore` and limits depth to 50.
 ///
 /// # Errors
-/// Fails if directory traversal or reading a file fails.
+/// Fails if `root` does not exist; unreadable entries below it are skipped with a warning.
 pub fn discover_files(root: &Path) -> Result<BTreeMap<std::path::PathBuf, String>> {
+    anyhow::ensure!(root.exists(), "path does not exist: {}", root.display());
     let mut out = BTreeMap::new();
     for result in WalkBuilder::new(root)
         .max_depth(Some(50))
         .follow_links(true)
         .build()
     {
-        let entry = result.map_err(|e| anyhow::anyhow!("walk: {e}"))?;
+        // An unreadable entry (dangling symlink, permission denied) must not abort the whole index (#108).
+        let entry = match result {
+            Ok(entry) => entry,
+            Err(e) => {
+                eprintln!("warning: skipping unreadable path: {e}");
+                continue;
+            }
+        };
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "rs") && path.is_file() {
             match std::fs::read_to_string(path) {
@@ -39,6 +47,16 @@ pub fn discover_files(root: &Path) -> Result<BTreeMap<std::path::PathBuf, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_symlink_is_skipped_not_fatal() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("lib.rs"), "pub fn a() {}").unwrap();
+        std::os::unix::fs::symlink("missing.gz", dir.path().join("dangling.gz")).unwrap();
+        let files = discover_files(dir.path()).unwrap();
+        assert_eq!(files.len(), 1);
+    }
 
     #[test]
     fn discovers_rust_files_only() {
