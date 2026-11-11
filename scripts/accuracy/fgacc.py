@@ -466,12 +466,26 @@ _HDR = re.compile(r"^\s*(pub(\([^)]*\))?\s+)?(unsafe\s+)?(mod|impl|trait|extern)
 
 
 def _attrs_above(lines, j):
+    """Attribute text directly above line j, including multi-line attributes and interleaved comments."""
     out = []
     k = j - 1
-    while k >= 0 and (
-        lines[k].lstrip().startswith("#[") or lines[k].strip() == "" and False
-    ):
-        out.append(lines[k])
+    while k >= 0:
+        t = lines[k].strip()
+        if t.startswith("#[") or t.startswith("#!["):
+            out.append(lines[k])
+        elif t.startswith("//"):
+            pass
+        elif t.endswith("]"):
+            # tail of a wrapped attribute: walk up to the line that opens it
+            m = k
+            while m >= 0 and k - m < 40 and not lines[m].lstrip().startswith("#["):
+                m -= 1
+            if m < 0 or k - m >= 40:
+                break
+            out.append(" ".join(l.strip() for l in lines[m : k + 1]))
+            k = m
+        else:
+            break
         k -= 1
     return out
 

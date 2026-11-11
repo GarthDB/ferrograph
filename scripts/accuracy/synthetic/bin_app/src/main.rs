@@ -48,11 +48,16 @@ fn cleanup() {
     println!("cleanup");
 }
 
+fn teardown() {
+    println!("teardown");
+}
+
 fn main() {
     let s = S;
     println!("{} {} {}", live_a(), s.run(), s.speak());
     util::used();
     cleanup();
+    teardown();
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-test of the accuracy harness on the built-in synthetic corpus (no network; ~5 s).
+"""Self-test of the accuracy harness on the built-in synthetic corpus (no network; ~2 s).
 
 Needs python3, cargo and a ferrograph binary: $FERROGRAPH, else ../../target/{debug,release}/ferrograph.
 Run: python3 scripts/accuracy/test_harness.py
@@ -72,10 +72,24 @@ class SyntheticCorpus(unittest.TestCase):
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
         )
         runs = json.loads((tmp / "m.json").read_text())["runs"]
-        hit = [r for r in runs if r["name"] == "cleanup"]
-        self.assertEqual(len(hit), 1)
-        self.assertEqual(len(hit[0]["oracle"]), 1)
-        self.assertEqual(hit[0]["tp"], hit[0]["oracle"])
+        by = {r["name"]: r for r in runs}
+        self.assertEqual({"cleanup", "teardown"}, set(by))
+        # each mutation starts from the base tree: exactly one newly dead fn each, even in the same file
+        for name, r in by.items():
+            self.assertEqual(len(r["oracle"]), 1, name)
+            self.assertEqual(r["tp"], r["oracle"], name)
+
+
+class CfgHeuristic(unittest.TestCase):
+    def test_multiline_cfg_attribute(self):
+        import fgacc
+
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.rs").write_text(
+                '#[cfg(any(\n    feature = "x",\n))]\nfn gated() {}\n\n// note\n#[inline]\nfn plain() {}\n'
+            )
+            self.assertTrue(fgacc.cfg_gated(d, "./a.rs", 4))
+            self.assertFalse(fgacc.cfg_gated(d, "./a.rs", 8))
 
 
 if __name__ == "__main__":

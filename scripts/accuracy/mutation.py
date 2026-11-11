@@ -149,14 +149,14 @@ def main():
     for cand in cands:
         if len(runs) >= args.n:
             break
+        # start every mutation from the pristine base tree (a previous mutation's commit may be checked out)
+        git(repo, "checkout", "-q", "--detach", base)
         path = index_root / cand["file"]
-        orig = path.read_text()
-        lines = orig.splitlines(keepends=True)
+        lines = path.read_text().splitlines(keepends=True)
         indent = re.match(r"\s*", lines[cand["line"] - 1]).group(0)
         lines[cand["line"] - 1] = (
             indent + "();" + ("\n" if lines[cand["line"] - 1].endswith("\n") else "")
         )
-        git(repo, "checkout", "-q", "--detach", base)
         path.write_text("".join(lines))
         git(repo, "commit", "-q", "-am", f"mutate {cand['file']}:{cand['line']}")
         after, _, _ = rustc_dead()
@@ -174,7 +174,7 @@ def main():
                 "--format",
                 "json",
             ],
-            cwd=repo,
+            cwd=index_root,
             check=False,
             timeout=900,
         )
