@@ -1,3 +1,6 @@
+mod other;
+use std::env::args;
+
 // Every method name exists on both `A` and `B`, so a name-only lookup cannot pick one.
 // `dead_b_*`: `B`'s version is never called, because the receiver is an `A`.
 pub struct A {
@@ -21,6 +24,7 @@ impl A {
     fn via_mut(&self) -> u32 { 1 }
     fn me(&self) -> &Self { self }
     fn push(&mut self, _n: u32) {} // library_push_a
+    fn via_args(&self) {} // args_a
     fn unknown(&self) -> u32 { 1 } // unknown_a
     fn shadowed(&self) -> u32 { 1 } // shadowed_a
     pub fn new() -> A { A { v: 0 } }
@@ -37,6 +41,8 @@ impl B {
     fn via_chain(&self) -> u32 { 2 } // dead_b_chain
     fn via_mut(&self) -> u32 { 2 } // dead_b_mut
     fn push(&mut self, _n: u32) {} // library_push_b
+    fn via_args(&self) {} // args_b
+    fn describe(&self) {} // describe_b
     fn unknown(&self) -> u32 { 2 } // unknown_b
     fn shadowed(&self) -> u32 { 2 } // shadowed_b
 }
@@ -118,4 +124,15 @@ pub fn new() -> A {
 pub fn library_call() {
     let mut v = Vec::new();
     v.push(1);
+}
+
+// An fn imported from another crate is not the project fn `other::args`.
+pub fn imported() {
+    let a = args();
+    a.via_args();
+}
+
+// `std::io::Error` is not the project's `Error`.
+pub fn std_typed(e: &std::io::Error) {
+    e.describe();
 }

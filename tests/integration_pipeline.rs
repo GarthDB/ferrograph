@@ -505,11 +505,21 @@ fn pipeline_typed_receivers_resolve_to_their_type() {
             "shadowed_b",
             "library_push_a",
             "library_push_b",
+            "args_a",
+            "args_b",
         ]
         .map(|t| tags[t]),
     );
     strict.sort_unstable();
     assert_eq!(dead_lines(&store, true, "src/lib.rs"), strict);
+    let other = tagged_lines("receiver_types", "src/other.rs");
+    // `e.describe()` on a `std::io::Error` binds to the same-file `B::describe`, not `other::Error`.
+    for strict in [false, true] {
+        assert_eq!(
+            dead_lines(&store, strict, "src/other.rs"),
+            [other["describe_error"]]
+        );
+    }
 }
 
 #[test]
