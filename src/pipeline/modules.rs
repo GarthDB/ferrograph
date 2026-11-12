@@ -118,7 +118,8 @@ fn expand_use(path: &str) -> Vec<String> {
 }
 
 /// Collect all use path strings from Rust source.
-fn collect_use_paths(content: &str) -> Vec<String> {
+/// Each leaf comes with the `line:col` of the innermost function enclosing the `use`, if any.
+fn collect_use_paths(content: &str) -> Vec<(String, Option<String>)> {
     let mut parser = Parser::new();
     let Ok(()) = parser.set_language(&LANGUAGE.into()) else {
         return Vec::new();
@@ -128,7 +129,7 @@ fn collect_use_paths(content: &str) -> Vec<String> {
     };
     let mut out = Vec::new();
     let mut cursor = tree.walk();
-    collect_use_paths_rec(&mut cursor, content, &mut out);
+    collect_use_paths_rec(&mut cursor, content, None, &mut out);
     out
 }
 
@@ -174,17 +175,30 @@ fn collect_path_mods(content: &str) -> Vec<(String, String)> {
 fn collect_use_paths_rec(
     cursor: &mut tree_sitter::TreeCursor,
     source: &str,
-    out: &mut Vec<String>,
+    scope: Option<&str>,
+    out: &mut Vec<(String, Option<String>)>,
 ) {
     let node = cursor.node();
     if node.kind() == "use_declaration" {
         if let Some(path) = use_path_from_node(&node, source) {
-            out.extend(expand_use(&path));
+            out.extend(
+                expand_use(&path)
+                    .into_iter()
+                    .map(|leaf| (leaf, scope.map(str::to_string))),
+            );
         }
     }
+    let own_scope = (node.kind() == "function_item").then(|| {
+        format!(
+            "{}:{}",
+            node.start_position().row + 1,
+            node.start_position().column + 1
+        )
+    });
+    let scope = own_scope.as_deref().or(scope);
     if cursor.goto_first_child() {
         loop {
-            collect_use_paths_rec(cursor, source, out);
+            collect_use_paths_rec(cursor, source, scope, out);
             if !cursor.goto_next_sibling() {
                 break;
             }
@@ -268,7 +282,7 @@ fn follow_reexport(
     if depth >= 4 {
         return None;
     }
-    for leaf in maps.file_uses.get(file_id)? {
+    for (leaf, _) in maps.file_uses.get(file_id)? {
         if leaf.ends_with("::*") {
             if let Some((f, None, _)) = resolve_use_path(leaf, krate, module, maps, depth + 1) {
                 if let Some(node) = find_item_in_file(maps, &f, item) {
@@ -327,7 +341,7 @@ struct ModuleMaps {
     /// (file, item name) -> node contained in the file.
     items: BTreeMap<(String, String), String>,
     /// File -> its `use` leaves, brace groups expanded.
-    file_uses: BTreeMap<String, Vec<String>>,
+    file_uses: BTreeMap<String, Vec<(String, Option<String>)>>,
     /// (declaring file, module name, file) of `#[path = ".."] mod name;` declarations.
     path_mods: Vec<(String, String, String)>,
 }
@@ -565,7 +579,7 @@ fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> 
             continue;
         };
         let from = NodeId::new(file_id.clone());
-        for leaf in leaves {
+        for (leaf, scope) in leaves {
             // A glob brings no certain item, so it only leaves a marker for bare-call resolution.
             if leaf.ends_with("::*") {
                 if let Some((target, None, true)) =
@@ -606,8 +620,12 @@ fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> 
                     let target = item_node
                         .as_ref()
                         .map_or_else(String::new, |n| format!("=>{n}"));
+                    // A rename inside a function is only visible there: its edge starts at the function.
+                    let from = scope
+                        .as_ref()
+                        .map_or_else(|| from.clone(), |s| NodeId::new(format!("{file_id}#{s}")));
                     out.push((
-                        from.clone(),
+                        from,
                         NodeId::new(format!("{ALIAS_IMPORT_PREFIX}{name}=>{orig}{target}")),
                         EdgeType::Imports,
                     ));

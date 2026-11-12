@@ -446,10 +446,10 @@ fn pipeline_cross_file_qualified_paths_resolve() {
         );
     }
     assert!(!called.contains("unused_in_lib") && !called.contains("pub::unused_in_util"));
-    // An aliased owner (`use S as Alias`) is only a low-confidence edge, which `--strict` ignores.
+    // An aliased owner (`use S as Alias`) resolves to the type it renames (#131).
     let mut strict = dead_names(&store, true);
     strict.sort();
-    assert_eq!(strict, ["made_via_alias", "unused_in_lib"]);
+    assert_eq!(strict, ["unused_in_lib"]);
     let mut dead = dead_names(&store, false);
     dead.sort();
     assert_eq!(dead, ["unused_in_lib"]);
@@ -1118,4 +1118,66 @@ fn pipeline_module_path_call_through_use_alias_of_an_inline_mod() {
         call_targets(&store, "api_module_alias"),
         vec![("./src/lib.rs#2:5".to_string(), false)]
     );
+}
+
+/// #122: receivers behind `RefCell`/`Mutex`/`RwLock` guards. The `B` twin of each positive class is the
+/// only dead one under `--strict`; `neg_*` sits behind a guard of a non-project type and stays untyped.
+#[test]
+fn pipeline_guard_receivers_resolve_to_their_inner_type() {
+    let store = run_fixture("guard_receivers");
+    let tags = tagged_lines("guard_receivers", "src/lib.rs");
+    let dead = dead_lines(&store, true, "src/lib.rs");
+    for class in [
+        "refcell",
+        "refcell_mut",
+        "mutex",
+        "rwlock_read",
+        "rwlock_write",
+        "guard_ret",
+        "let_guard",
+        "poisoned",
+        "scoped",
+    ] {
+        assert!(
+            dead.contains(&tags[&format!("dead_b_{class}")]),
+            "{class}: B"
+        );
+        assert!(
+            !dead.contains(&tags[&format!("live_a_{class}")]),
+            "{class}: A"
+        );
+    }
+    for twin in ["a", "b"] {
+        assert!(dead.contains(&tags[&format!("neg_{twin}_ext")]), "{twin}");
+    }
+}
+
+/// #131: a `use .. as Name` inside a function is only visible there.
+#[test]
+fn pipeline_function_local_aliases_do_not_collide() {
+    let store = run_fixture("alias_scopes");
+    let main = tagged_lines("alias_scopes", "src/main.rs");
+    let types = tagged_lines("alias_scopes", "src/types.rs");
+    let (dead_main, dead_types) = (
+        dead_lines(&store, true, "src/main.rs"),
+        dead_lines(&store, true, "src/types.rs"),
+    );
+    for live in ["live_e_new", "live_f_new"] {
+        assert!(!dead_main.contains(&main[live]), "{live}");
+    }
+    for live in ["live_a_new", "live_b_new"] {
+        assert!(!dead_types.contains(&types[live]), "{live}");
+    }
+    assert!(dead_main.contains(&main["neg_ext_make"]));
+    for twin in ["mac", "other"] {
+        let tags = tagged_lines("alias_scopes", &format!("src/{twin}.rs"));
+        let dead = dead_lines(&store, true, &format!("src/{twin}.rs"));
+        assert!(
+            dead.contains(&tags[&format!("dead_{twin}_probe")]),
+            "{twin}"
+        );
+    }
+    for stays_dead in ["dead_d_new", "dead_only_b", "dead_c_make"] {
+        assert!(dead_types.contains(&types[stays_dead]), "{stays_dead}");
+    }
 }
