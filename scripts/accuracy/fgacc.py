@@ -63,6 +63,25 @@ def frac(n, d):
     return f"{floor_pct(n, d)} ({n}/{d})"
 
 
+def wilson(k, n, z=1.96):
+    """Wilson score interval (lo, hi) in [0, 1] for k successes of n; (0, 1) for n == 0."""
+    if n == 0:
+        return 0.0, 1.0
+    p = k / n
+    den = 1 + z * z / n
+    mid = (p + z * z / (2 * n)) / den
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
+    return max(0.0, mid - half), min(1.0, mid + half)
+
+
+def frac_ci(k, n):
+    """`frac` plus the Wilson 95% interval, e.g. `34.0% (17/50) [22.4-47.8]`."""
+    if n == 0:
+        return "n/a"
+    lo, hi = wilson(k, n)
+    return f"{frac(k, n)} [{100 * lo:.1f}-{100 * hi:.1f}]"
+
+
 # ---------------------------------------------------------------- corpora
 
 
@@ -113,8 +132,11 @@ def prepare_corpus(c, work):
 
 
 class Fg:
-    def __init__(self, binary):
+    def __init__(self, binary, extra_args=()):
         self.bin = str(binary)
+        # Passed to `dead` and `pr` only (never to `index`/`query`).
+        self.extra = list(extra_args)
+        self.restricted = "--restricted-vis-not-root" in self.extra
 
     def version(self):
         _, out, _ = run([self.bin, "--version"])
@@ -141,8 +163,10 @@ class Fg:
             off += 9000
 
     def dead(self, db, strict=False):
-        args = [self.bin, "dead", "--db", str(db), "--format", "json"] + (
-            ["--strict"] if strict else []
+        args = (
+            [self.bin, "dead", "--db", str(db), "--format", "json"]
+            + (["--strict"] if strict else [])
+            + self.extra
         )
         _, out, _ = run(args, check=False)
         return {n["id"] for n in json.loads(out)["dead_nodes"]}
@@ -186,7 +210,7 @@ def split_id(i):
 # ---------------------------------------------------------------- reachability model
 
 
-def root_kind(g, nid, implemented_trait_fns):
+def root_kind(g, nid, implemented_trait_fns, restricted=False):
     t, payload = g["nodes"][nid]
     payload = payload or ""
     if t != "function":
@@ -195,7 +219,12 @@ def root_kind(g, nid, implemented_trait_fns):
         return next((a[6:] for a in sorted(ENTRY_ATTRS) if a in attrs), None)
     if payload == "main":
         return "main"
-    if payload.startswith("pub::"):
+    if payload.startswith("pub::") and not (
+        restricted
+        and "attr::pub_restricted" in g["attrs"].get(nid, ())
+        and not payload.startswith(("pub::test::", "pub::bench::"))
+        and payload != "pub::main"
+    ):
         return "pub"
     if payload.startswith("test::"):
         return "test"
@@ -212,7 +241,7 @@ def root_kind(g, nid, implemented_trait_fns):
     return None
 
 
-def prepare_model(g):
+def prepare_model(g, restricted=False):
     attrs = defaultdict(set)
     adj = defaultdict(list)
     contains = defaultdict(list)
@@ -239,7 +268,7 @@ def prepare_model(g):
         if t in ("file", "module"):
             g["roots"][nid] = t
         else:
-            k = root_kind(g, nid, g["trait_fns"])
+            k = root_kind(g, nid, g["trait_fns"], restricted)
             if k:
                 g["roots"][nid] = k
     return g

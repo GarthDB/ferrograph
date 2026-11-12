@@ -63,6 +63,21 @@ class SyntheticCorpus(unittest.TestCase):
     def test_report_renders(self):
         self.assertIn("pooled", self.md)
 
+    def test_extra_args_restricted_vis_not_root(self):
+        tmp = Path(self.tmp.name)
+        subprocess.run(
+            [sys.executable, str(HERE / "groundtruth.py"), "--config", str(tmp / "c.toml"), "--ferrograph", find_binary(),
+             "--work", str(tmp / "w"), "--extra-args=--restricted-vis-not-root",
+             "--out-md", str(tmp / "r2.md"), "--out-json", str(tmp / "r2.json")],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
+        )
+        res = json.loads((tmp / "r2.json").read_text())["results"][0]
+        for mode, sc in res["selfcheck"].items():
+            self.assertEqual(sc["diff"], 0, mode)  # python model follows the option
+        found = {res["R"][n]["name"] for n in res["modes"]["default"]["F"] if n in res["R"]}
+        self.assertIn("crate_dead", found)
+        self.assertNotIn("pub_dead", found)  # bare pub stays a root
+
     def test_pr_mutation_finds_orphaned_fn(self):
         tmp = Path(self.tmp.name)
         subprocess.run(
@@ -80,6 +95,17 @@ class SyntheticCorpus(unittest.TestCase):
             r = by[name]
             self.assertEqual(len(r["oracle"]), 1, name)
             self.assertEqual(r["tp"], r["oracle"], name)
+
+
+class Wilson(unittest.TestCase):
+    def test_interval(self):
+        import fgacc
+
+        lo, hi = fgacc.wilson(0, 10)
+        self.assertEqual(lo, 0.0)
+        self.assertAlmostEqual(hi, 0.2775, places=3)
+        self.assertEqual(fgacc.wilson(0, 0), (0.0, 1.0))
+        self.assertTrue(fgacc.frac_ci(17, 50).endswith("]"))
 
 
 class CfgHeuristic(unittest.TestCase):

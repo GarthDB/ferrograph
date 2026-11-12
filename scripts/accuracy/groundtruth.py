@@ -4,6 +4,7 @@
 import argparse
 import json
 import platform
+import shlex
 import sys
 import tempfile
 import time
@@ -47,7 +48,7 @@ def miss_bucket(g, info, nid, index_root):
 
 
 def analyse(c, fg, work, args):
-    res = {"name": c["name"], "ok": False}
+    res = {"name": c["name"], "ok": False, "heldout": bool(c.get("heldout"))}
     root, sha, dirty = A.prepare_corpus(c, work)
     res.update(
         sha=sha, dirty=dirty, url=c.get("url"), path=c.get("path"), ref=c.get("ref")
@@ -70,7 +71,7 @@ def analyse(c, fg, work, args):
     t0 = time.time()
     fg.index(index_root, db)
     res["index_seconds"] = round(time.time() - t0, 1)
-    g = A.prepare_model(fg.load_graph(db))
+    g = A.prepare_model(fg.load_graph(db), fg.restricted)
     by_file = A.build_index(g)
     res["fn_nodes"] = sum(1 for t, _ in g["nodes"].values() if t == "function")
 
@@ -205,6 +206,8 @@ def render(results, meta, args):
     w = L.append
     w("# ferrograph `dead` vs rustc `dead_code` ground truth\n")
     w(f"- ferrograph: `{meta['version']}` (`{meta['binary']}`)")
+    if meta.get("extra_args"):
+        w(f"- extra `dead` args for every row: `{' '.join(meta['extra_args'])}`")
     w(
         f"- rustc: `{meta['rustc']}`; platform: `{meta['platform']}`; date: {meta['date']}"
     )
@@ -266,13 +269,18 @@ def render(results, meta, args):
         "R = rustc-dead fns mapped to nodes; F = ferrograph dead set. "
         "**Recall (all R)** = |F∩R|/|R|. **Recall (eligible)** = |F∩R| / |R minus items ferrograph treats as roots by policy "
         "(`pub`, trait impls, tests, attributes)|. **Precision raw** = |F∩R|/|F|. **Precision judgeable** = |F∩R| / |F minus items "
-        "rustc cannot judge (file never compiled, or under `#[cfg]`)|. Percentages are floored; counts given.\n"
+        "rustc cannot judge (file never compiled, or under `#[cfg]`)|. Percentages are floored; counts given; brackets are Wilson 95% intervals. Held-out corpora were not used while tuning and are pooled separately.\n"
     )
     w(
         "| corpus | class | mode | R | R eligible | F | F∩R | recall (all R) | recall (eligible) | precision raw | F not judgeable | F judgeable | precision judgeable |"
     )
     w("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
-    for name, rs in [(r["name"], [r]) for r in ok] + [("**pooled**", ok)]:
+    orig = [r for r in ok if not r.get("heldout")]
+    held = [r for r in ok if r.get("heldout")]
+    pools = [("**pooled (original)**", orig)] + (
+        [("**pooled (held-out)**", held)] if held else []
+    )
+    for name, rs in [(r["name"] + (" (held-out)" if r.get("heldout") else ""), [r]) for r in ok] + pools:
         for cls in ("lib", "bin", "all"):
             for mode in MODES:
                 m = metrics(rs, cls, mode)
@@ -280,8 +288,8 @@ def render(results, meta, args):
                     continue
                 fj = m["F"] - m["F_not_judgeable"]
                 w(
-                    f"| {name} | {cls} | {mode} | {m['R']} | {m['R_eligible']} | {m['F']} | {m['hit']} | {A.frac(m['hit'], m['R'])} | "
-                    f"{A.frac(m['hit'], m['R_eligible'])} | {A.frac(m['hit'], m['F'])} | {m['F_not_judgeable']} | {fj} | {A.frac(m['hit'], fj)} |"
+                    f"| {name} | {cls} | {mode} | {m['R']} | {m['R_eligible']} | {m['F']} | {m['hit']} | {A.frac_ci(m['hit'], m['R'])} | "
+                    f"{A.frac(m['hit'], m['R_eligible'])} | {A.frac_ci(m['hit'], m['F'])} | {m['F_not_judgeable']} | {fj} | {A.frac_ci(m['hit'], fj)} |"
                 )
     w("")
     w("## False negatives (rustc-dead, ferrograph-live): why they are kept alive\n")
@@ -351,6 +359,11 @@ def main():
     ap.add_argument(
         "--timeout", type=int, default=1800, help="per cargo invocation, seconds"
     )
+    ap.add_argument(
+        "--extra-args",
+        default="",
+        help="extra args for `ferrograph dead`, e.g. '--restricted-vis-not-root' (the python model follows it)",
+    )
     ap.add_argument("--max-check", type=int, default=25)
     ap.add_argument("--out-md", default="groundtruth-report.md")
     ap.add_argument("--out-json", default="groundtruth-data.json")
@@ -361,7 +374,7 @@ def main():
     A.log("work dir:", work)
     cfg = tomllib.loads(Path(args.config).read_text())
     only = {s for s in args.only.split(",") if s}
-    fg = A.Fg(args.ferrograph)
+    fg = A.Fg(args.ferrograph, shlex.split(args.extra_args))
     _, rv, _ = A.run(["rustc", "-V"])
     meta = {
         "version": fg.version(),
@@ -369,6 +382,7 @@ def main():
         "rustc": rv.strip(),
         "platform": platform.platform(),
         "date": time.strftime("%Y-%m-%d"),
+        "extra_args": fg.extra,
     }
     results = []
     for c in cfg["corpus"]:
