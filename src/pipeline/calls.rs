@@ -879,6 +879,7 @@ fn child_module_fns(owner: &str, from_file: &str, cands: &[NodeId], idx: &Index)
     cands
         .iter()
         .filter(|c| !idx.methods.contains(c.as_str()))
+        .filter(|c| crate_key(from_file).is_none() || crate_key(file_of(c)) == crate_key(from_file))
         .filter(|c| {
             let file = file_of(c);
             idx.parent_of(c) == Some(file) && files.iter().any(|f| f.to_str() == Some(file))
