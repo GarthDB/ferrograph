@@ -261,7 +261,7 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
             .and_then(|(m, c)| Some((m, c.strip_suffix(')')?)))
         {
             // A payload that is not a kept type leaves a bare `Option`/`Result`.
-            let ty_ref = auto_deref(&ty);
+            let ty_ref = auto_deref(&ty, idx);
             let name = split_generic(ty_ref).map_or(ty_ref, |(name, _)| name);
             if matches!(name, "Option" | "Result") {
                 let name = name.to_string();
@@ -301,20 +301,31 @@ fn split_top(s: &str, sep: char) -> impl Iterator<Item = &str> {
     cuts.into_iter().map(move |(a, b)| &s[a..b])
 }
 
-/// Strip `Box`/`Rc`/`Arc` and lock guards, which method calls see through.
-fn auto_deref(mut ty: &str) -> &str {
+/// Std locks and guards; a project type of the same name is not one of them.
+const GUARDS: [&str; 5] = [
+    "MutexGuard",
+    "RwLockReadGuard",
+    "RwLockWriteGuard",
+    "Ref",
+    "RefMut",
+];
+const LOCKS: [&str; 3] = ["Mutex", "RwLock", "RefCell"];
+
+/// Strip `Box`/`Rc`/`Arc` and lock guards, which method calls see through. A project type named like
+/// a lock or guard is returned bare, without its generics.
+fn auto_deref<'a>(mut ty: &'a str, idx: &Index) -> &'a str {
     while let Some((name, inner)) = split_generic(ty) {
-        if !matches!(
-            name,
-            "Box"
-                | "Rc"
-                | "Arc"
-                | "MutexGuard"
-                | "RwLockReadGuard"
-                | "RwLockWriteGuard"
-                | "Ref"
-                | "RefMut"
-        ) {
+        if GUARDS.contains(&name) {
+            if idx.type_names.contains(name) {
+                return name;
+            }
+        } else if LOCKS.contains(&name) {
+            return if idx.type_names.contains(name) {
+                name
+            } else {
+                ty
+            };
+        } else if !matches!(name, "Box" | "Rc" | "Arc") {
             break;
         }
         ty = inner;
@@ -334,15 +345,12 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
     if matches!(
         part,
         "unwrap()" | "expect()" | "unwrap_or_else()" | "unwrap_or_default()"
-    ) && split_generic(ty).is_some_and(|(n, _)| {
-        matches!(
-            n,
-            "MutexGuard" | "RwLockReadGuard" | "RwLockWriteGuard" | "Ref" | "RefMut"
-        )
-    }) {
+    ) && split_generic(ty)
+        .is_some_and(|(n, _)| GUARDS.contains(&n) && !idx.type_names.contains(n))
+    {
         return Some(ty.to_string());
     }
-    let ty = auto_deref(ty);
+    let ty = auto_deref(ty, idx);
     if ty.starts_with('(') {
         return tuple_elem(ty, part.strip_prefix('#')?.parse().ok()?);
     }
@@ -421,6 +429,9 @@ fn container_method(ty: &str, m: &str) -> Option<String> {
             return Some(format!("MutexGuard<{inner}>"))
         }
         ("RefCell", "borrow" | "borrow_mut") => return Some(format!("Ref<{inner}>")),
+        // `get_mut` borrows the cell directly: `&mut T`, or `LockResult<&mut T>`.
+        ("RefCell", "get_mut") => return Some(inner.to_string()),
+        ("Mutex" | "RwLock", "get_mut") => return Some(format!("Result<{inner}>")),
         _ => {}
     }
     let wrapper = matches!(name, "Option" | "Result");
@@ -548,7 +559,7 @@ fn resolve_typed_method(
     if name == "clone" && (ty.starts_with("Rc<") || ty.starts_with("Arc<")) {
         return None;
     }
-    let ty = auto_deref(&ty);
+    let ty = auto_deref(&ty, idx);
     if !idx.type_names.contains(ty) {
         return None;
     }
@@ -1144,6 +1155,7 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
     let imports = EdgeType::Imports.to_string();
     let mut maps = ImportMaps::default();
     let mut conflicts = HashSet::new();
+    let mut local_conflicts = HashSet::new();
     for row in &edges.rows {
         if row.get(2).map(unquote_datavalue).as_deref() != Some(imports.as_str()) {
             continue;
@@ -1171,8 +1183,11 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
                 .split_once("=>")
                 .map_or((orig, None), |(o, t)| (o, Some(t.to_string())));
             if from.contains('#') {
-                maps.local_aliases
-                    .insert((from, alias.to_string()), orig.to_string());
+                let key = (from, alias.to_string());
+                if maps.local_aliases.get(&key).is_some_and(|o| o != orig) {
+                    local_conflicts.insert(key.clone());
+                }
+                maps.local_aliases.insert(key, orig.to_string());
                 continue;
             }
             maps.aliases_by_name
@@ -1190,6 +1205,8 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
         }
     }
     maps.aliases.retain(|k, _| !conflicts.contains(k));
+    maps.local_aliases
+        .retain(|k, _| !local_conflicts.contains(k));
     maps
 }
 

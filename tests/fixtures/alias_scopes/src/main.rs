@@ -14,6 +14,7 @@ mod same {
     pub(crate) struct E;
     pub(crate) struct F;
     impl E {
+        fn twice() {} // neg_e_twice
         fn new() -> E { E } // live_e_new
     }
     impl F {
@@ -48,11 +49,19 @@ fn external() {
     let _ = Alias::make();
 }
 
+// Two imports of the same name in one function body name neither target.
+fn clash() {
+    use crate::types::A as Both;
+    use crate::same::E as Both;
+    let _ = Both::twice();
+}
+
 fn main() {
     first();
     second();
     third();
     fourth();
     external();
+    clash();
     backend::probe();
 }

@@ -5,6 +5,7 @@ pub(crate) struct C;
 
 impl A {
     fn new() -> A { A } // live_a_new
+    fn twice() {} // neg_a_twice
 }
 impl B {
     fn new() -> B { B } // live_b_new
