@@ -32,6 +32,7 @@ fn file_to_module_path(root: &Path, path: &Path) -> Option<(String, String)> {
     let dir = crate_dir(&root, &path);
     let krate = dir.strip_prefix(&root).ok()?.to_string_lossy().into_owned();
     let rel = path.strip_prefix(&dir).ok()?;
+    let rel = custom_root_dir(&dir, rel).map_or(rel, |d| rel.strip_prefix(d).unwrap_or(rel));
     let s = rel.to_string_lossy();
     let s = s
         .strip_prefix("src/")
@@ -44,6 +45,27 @@ fn file_to_module_path(root: &Path, path: &Path) -> Option<(String, String)> {
     let s = s.replace(std::path::MAIN_SEPARATOR, "::");
     let s = s.strip_suffix("::mod").unwrap_or(&s);
     Some((krate, format!("crate::{s}")))
+}
+
+/// Directory of a crate root declared outside `src/` (`[[bin]] path = "crates/core/main.rs"`) that
+/// holds `rel`, a path relative to the crate directory: its module paths start there.
+fn custom_root_dir<'a>(dir: &Path, rel: &'a Path) -> Option<&'a Path> {
+    if rel.starts_with("src") {
+        return None;
+    }
+    let manifest: toml::Value = std::fs::read_to_string(dir.join("Cargo.toml"))
+        .ok()?
+        .parse()
+        .ok()?;
+    let bins = manifest.get("bin").and_then(toml::Value::as_array);
+    let root = manifest
+        .get("lib")
+        .into_iter()
+        .chain(bins.into_iter().flatten())
+        .filter_map(|t| Path::new(t.get("path")?.as_str()?).parent())
+        .filter(|d| !d.as_os_str().is_empty() && !d.starts_with("src"))
+        .find(|d| rel.starts_with(d))?;
+    rel.ancestors().find(|a| *a == root)
 }
 
 /// Extract the use tree text from a `use_declaration` node, without `pub`/`pub(..)` and `use`.
@@ -306,6 +328,8 @@ struct ModuleMaps {
     items: BTreeMap<(String, String), String>,
     /// File -> its `use` leaves, brace groups expanded.
     file_uses: BTreeMap<String, Vec<String>>,
+    /// (declaring file, module name, file) of `#[path = ".."] mod name;` declarations.
+    path_mods: Vec<(String, String, String)>,
 }
 
 fn canonical_files<'a>(
@@ -324,7 +348,8 @@ fn apply_path_mods(
     file_ids: &[String],
     file_to_module: &mut BTreeMap<String, (String, String)>,
     module_to_file: &mut BTreeMap<(String, String), String>,
-) {
+) -> Vec<(String, String, String)> {
+    let mut found = Vec::new();
     let by_canonical = canonical_files(root, file_ids);
     for file_id in file_ids {
         let Some((krate, module)) = file_to_module.get(file_id).cloned() else {
@@ -343,9 +368,11 @@ fn apply_path_mods(
                 let sub = join_mod(&module, &[&name]);
                 file_to_module.insert(target.clone(), (krate.clone(), sub.clone()));
                 module_to_file.insert((krate.clone(), sub), target.clone());
+                found.push((file_id.clone(), name, target.clone()));
             }
         }
     }
+    found
 }
 
 fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> ModuleMaps {
@@ -390,7 +417,7 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
         }
     }
 
-    apply_path_mods(
+    let path_mods = apply_path_mods(
         root,
         &file_id_to_path,
         &mut file_id_to_module_path,
@@ -440,6 +467,7 @@ fn build_module_maps(root: &Path, nodes: &NamedRows, edges: &NamedRows) -> Modul
         module_path_to_file_id,
         items,
         file_uses,
+        path_mods,
     }
 }
 
@@ -448,20 +476,45 @@ pub(crate) const EXTERNAL_IMPORT_PREFIX: &str = "external::";
 /// Prefix of `Imports` targets that record a rename: `alias::h=>helper` for `use a::helper as h`,
 /// with `=>ID` appended when the renamed item resolved to the node `ID`.
 pub(crate) const ALIAS_IMPORT_PREFIX: &str = "alias::";
+/// Prefix of `Imports` targets recording a glob import of a project module: `glob::FILE` for
+/// `use super::*` (the `Imports` edge starts at the importing file).
+pub(crate) const GLOB_IMPORT_PREFIX: &str = "glob::";
+/// Prefix of `Imports` targets recording `#[path = ".."] mod name;`: `pathmod::name=>FILE`.
+pub(crate) const PATH_MOD_IMPORT_PREFIX: &str = "pathmod::";
+
+/// Whether an `Imports` target is bookkeeping for call resolution rather than a node id.
+pub(crate) fn is_import_marker(to: &str) -> bool {
+    [
+        EXTERNAL_IMPORT_PREFIX,
+        ALIAS_IMPORT_PREFIX,
+        GLOB_IMPORT_PREFIX,
+        PATH_MOD_IMPORT_PREFIX,
+    ]
+    .iter()
+    .any(|p| to.starts_with(p))
+}
 
 /// A `use` leaf that did not resolve locally and does not start with `crate`/`self`/`super` or a local module.
-fn is_external_use(use_path: &str, krate: &str, current_module: &str, maps: &ModuleMaps) -> bool {
+fn is_external_use(
+    use_path: &str,
+    file_id: &str,
+    krate: &str,
+    current_module: &str,
+    maps: &ModuleMaps,
+) -> bool {
     let first = use_path
         .trim()
         .trim_start_matches("::")
         .split("::")
         .next()
+        .and_then(|s| s.split_whitespace().next())
         .unwrap_or("");
     if first.is_empty() || matches!(first, "crate" | "self" | "super") {
         return false;
     }
     let local = |base: &str| module_file(maps, krate, &format!("{base}::{first}")).is_some();
-    !(local("crate") || local(current_module))
+    // An inline `mod first { .. }` of this file is no other crate either.
+    !(local("crate") || local(current_module) || find_item_in_file(maps, file_id, first).is_some())
 }
 
 /// Names a `use` path brings into scope, as (name, original name when renamed with `as`): the last
@@ -500,14 +553,30 @@ fn use_leaves(path: &str) -> Vec<(String, Option<String>)> {
 
 fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> {
     let mut out = Vec::new();
+    for (file, name, target) in &maps.path_mods {
+        out.push((
+            NodeId::new(file.clone()),
+            NodeId::new(format!("{PATH_MOD_IMPORT_PREFIX}{name}=>{target}")),
+            EdgeType::Imports,
+        ));
+    }
     for (file_id, leaves) in &maps.file_uses {
         let Some((krate, module_path)) = maps.file_id_to_module_path.get(file_id) else {
             continue;
         };
         let from = NodeId::new(file_id.clone());
         for leaf in leaves {
-            // Glob imports stay unresolved here (they only feed `follow_reexport`).
+            // A glob brings no certain item, so it only leaves a marker for bare-call resolution.
             if leaf.ends_with("::*") {
+                if let Some((target, None, true)) =
+                    resolve_use_path(leaf, krate, module_path, maps, 0)
+                {
+                    out.push((
+                        from.clone(),
+                        NodeId::new(format!("{GLOB_IMPORT_PREFIX}{target}")),
+                        EdgeType::Imports,
+                    ));
+                }
                 continue;
             }
             let mut external = false;
@@ -521,7 +590,7 @@ fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> 
                     let to = NodeId::new(target_node_opt.unwrap_or(target_file_id));
                     out.push((from.clone(), to, EdgeType::Imports));
                 }
-            } else if is_external_use(leaf, krate, module_path, maps) {
+            } else if is_external_use(leaf, file_id, krate, module_path, maps) {
                 external = true;
             }
             for (name, orig) in use_leaves(leaf) {

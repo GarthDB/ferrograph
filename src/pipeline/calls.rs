@@ -21,7 +21,9 @@ use anyhow::Result;
 
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 
-use super::modules::{ALIAS_IMPORT_PREFIX, EXTERNAL_IMPORT_PREFIX};
+use super::modules::{
+    ALIAS_IMPORT_PREFIX, EXTERNAL_IMPORT_PREFIX, GLOB_IMPORT_PREFIX, PATH_MOD_IMPORT_PREFIX,
+};
 
 /// Suffix the AST phase puts on call placeholders for paths used as values (see `ast.rs`).
 pub(crate) const VALUE_SUFFIX: &str = "@value";
@@ -78,6 +80,10 @@ struct Index {
     aliases: HashMap<(String, String), String>,
     /// alias -> (file, original name, resolved item) of the same renames, for qualified calls.
     aliases_by_name: HashMap<String, Vec<AliasTarget>>,
+    /// File -> files of the project modules it glob-imports (`use super::*`).
+    globs: HashMap<String, Vec<String>>,
+    /// Module name -> files declared with `#[path = ".."] mod name;`.
+    path_mods: HashMap<String, Vec<String>>,
     node_id_to_payload: HashMap<String, String>,
     global_by_name: HashMap<String, Vec<NodeId>>,
     /// Ids of functions defined directly inside an `impl` or `trait`.
@@ -479,11 +485,7 @@ fn resolve_placeholder(
     idx: &Index,
 ) -> Resolution {
     let Index {
-        local,
-        imports_map,
-        node_id_to_payload,
-        global_by_name,
-        ..
+        local, imports_map, ..
     } = idx;
     if !path_part.contains("::") {
         if let Some(orig) = idx
@@ -511,7 +513,16 @@ fn resolve_placeholder(
             ) {
                 return Resolution::One(one.clone());
             }
-            if let Some(r) = resolution_of(pick_by_owner(owner, from, candidates, idx)) {
+            let mut picked = pick_by_owner(owner, from, candidates, idx);
+            // `use orig as owner;` renames a module or type declared in this file.
+            if let Some(orig) = idx.aliases.get(&(from_file.to_string(), owner.to_string())) {
+                picked.extend(pick_by_owner(orig, from, candidates, idx));
+            }
+            // `#[cfg(..)] #[path = ".."] mod owner;` declared once per platform next to an inline `mod owner`.
+            if !picked.is_empty() {
+                picked.extend(path_mod_fns(owner, fn_name, from_file, idx));
+            }
+            if let Some(r) = resolution_of(picked) {
                 return r;
             }
         }
@@ -546,48 +557,95 @@ fn resolve_placeholder(
             _ => Resolution::None,
         };
     }
-    if let Some(imported) = imports_map.get(from_file) {
-        let mut candidate: Option<NodeId> = None;
-        for to_id in imported {
-            if to_id.contains('#') {
-                if let Some(payload) = node_id_to_payload.get(to_id) {
-                    if canonical_name(payload) == fn_name {
-                        if candidate.is_some() {
-                            return Resolution::None;
-                        }
-                        candidate = Some(NodeId(to_id.clone()));
-                    }
-                }
-            } else {
-                let in_file: Vec<_> = global_by_name
-                    .get(fn_name)
-                    .map(|v| {
-                        v.iter()
-                            .filter(|n| n.as_str().starts_with(&format!("{to_id}#")))
-                            .cloned()
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                if in_file.len() == 1 {
-                    if candidate.is_some() {
-                        return Resolution::None;
-                    }
-                    candidate = in_file.into_iter().next();
-                }
-            }
-        }
-        if let Some(c) = candidate {
-            return Resolution::One(c);
-        }
-        // The `use` paths did not lead to the callee (re-exports, nested modules): fall back to the
-        // project-wide free-function lookup below rather than dropping the call. The callee may also
-        // be an external function, so even a unique match is only a low-confidence edge. Imports of
-        // a resolved item (const, fn, type) cannot bring the callee into scope, only a module-level import
-        // (glob, or an item that was not found in its module) can.
-        let module_import = imported.iter().any(|t| !t.contains('#'));
-        return resolve_bare_globally(fn_name, from_file, value, module_import, idx);
+    if let Some(r) = imports_map
+        .get(from_file)
+        .and_then(|imported| resolve_via_named_imports(imported, fn_name, idx))
+    {
+        return r;
     }
-    resolve_bare_globally(fn_name, from_file, value, false, idx)
+    if let Some(r) = resolve_via_globs(fn_name, from_file, value, idx) {
+        return r;
+    }
+    // The `use` paths did not lead to the callee (re-exports, nested modules): fall back to the
+    // project-wide free-function lookup rather than dropping the call. The callee may also
+    // be an external function, so even a unique match is only a low-confidence edge. Imports of
+    // a resolved item (const, fn, type) cannot bring the callee into scope, only a module-level import
+    // (glob, or an item that was not found in its module) can.
+    let module_import = imports_map
+        .get(from_file)
+        .is_some_and(|imported| imported.iter().any(|t| !t.contains('#')));
+    resolve_bare_globally(fn_name, from_file, value, module_import, idx)
+}
+
+/// The callee of a bare call among the items `use` statements import into the file: `One` when exactly
+/// one imported function has the name (or exactly one function of that name lives in an imported
+/// module file), `None` (the resolution) when two do, `None` (no answer) when none does.
+fn resolve_via_named_imports(
+    imported: &[String],
+    fn_name: &str,
+    idx: &Index,
+) -> Option<Resolution> {
+    let mut candidate: Option<NodeId> = None;
+    for to_id in imported {
+        let found = if to_id.contains('#') {
+            idx.node_id_to_payload
+                .get(to_id)
+                .filter(|payload| canonical_name(payload) == fn_name)
+                .map(|_| NodeId(to_id.clone()))
+        } else {
+            let in_file: Vec<_> = idx
+                .global_by_name
+                .get(fn_name)
+                .into_iter()
+                .flatten()
+                .filter(|n| n.as_str().starts_with(&format!("{to_id}#")))
+                .collect();
+            match in_file.as_slice() {
+                [one] => Some((*one).clone()),
+                _ => None,
+            }
+        };
+        if let Some(found) = found {
+            if candidate.is_some() {
+                return Some(Resolution::None);
+            }
+            candidate = Some(found);
+        }
+    }
+    candidate.map(Resolution::One)
+}
+
+/// A bare call that no `use` item and no local definition explains, while the file glob-imports
+/// project modules (`use super::*`): the callee is the one free function of that name declared at
+/// the top level of those modules. `None` unless exactly one such function exists.
+fn resolve_via_globs(
+    fn_name: &str,
+    from_file: &str,
+    value: bool,
+    idx: &Index,
+) -> Option<Resolution> {
+    let files = idx.globs.get(from_file).filter(|_| !value)?;
+    if idx
+        .external_imports
+        .contains(&(from_file.to_string(), fn_name.to_string()))
+    {
+        return None;
+    }
+    let mut found: Vec<&NodeId> = idx
+        .global_by_name
+        .get(fn_name)?
+        .iter()
+        .filter(|n| !idx.methods.contains(n.as_str()))
+        .filter(|n| {
+            let file = n.as_str().split('#').next().unwrap_or("");
+            files.iter().any(|f| f == file) && idx.parent_of(n) == Some(file)
+        })
+        .collect();
+    found.dedup();
+    match found.as_slice() {
+        [one] => Some(Resolution::One((*one).clone())),
+        _ => None,
+    }
 }
 
 /// `owner::alias()` where the file of module `owner` has an `alias::alias=>orig` import: resolve
@@ -726,17 +784,39 @@ fn resolve_qualified_elsewhere(
         return Resolution::None;
     };
     let relative = matches!(owner, "crate" | "super" | "self");
+    // `m::f` where the calling file declares `mod m;`: its file, not any inline `mod m` elsewhere.
+    if !relative {
+        let own = child_module_fns(owner, from_file, all, idx);
+        if !own.is_empty() {
+            return resolution_of(own).unwrap_or(Resolution::None);
+        }
+    }
+    let mut module_scoped = false;
     let mut cands: Vec<NodeId> = if relative {
         all.iter()
             .filter(|c| !idx.methods.contains(c.as_str()))
             .cloned()
             .collect()
     } else {
-        let by_scope = pick_by_owner(owner, from, all, idx);
+        let mut by_scope = pick_by_owner(owner, from, all, idx);
+        // `a::Type::f`: of several same-named types, the one defined in module `a`.
+        if let [.., module, _] = segs {
+            let in_module: Vec<NodeId> = by_scope
+                .iter()
+                .filter(|c| file_is_module(file_of(c), module))
+                .cloned()
+                .collect();
+            if !matches!(*module, "crate" | "super" | "self") && in_module.len() == 1 {
+                by_scope = in_module;
+            }
+        }
         if by_scope.is_empty() {
+            module_scoped = true;
             all.iter()
                 .filter(|c| !idx.methods.contains(c.as_str()))
-                .filter(|c| file_is_module(c.as_str().split('#').next().unwrap_or(""), owner))
+                .filter(|c| {
+                    file_is_module(file_of(c), owner) || is_path_mod_file(owner, file_of(c), idx)
+                })
                 .cloned()
                 .collect()
         } else {
@@ -751,6 +831,9 @@ fn resolve_qualified_elsewhere(
         .collect();
     if !same_crate.is_empty() {
         cands = same_crate;
+    }
+    if module_scoped && cands.len() > 1 {
+        cands = narrow_to_module_file(owner, fn_name, cands, key, idx);
     }
     if relative && cands.len() > 1 {
         let near = |c: &NodeId| common_prefix_len(c.as_str(), from_file);
@@ -776,6 +859,106 @@ fn resolve_qualified_elsewhere(
     resolution_of(cands).unwrap_or(Resolution::None)
 }
 
+/// Among `cands`, the top-level free functions of the file of `from_file`'s child module `owner`
+/// (`dir/owner.rs` or `dir/owner/mod.rs`, `dir` being where the module's children live).
+fn child_module_fns(owner: &str, from_file: &str, cands: &[NodeId], idx: &Index) -> Vec<NodeId> {
+    let path = std::path::Path::new(from_file);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let dir = if matches!(stem, "mod" | "lib" | "main") {
+        path.parent().map(std::path::Path::to_path_buf)
+    } else {
+        path.parent().map(|d| d.join(stem))
+    };
+    let Some(dir) = dir else {
+        return Vec::new();
+    };
+    let files = [
+        dir.join(format!("{owner}.rs")),
+        dir.join(owner).join("mod.rs"),
+    ];
+    cands
+        .iter()
+        .filter(|c| !idx.methods.contains(c.as_str()))
+        .filter(|c| {
+            let file = file_of(c);
+            idx.parent_of(c) == Some(file) && files.iter().any(|f| f.to_str() == Some(file))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Top-level free functions named `fn_name` in the files `#[path = ".."] mod name;` declares, within
+/// the crate of `from_file`.
+fn path_mod_fns(name: &str, fn_name: &str, from_file: &str, idx: &Index) -> Vec<NodeId> {
+    let key = crate_key(from_file);
+    idx.global_by_name
+        .get(fn_name)
+        .into_iter()
+        .flatten()
+        .filter(|c| !idx.methods.contains(c.as_str()))
+        .filter(|c| is_path_mod_file(name, file_of(c), idx) && idx.parent_of(c) == Some(file_of(c)))
+        .filter(|c| key.is_none() || crate_key(file_of(c)) == key)
+        .cloned()
+        .collect()
+}
+
+fn file_of(id: &NodeId) -> &str {
+    id.as_str().split('#').next().unwrap_or("")
+}
+
+/// `file` is declared as module `name` by `#[path = ".."] mod name;`.
+fn is_path_mod_file(name: &str, file: &str, idx: &Index) -> bool {
+    idx.path_mods
+        .get(name)
+        .is_some_and(|files| files.iter().any(|f| f == file))
+}
+
+fn is_file_of_module(name: &str, file: &str, idx: &Index) -> bool {
+    is_module_file(file, name) || is_path_mod_file(name, file, idx)
+}
+
+/// `module::f` with candidates spread over the files below a module directory (platform variants,
+/// re-exported items) and nested `mod` blocks: `f` is the free function the module's own file
+/// declares at its top level, else the one that file re-exports. Unchanged when neither is unique.
+fn narrow_to_module_file(
+    module: &str,
+    fn_name: &str,
+    cands: Vec<NodeId>,
+    key: Option<&str>,
+    idx: &Index,
+) -> Vec<NodeId> {
+    let own: Vec<NodeId> = cands
+        .iter()
+        .filter(|c| {
+            let file = file_of(c);
+            is_file_of_module(module, file, idx) && idx.parent_of(c) == Some(file)
+        })
+        .cloned()
+        .collect();
+    if !own.is_empty() {
+        return own;
+    }
+    let mut reexported: Vec<NodeId> = idx
+        .imports_map
+        .iter()
+        .filter(|(file, _)| is_file_of_module(module, file, idx))
+        .filter(|(file, _)| key.is_none() || crate_key(file) == key)
+        .flat_map(|(_, targets)| targets)
+        .filter(|t| {
+            idx.node_id_to_payload
+                .get(t.as_str())
+                .is_some_and(|p| canonical_name(p) == fn_name)
+        })
+        .map(|t| NodeId::new(t.clone()))
+        .collect();
+    reexported.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    reexported.dedup();
+    if reexported.len() == 1 {
+        return reexported;
+    }
+    cands
+}
+
 /// Imports edges grouped by importing file.
 /// Imports edges grouped by importing file, plus the (file, name) pairs imported from other crates.
 #[derive(Default)]
@@ -785,6 +968,8 @@ struct ImportMaps {
     /// (file, alias) -> original name, for `use a::f as g`.
     aliases: HashMap<(String, String), String>,
     aliases_by_name: HashMap<String, Vec<AliasTarget>>,
+    globs: HashMap<String, Vec<String>>,
+    path_mods: HashMap<String, Vec<String>>,
 }
 
 fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
@@ -793,6 +978,8 @@ fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
     idx.external_imports = imports.external;
     idx.aliases = imports.aliases;
     idx.aliases_by_name = imports.aliases_by_name;
+    idx.globs = imports.globs;
+    idx.path_mods = imports.path_mods;
 }
 
 fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
@@ -807,6 +994,16 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
         let file = from.split('#').next().unwrap_or(&from).to_string();
         if let Some(name) = to.strip_prefix(EXTERNAL_IMPORT_PREFIX) {
             maps.external.insert((file, name.to_string()));
+        } else if let Some(target) = to.strip_prefix(GLOB_IMPORT_PREFIX) {
+            maps.globs.entry(file).or_default().push(target.to_string());
+        } else if let Some((name, target)) = to
+            .strip_prefix(PATH_MOD_IMPORT_PREFIX)
+            .and_then(|r| r.split_once("=>"))
+        {
+            maps.path_mods
+                .entry(name.to_string())
+                .or_default()
+                .push(target.to_string());
         } else if let Some((alias, orig)) = to
             .strip_prefix(ALIAS_IMPORT_PREFIX)
             .and_then(|r| r.split_once("=>"))
