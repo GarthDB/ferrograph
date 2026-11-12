@@ -1,4 +1,10 @@
+mod mac;
+mod other;
 mod types;
+
+// One name renamed to two modules (`#[cfg]` variants) names neither: no certain edge to either.
+use mac as backend;
+use other as backend;
 
 mod elsewhere {
     fn make() {} // neg_ext_make
@@ -48,4 +54,5 @@ fn main() {
     third();
     fourth();
     external();
+    backend::probe();
 }

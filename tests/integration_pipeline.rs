@@ -446,10 +446,10 @@ fn pipeline_cross_file_qualified_paths_resolve() {
         );
     }
     assert!(!called.contains("unused_in_lib") && !called.contains("pub::unused_in_util"));
-    // An aliased owner (`use S as Alias`) is only a low-confidence edge, which `--strict` ignores.
+    // An aliased owner (`use S as Alias`) resolves to the type it renames (#131).
     let mut strict = dead_names(&store, true);
     strict.sort();
-    assert_eq!(strict, ["made_via_alias", "unused_in_lib"]);
+    assert_eq!(strict, ["unused_in_lib"]);
     let mut dead = dead_names(&store, false);
     dead.sort();
     assert_eq!(dead, ["unused_in_lib"]);
@@ -1169,6 +1169,14 @@ fn pipeline_function_local_aliases_do_not_collide() {
         assert!(!dead_types.contains(&types[live]), "{live}");
     }
     assert!(dead_main.contains(&main["neg_ext_make"]));
+    for twin in ["mac", "other"] {
+        let tags = tagged_lines("alias_scopes", &format!("src/{twin}.rs"));
+        let dead = dead_lines(&store, true, &format!("src/{twin}.rs"));
+        assert!(
+            dead.contains(&tags[&format!("dead_{twin}_probe")]),
+            "{twin}"
+        );
+    }
     for stays_dead in ["dead_d_new", "dead_only_b", "dead_c_make"] {
         assert!(dead_types.contains(&types[stays_dead]), "{stays_dead}");
     }

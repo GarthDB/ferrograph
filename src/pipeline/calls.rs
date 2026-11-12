@@ -1143,6 +1143,7 @@ fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
 fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
     let imports = EdgeType::Imports.to_string();
     let mut maps = ImportMaps::default();
+    let mut conflicts = HashSet::new();
     for row in &edges.rows {
         if row.get(2).map(unquote_datavalue).as_deref() != Some(imports.as_str()) {
             continue;
@@ -1178,12 +1179,17 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
                 .entry(alias.to_string())
                 .or_default()
                 .push((file.clone(), orig.to_string(), target));
-            maps.aliases
-                .insert((file, alias.to_string()), orig.to_string());
+            // A name renamed to different items in one file (`#[cfg]` variants) names none of them.
+            let key = (file, alias.to_string());
+            if maps.aliases.get(&key).is_some_and(|o| o != orig) {
+                conflicts.insert(key.clone());
+            }
+            maps.aliases.insert(key, orig.to_string());
         } else {
             maps.by_file.entry(file).or_default().push(to);
         }
     }
+    maps.aliases.retain(|k, _| !conflicts.contains(k));
     maps
 }
 
