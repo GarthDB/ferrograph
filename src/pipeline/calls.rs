@@ -352,16 +352,23 @@ fn split_generic(ty: &str) -> Option<(&str, &str)> {
     Some((name, rest.strip_suffix('>')?))
 }
 
+fn is_std_guard(ty: &str, idx: &Index) -> bool {
+    split_generic(ty).is_some_and(|(n, _)| GUARDS.contains(&n) && !idx.type_names.contains(n))
+}
+
 /// One step of a hint: `[]` (element), `?` (`Option`/`Result` payload), `m()` (method) or a field.
 fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
     // `lock().unwrap()`: the `Result` of `lock()` is not modelled, so unwrapping keeps the guard.
     if matches!(
         part,
         "unwrap()" | "expect()" | "unwrap_or_else()" | "unwrap_or_default()"
-    ) && split_generic(ty)
-        .is_some_and(|(n, _)| GUARDS.contains(&n) && !idx.type_names.contains(n))
+    ) && is_std_guard(ty, idx)
     {
         return Some(ty.to_string());
+    }
+    // tokio's `lock().await` is the guard; the future of anything else is not modelled.
+    if part == "await" {
+        return is_std_guard(ty, idx).then(|| ty.to_string());
     }
     let ty = auto_deref(ty, idx);
     if ty.starts_with('(') {
@@ -440,6 +447,11 @@ fn container_method(ty: &str, m: &str) -> Option<String> {
     match (name, m) {
         ("Mutex" | "RwLock", "lock" | "read" | "write") => {
             return Some(format!("{SYNTH_GUARD}<{inner}>"))
+        }
+        // `parking_lot` returns `Option<Guard>` and std `Result<Guard>`; `?`, `unwrap` and `Some(g)`/`Ok(g)`
+        // patterns treat the two alike.
+        ("Mutex", "try_lock") | ("RwLock", "try_read" | "try_write") => {
+            return Some(format!("Option<{SYNTH_GUARD}<{inner}>>"))
         }
         ("RefCell", "borrow" | "borrow_mut") => return Some(format!("{SYNTH_GUARD}<{inner}>")),
         // `get_mut` borrows the cell directly: `&mut T`, or `LockResult<&mut T>`.
