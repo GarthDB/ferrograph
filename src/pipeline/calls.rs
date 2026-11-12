@@ -80,6 +80,8 @@ struct Index {
     external_imports: HashSet<(String, String)>,
     /// (file, alias) -> original name of `use .. as ..` renames.
     aliases: HashMap<(String, String), String>,
+    /// (function id, alias) -> original name of renames declared inside a function body.
+    local_aliases: HashMap<(String, String), String>,
     /// alias -> (file, original name, resolved item) of the same renames, for qualified calls.
     aliases_by_name: HashMap<String, Vec<AliasTarget>>,
     /// File -> files of the project modules it glob-imports (`use super::*`).
@@ -111,6 +113,14 @@ impl Index {
     /// Enclosing items of `from`, innermost first, starting with `from` itself.
     fn ancestors<'a>(&'a self, from: &'a str) -> impl Iterator<Item = &'a str> {
         std::iter::successors(Some(from), |n| self.parent.get(*n).map(String::as_str))
+    }
+
+    /// The original name `name` was renamed from, seen from `from`: renames inside the enclosing
+    /// functions win over file-level ones.
+    fn alias_of(&self, file: &str, from: &str, name: &str) -> Option<&String> {
+        self.ancestors(from)
+            .find_map(|a| self.local_aliases.get(&(a.to_string(), name.to_string())))
+            .or_else(|| self.aliases.get(&(file.to_string(), name.to_string())))
     }
 
     fn parent_of(&self, id: &NodeId) -> Option<&str> {
@@ -291,10 +301,20 @@ fn split_top(s: &str, sep: char) -> impl Iterator<Item = &str> {
     cuts.into_iter().map(move |(a, b)| &s[a..b])
 }
 
-/// Strip `Box`/`Rc`/`Arc`, which method calls see through.
+/// Strip `Box`/`Rc`/`Arc` and lock guards, which method calls see through.
 fn auto_deref(mut ty: &str) -> &str {
     while let Some((name, inner)) = split_generic(ty) {
-        if !matches!(name, "Box" | "Rc" | "Arc") {
+        if !matches!(
+            name,
+            "Box"
+                | "Rc"
+                | "Arc"
+                | "MutexGuard"
+                | "RwLockReadGuard"
+                | "RwLockWriteGuard"
+                | "Ref"
+                | "RefMut"
+        ) {
             break;
         }
         ty = inner;
@@ -310,6 +330,18 @@ fn split_generic(ty: &str) -> Option<(&str, &str)> {
 
 /// One step of a hint: `[]` (element), `?` (`Option`/`Result` payload), `m()` (method) or a field.
 fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
+    // `lock().unwrap()`: the `Result` of `lock()` is not modelled, so unwrapping keeps the guard.
+    if matches!(
+        part,
+        "unwrap()" | "expect()" | "unwrap_or_else()" | "unwrap_or_default()"
+    ) && split_generic(ty).is_some_and(|(n, _)| {
+        matches!(
+            n,
+            "MutexGuard" | "RwLockReadGuard" | "RwLockWriteGuard" | "Ref" | "RefMut"
+        )
+    }) {
+        return Some(ty.to_string());
+    }
     let ty = auto_deref(ty);
     if ty.starts_with('(') {
         return tuple_elem(ty, part.strip_prefix('#')?.parse().ok()?);
@@ -382,6 +414,14 @@ fn container_method(ty: &str, m: &str) -> Option<String> {
             "clone" | "as_ref" | "as_mut" | "borrow" | "borrow_mut" => Some(ty.to_string()),
             _ => None,
         };
+    }
+    // `lock()` is typed as the guard itself, so it covers `parking_lot` as well as `.lock().unwrap()`.
+    match (name, m) {
+        ("Mutex" | "RwLock", "lock" | "read" | "write") => {
+            return Some(format!("MutexGuard<{inner}>"))
+        }
+        ("RefCell", "borrow" | "borrow_mut") => return Some(format!("Ref<{inner}>")),
+        _ => {}
     }
     let wrapper = matches!(name, "Option" | "Result");
     match m {
@@ -604,12 +644,8 @@ fn resolve_placeholder(
     } = idx;
     if !path_part.contains("::") {
         if let Some(orig) = idx
-            .aliases
-            .get(&(from_file.to_string(), fn_name.to_string()))
-            .filter(|o| {
-                !idx.aliases
-                    .contains_key(&(from_file.to_string(), (*o).clone()))
-            })
+            .alias_of(from_file, from, fn_name)
+            .filter(|o| idx.alias_of(from_file, from, o).is_none())
         {
             return resolve_placeholder(path_part, orig, from, from_file, value, idx);
         }
@@ -630,7 +666,7 @@ fn resolve_placeholder(
             }
             let mut picked = pick_by_owner(owner, from, candidates, idx);
             // `use orig as owner;` renames a module or type declared in this file.
-            if let Some(orig) = idx.aliases.get(&(from_file.to_string(), owner.to_string())) {
+            if let Some(orig) = idx.alias_of(from_file, from, owner) {
                 picked.extend(pick_by_owner(orig, from, candidates, idx));
             }
             // `#[cfg(..)] #[path = ".."] mod owner;` declared once per platform next to an inline `mod owner`.
@@ -1083,6 +1119,7 @@ struct ImportMaps {
     external: HashSet<(String, String)>,
     /// (file, alias) -> original name, for `use a::f as g`.
     aliases: HashMap<(String, String), String>,
+    local_aliases: HashMap<(String, String), String>,
     aliases_by_name: HashMap<String, Vec<AliasTarget>>,
     globs: HashMap<String, Vec<String>>,
     path_mods: HashMap<String, Vec<String>>,
@@ -1093,6 +1130,7 @@ fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
     idx.imports_map = imports.by_file;
     idx.external_imports = imports.external;
     idx.aliases = imports.aliases;
+    idx.local_aliases = imports.local_aliases;
     idx.aliases_by_name = imports.aliases_by_name;
     idx.globs = imports.globs;
     idx.path_mods = imports.path_mods;
@@ -1127,6 +1165,11 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
             let (orig, target) = orig
                 .split_once("=>")
                 .map_or((orig, None), |(o, t)| (o, Some(t.to_string())));
+            if from.contains('#') {
+                maps.local_aliases
+                    .insert((from, alias.to_string()), orig.to_string());
+                continue;
+            }
             maps.aliases_by_name
                 .entry(alias.to_string())
                 .or_default()

@@ -986,8 +986,8 @@ fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
 }
 
 /// Standard containers whose element type is worth keeping (`Vec<A>`, `Option<A>`, ..); maps keep their
-/// value type. Smart pointers are looked through by the calls phase.
-const KEPT_WRAPPERS: [&str; 15] = [
+/// value type. Smart pointers and lock guards are looked through by the calls phase.
+const KEPT_WRAPPERS: [&str; 23] = [
     "Vec",
     "VecDeque",
     "HashSet",
@@ -999,6 +999,14 @@ const KEPT_WRAPPERS: [&str; 15] = [
     "Box",
     "Rc",
     "Arc",
+    "Mutex",
+    "RwLock",
+    "RefCell",
+    "MutexGuard",
+    "RwLockReadGuard",
+    "RwLockWriteGuard",
+    "Ref",
+    "RefMut",
     "HashMap",
     "BTreeMap",
     "IndexMap",

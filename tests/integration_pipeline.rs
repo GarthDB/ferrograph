@@ -1119,3 +1119,49 @@ fn pipeline_module_path_call_through_use_alias_of_an_inline_mod() {
         vec![("./src/lib.rs#2:5".to_string(), false)]
     );
 }
+
+/// #122: receivers behind `RefCell`/`Mutex`/`RwLock` guards. The `B` twin of each positive class is the
+/// only dead one under `--strict`; `neg_*` sits behind a guard of a non-project type and stays untyped.
+#[test]
+fn pipeline_guard_receivers_resolve_to_their_inner_type() {
+    let store = run_fixture("guard_receivers");
+    let tags = tagged_lines("guard_receivers", "src/lib.rs");
+    let dead = dead_lines(&store, true, "src/lib.rs");
+    for class in [
+        "refcell",
+        "refcell_mut",
+        "mutex",
+        "rwlock_read",
+        "rwlock_write",
+        "guard_ret",
+        "let_guard",
+        "poisoned",
+        "scoped",
+    ] {
+        assert!(
+            dead.contains(&tags[&format!("dead_b_{class}")]),
+            "{class}: B"
+        );
+        assert!(
+            !dead.contains(&tags[&format!("live_a_{class}")]),
+            "{class}: A"
+        );
+    }
+    for twin in ["a", "b"] {
+        assert!(dead.contains(&tags[&format!("neg_{twin}_ext")]), "{twin}");
+    }
+}
+
+/// #131: a `use .. as Name` inside a function is only visible there.
+#[test]
+fn pipeline_function_local_aliases_do_not_collide() {
+    let store = run_fixture("alias_scopes");
+    let tags = tagged_lines("alias_scopes", "src/main.rs");
+    let dead = dead_lines(&store, true, "src/main.rs");
+    for live in ["live_a_new", "live_b_new"] {
+        assert!(!dead.contains(&tags[live]), "{live}");
+    }
+    for stays_dead in ["dead_d_new", "dead_only_b", "dead_c_make", "neg_ext_make"] {
+        assert!(dead.contains(&tags[stays_dead]), "{stays_dead}");
+    }
+}
