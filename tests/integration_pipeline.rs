@@ -1198,3 +1198,37 @@ fn pipeline_function_local_aliases_do_not_collide() {
         assert!(dead_types.contains(&types[stays_dead]), "{stays_dead}");
     }
 }
+
+/// #133: tokio `lock().await` and `try_lock`/`try_read`/`try_write` keep the guard. `neg_*` is a guard
+/// of a non-project type and an `.await` on a project type's own `lock()`; both twins stay unresolved.
+#[test]
+fn pipeline_lock_await_and_try_lock_receivers() {
+    let store = run_fixture("lock_await_try");
+    let tags = tagged_lines("lock_await_try", "src/lib.rs");
+    let dead = dead_lines(&store, true, "src/lib.rs");
+    for class in [
+        "await_mutex",
+        "await_read",
+        "await_write",
+        "await_let",
+        "try_if_let",
+        "try_ok",
+        "try_unwrap",
+        "try_expect",
+        "try_read",
+        "try_write",
+        "try_question",
+    ] {
+        assert!(
+            dead.contains(&tags[&format!("dead_b_{class}")]),
+            "{class}: B"
+        );
+        assert!(
+            !dead.contains(&tags[&format!("live_a_{class}")]),
+            "{class}: A"
+        );
+    }
+    for neg in ["neg_a_ext", "neg_b_ext", "neg_a_own", "neg_b_own"] {
+        assert!(dead.contains(&tags[neg]), "{neg}");
+    }
+}

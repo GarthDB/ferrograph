@@ -1628,6 +1628,7 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
         "struct_expression" => plain_type_name(&e.child_by_field_name("name")?, source),
         "reference_expression" => expr_hint(&e.child_by_field_name("value")?, source),
         "try_expression" => Some(format!("{}.?", expr_hint(&e.child(0)?, source)?)),
+        "await_expression" => Some(format!("{}.await", expr_hint(&e.child(0)?, source)?)),
         "index_expression" => {
             let base = expr_hint(&e.child(0)?, source)?;
             // `v[a..b]` is a sub-slice: still the same container.
