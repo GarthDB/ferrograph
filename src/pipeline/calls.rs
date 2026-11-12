@@ -82,6 +82,9 @@ struct Index {
     aliases: HashMap<(String, String), String>,
     /// (function id, alias) -> original name of renames declared inside a function body.
     local_aliases: HashMap<(String, String), String>,
+    /// (function id, alias) pairs renamed to different items in one body: they name none, and hide
+    /// a file-level rename of the same name.
+    local_conflicts: HashSet<(String, String)>,
     /// alias -> (file, original name, resolved item) of the same renames, for qualified calls.
     aliases_by_name: HashMap<String, Vec<AliasTarget>>,
     /// File -> files of the project modules it glob-imports (`use super::*`).
@@ -118,8 +121,15 @@ impl Index {
     /// The original name `name` was renamed from, seen from `from`: renames inside the enclosing
     /// functions win over file-level ones.
     fn alias_of(&self, file: &str, from: &str, name: &str) -> Option<&String> {
+        let key = |a: &str| (a.to_string(), name.to_string());
+        if self
+            .ancestors(from)
+            .any(|a| self.local_conflicts.contains(&key(a)))
+        {
+            return None;
+        }
         self.ancestors(from)
-            .find_map(|a| self.local_aliases.get(&(a.to_string(), name.to_string())))
+            .find_map(|a| self.local_aliases.get(&key(a)))
             .or_else(|| self.aliases.get(&(file.to_string(), name.to_string())))
     }
 
@@ -1138,6 +1148,7 @@ struct ImportMaps {
     /// (file, alias) -> original name, for `use a::f as g`.
     aliases: HashMap<(String, String), String>,
     local_aliases: HashMap<(String, String), String>,
+    local_conflicts: HashSet<(String, String)>,
     aliases_by_name: HashMap<String, Vec<AliasTarget>>,
     globs: HashMap<String, Vec<String>>,
     path_mods: HashMap<String, Vec<String>>,
@@ -1149,6 +1160,7 @@ fn fill_imports(idx: &mut Index, edges: &cozo::NamedRows) {
     idx.external_imports = imports.external;
     idx.aliases = imports.aliases;
     idx.local_aliases = imports.local_aliases;
+    idx.local_conflicts = imports.local_conflicts;
     idx.aliases_by_name = imports.aliases_by_name;
     idx.globs = imports.globs;
     idx.path_mods = imports.path_mods;
@@ -1210,6 +1222,7 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
     maps.aliases.retain(|k, _| !conflicts.contains(k));
     maps.local_aliases
         .retain(|k, _| !local_conflicts.contains(k));
+    maps.local_conflicts = local_conflicts;
     maps
 }
 

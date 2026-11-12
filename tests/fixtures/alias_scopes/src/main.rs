@@ -56,6 +56,15 @@ fn clash() {
     let _ = Both::twice();
 }
 
+// The conflicting local renames also hide the file-level `Shadow`.
+use crate::types::B as Shadow;
+
+fn clash_shadow() {
+    use crate::types::A as Shadow;
+    use crate::same::E as Shadow;
+    let _ = Shadow::probe2();
+}
+
 fn main() {
     first();
     second();
@@ -63,5 +72,6 @@ fn main() {
     fourth();
     external();
     clash();
+    clash_shadow();
     backend::probe();
 }

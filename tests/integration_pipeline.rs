@@ -1160,7 +1160,7 @@ fn pipeline_project_types_named_like_std_wrappers() {
     let store = run_fixture("wrapper_names");
     let tags = tagged_lines("wrapper_names", "src/lib.rs");
     let dead = dead_lines(&store, true, "src/lib.rs");
-    for class in ["go", "cell"] {
+    for class in ["go", "cell", "rw", "refmut"] {
         assert!(dead.contains(&tags[&format!("dead_b_{class}")]), "{class}");
         assert!(!dead.contains(&tags[&format!("live_a_{class}")]), "{class}");
     }
@@ -1192,6 +1192,7 @@ fn pipeline_function_local_aliases_do_not_collide() {
         );
     }
     assert!(dead_types.contains(&types["neg_a_twice"]));
+    assert!(dead_types.contains(&types["neg_b_probe2"]));
     assert!(dead_main.contains(&main["neg_e_twice"]));
     for stays_dead in ["dead_d_new", "dead_only_b", "dead_c_make"] {
         assert!(dead_types.contains(&types[stays_dead]), "{stays_dead}");
