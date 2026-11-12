@@ -28,6 +28,8 @@ impl A {
     fn guard_ret(&self) {} // live_a_guard_ret
     fn let_guard(&self) {} // live_a_let_guard
     fn poisoned(&self) {} // live_a_poisoned
+    fn cell_get_mut(&self) {} // live_a_cell_get_mut
+    fn mutex_get_mut(&self) {} // live_a_mutex_get_mut
     fn push_str(&self) {} // neg_a_ext
 }
 
@@ -40,11 +42,14 @@ impl B {
     fn guard_ret(&self) {} // dead_b_guard_ret
     fn let_guard(&self) {} // dead_b_let_guard
     fn poisoned(&self) {} // dead_b_poisoned
+    fn cell_get_mut(&self) {} // dead_b_cell_get_mut
+    fn mutex_get_mut(&self) {} // dead_b_mutex_get_mut
     fn push_str(&self) {} // neg_b_ext
 }
 
 pub struct H {
     cell: Rc<RefCell<A>>,
+    cell_owned: RefCell<A>,
     mutex: Arc<Mutex<A>>,
     rw: RwLock<A>,
     text: Mutex<String>,
@@ -58,6 +63,12 @@ impl H {
 
     fn tape(&self) -> MutexGuard<'_, tape::Tape> {
         self.tape.lock().unwrap()
+    }
+
+    pub fn run_mut(&mut self) {
+        self.cell_owned.get_mut().cell_get_mut();
+        self.mutex.get_mut().unwrap().mutex_get_mut();
+        self.text.get_mut().unwrap().push_str();
     }
 
     pub fn run(&self) {
