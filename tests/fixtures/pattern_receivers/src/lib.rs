@@ -1,3 +1,4 @@
+mod other;
 use std::collections::HashMap;
 
 // Each class has a method on `A` that is called through a pattern, loop or closure binding, and a

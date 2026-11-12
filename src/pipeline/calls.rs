@@ -208,7 +208,9 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
         Some(call) => call_return_type(call.strip_suffix("()")?, from, from_file, idx)?,
         None if first == "Self" => enclosing_impl_type(from, idx)?.to_string(),
         // `%Variant#i`: payload of a tuple variant or struct named by a bare path.
-        None if first.starts_with('%') => field_type("", &first[1..], idx)?,
+        None if first.starts_with('%') => {
+            field_type(from_file, &first[1..], idx).or_else(|| field_type("", &first[1..], idx))?
+        }
         None => first.to_string(),
     };
     for part in parts {
@@ -286,7 +288,8 @@ fn container_method(ty: &str, m: &str) -> Option<String> {
     }
 }
 
-/// The one plain type declared for field `field` of the struct `ty`.
+/// The one plain type declared for field `field` of the struct `ty`. For payloads (`Variant#i`) `ty`
+/// may also be `""` or a file, meaning every variant so named in the project or in that file.
 fn field_type(ty: &str, field: &str, idx: &Index) -> Option<String> {
     let mut tys = idx.fields.get(&(ty.to_string(), field.to_string()))?.iter();
     match (tys.next(), tys.next()) {
@@ -900,12 +903,16 @@ fn fill_fields(
             continue;
         };
         if let (Some(owner), Some(field)) = (idx.type_by_id.get(&from), path.rsplit("::").next()) {
-            // Tuple payloads (`Variant#i`) are also found by variant name alone, for bare patterns.
+            // Tuple payloads (`Variant#i`) are also found by variant name alone, for bare patterns:
+            // first among the variants of the same file, then of the whole project.
             if field.contains('#') {
-                idx.fields
-                    .entry((String::new(), field.to_string()))
-                    .or_default()
-                    .insert(ty.to_string());
+                let file = from.split('#').next().unwrap_or_default();
+                for key in [String::new(), file.to_string()] {
+                    idx.fields
+                        .entry((key, field.to_string()))
+                        .or_default()
+                        .insert(ty.to_string());
+                }
             }
             idx.fields
                 .entry((owner.clone(), field.to_string()))
