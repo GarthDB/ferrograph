@@ -979,8 +979,9 @@ fn type_repr(ty: &tree_sitter::Node, source: &str) -> Option<String> {
             let mut types = args
                 .named_children(&mut cursor)
                 .filter(|c| c.kind() != "lifetime");
+            // `Map<K, V, S>`: the value is the second argument, not the hasher.
             let arg = if base.ends_with("Map") {
-                types.last()
+                types.nth(1)
             } else {
                 types.next()
             };
@@ -1327,8 +1328,6 @@ fn closure_elem_params(method: &str) -> Option<(usize, &'static [usize])> {
         | "is_ok_and"
         | "is_none_or"
         | "and_then"
-        | "retain"
-        | "retain_mut"
         | "sort_by_key"
         | "sort_unstable_by_key"
         | "partition"
@@ -1456,7 +1455,7 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
             Some(if e.child(2)?.kind() == "range_expression" {
                 base
             } else {
-                format!("{base}.[]")
+                format!("{base}.[i]")
             })
         }
         "parenthesized_expression" => expr_hint(&e.child(1)?, source),

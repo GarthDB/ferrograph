@@ -240,7 +240,11 @@ fn split_generic(ty: &str) -> Option<(&str, &str)> {
 fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
     let ty = auto_deref(ty);
     match part {
-        "[]" => split_generic(ty).map(|(_, inner)| inner.to_string()),
+        // Iterating a map yields `(K, V)` pairs, not its value type.
+        "[]" => split_generic(ty)
+            .filter(|(name, _)| !name.ends_with("Map"))
+            .map(|(_, inner)| inner.to_string()),
+        "[i]" => split_generic(ty).map(|(_, inner)| inner.to_string()),
         "?" => split_generic(ty)
             .filter(|(name, _)| matches!(*name, "Option" | "Result"))
             .map(|(_, inner)| inner.to_string()),
@@ -266,6 +270,14 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
 /// accessors yield `Option<Elem>`, `unwrap` and friends yield the payload.
 fn container_method(ty: &str, m: &str) -> Option<String> {
     let (name, inner) = split_generic(ty)?;
+    if name.ends_with("Map") {
+        return match m {
+            "values" | "values_mut" | "into_values" => Some(format!("Vec<{inner}>")),
+            "get" | "get_mut" => Some(format!("Option<{inner}>")),
+            "clone" | "as_ref" | "as_mut" | "borrow" | "borrow_mut" => Some(ty.to_string()),
+            _ => None,
+        };
+    }
     let wrapper = matches!(name, "Option" | "Result");
     match m {
         "iter" | "iter_mut" | "into_iter" | "as_ref" | "as_mut" | "as_deref" | "as_deref_mut"
@@ -371,6 +383,10 @@ fn resolve_typed_method(
     idx: &Index,
 ) -> Option<Resolution> {
     let ty = eval_hint(hint, from, from_file, idx)?;
+    // `Rc::clone`/`Arc::clone` are not the inner type's `clone`.
+    if name == "clone" && (ty.starts_with("Rc<") || ty.starts_with("Arc<")) {
+        return None;
+    }
     let ty = auto_deref(&ty);
     if !idx.type_names.contains(ty) {
         return None;
