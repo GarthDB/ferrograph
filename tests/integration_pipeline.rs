@@ -1228,6 +1228,8 @@ fn pipeline_lock_await_and_try_lock_receivers() {
             "{class}: A"
         );
     }
+    // `neg_b_own` is really live (`Slot::lock` is an `async fn` returning `B`); `.await` on a project
+    // fn's result is not typed yet, so it is only expected to stay unresolved. Revisit if that changes.
     for neg in ["neg_a_ext", "neg_b_ext", "neg_a_own", "neg_b_own"] {
         assert!(dead.contains(&tags[neg]), "{neg}");
     }
