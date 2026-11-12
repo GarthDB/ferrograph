@@ -537,8 +537,13 @@ fn pipeline_module_path_types_resolve_to_their_type() {
             "{class}: A"
         );
     }
-    // `io::Error` stays unknown: both `raw` methods remain candidates, so `--strict` drops both.
-    for tag in ["dead_b_raw", "dead_error_raw"] {
+    // `io::Error`, `anyhow::Error` and `error::Error` stay unknown: both twins remain candidates, so `--strict` drops both.
+    for tag in [
+        "dead_b_raw",
+        "dead_error_raw",
+        "dead_b_ext",
+        "dead_error_ext",
+    ] {
         assert!(dead.contains(&tags[tag]), "{tag}");
     }
 }

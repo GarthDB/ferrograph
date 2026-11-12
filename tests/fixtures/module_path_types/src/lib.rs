@@ -19,11 +19,13 @@ impl B {
     fn local(&self) {} // dead_b_local
     fn wrapped(&self) {} // dead_b_wrapped
     fn raw(&self) {} // dead_b_raw
+    fn ext(&self) {} // dead_b_ext
 }
 
 // `io::Error` is the standard library's: it must not make this `raw` certain.
 impl Error {
     fn raw(&self) {} // dead_error_raw
+    fn ext(&self) {} // dead_error_ext
 }
 
 mod user {
@@ -60,4 +62,10 @@ pub fn io_typed(e: io::Error) {
 pub fn run(h: &user::Holder) {
     h.field();
     user::local(h);
+}
+
+// External-crate and std-module paths (`anyhow::Error`, `error::Error`) are not the project's types.
+pub fn external(e: &anyhow::Error, f: &error::Error) {
+    e.ext();
+    f.ext();
 }
