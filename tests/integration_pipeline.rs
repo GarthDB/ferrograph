@@ -966,3 +966,64 @@ fn pipeline_qualified_alias_behind_foreign_leading_segment_is_low_confidence() {
     let targets = call_targets(&store, "api_external_path");
     assert!(targets.iter().all(|t| t.1), "{targets:?}");
 }
+
+#[test]
+fn pipeline_bare_call_resolves_through_glob_import() {
+    let store = run_fixture("glob_calls");
+    assert_one_certain_call(&store, "api_glob", "./src/lib.rs#");
+}
+
+#[test]
+fn pipeline_glob_import_does_not_pick_between_same_named_fns() {
+    let store = run_fixture("glob_calls");
+    let targets = call_targets(&store, "api_glob_twin");
+    assert!(
+        targets.len() == 2 && targets.iter().all(|t| t.1),
+        "{targets:?}"
+    );
+}
+
+#[test]
+fn pipeline_module_path_call_prefers_the_module_file_over_variants_and_nested_mods() {
+    let store = run_fixture("module_files");
+    assert_one_certain_call(&store, "api_own", "./src/drag/mod.rs#");
+}
+
+#[test]
+fn pipeline_module_path_call_follows_the_module_file_reexport() {
+    let store = run_fixture("module_files");
+    assert_one_certain_call(&store, "api_reexport", "./src/render/warmup.rs#");
+}
+
+#[test]
+fn pipeline_module_path_call_through_path_attribute_module_name() {
+    let store = run_fixture("path_mod_names");
+    assert_one_certain_call(&store, "api_path_mod", "./src/hidden/real.rs#");
+}
+
+#[test]
+fn pipeline_type_path_call_picks_the_type_of_the_named_module() {
+    let store = run_fixture("module_types");
+    assert_one_certain_call(&store, "api_typed", "./src/a.rs#");
+}
+
+#[test]
+fn pipeline_crate_root_declared_by_bin_path_outside_src() {
+    let store = run_fixture("bin_path_root");
+    assert_one_certain_call(&store, "api_bin_root", "./app/flags/complete/bash.rs#");
+}
+
+#[test]
+fn pipeline_module_path_call_prefers_the_callers_child_module_over_inline_mods_elsewhere() {
+    let store = run_fixture("child_module_calls");
+    assert_one_certain_call(&store, "api_child", "./src/run/mac.rs#");
+}
+
+#[test]
+fn pipeline_module_path_call_through_use_alias_of_an_inline_mod() {
+    let store = run_fixture("owner_alias");
+    assert_eq!(
+        call_targets(&store, "api_module_alias"),
+        vec![("./src/lib.rs#2:5".to_string(), false)]
+    );
+}

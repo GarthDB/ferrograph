@@ -1,0 +1,8 @@
+[package]
+name = "bin_path_root_fixture"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "app"
+path = "app/main.rs"
