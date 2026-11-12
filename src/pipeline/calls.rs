@@ -33,7 +33,9 @@ pub(crate) const METHOD_SUFFIX: &str = "@method";
 pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
 /// Separator before the receiver-type hint the AST phase appends to a method placeholder:
 /// `name@method@on:HINT`, where `HINT` is a recipe for the receiver's type: `Type`, `Self` (the enclosing
-/// impl's type), `HINT.field`, `HINT.method()` or `=path::to::f()` (the result of a call).
+/// impl's type), `HINT.field`, `HINT.method()` or `=path::to::f()` (the result of a call). Further steps:
+/// `.[]` (element), `.?` (payload), `.#i` (tuple element), `.()` (call a `fn` pointer) and `.m(HINT)` (an
+/// `Option` adapter whose closure returns `HINT`); further starts: `@tuple(H0;H1)`, `@some(H)`, `@and_then(H)`.
 pub(crate) const RECEIVER_MARK: &str = "@on:";
 /// Separator in the temporary struct-field placeholder `field@field:Type` (a `Calls` edge from the
 /// struct), consumed here to learn field types.
