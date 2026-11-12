@@ -151,6 +151,7 @@ fn classify_node(
         }
         "ordered_field_declaration_list" => {
             push_owns_or_borrows_edges_for_tuple_fields(parent, node, source, file_id, edges);
+            push_payload_type_edges(parent, node, source, file_id, edges);
             (None, None, None)
         }
         _ => (None, None, None),
@@ -939,6 +940,59 @@ fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
     }
 }
 
+/// Standard containers whose element type is worth keeping (`Vec<A>`, `Option<A>`, ..); maps keep their
+/// value type. Smart pointers are looked through by the calls phase.
+const KEPT_WRAPPERS: [&str; 15] = [
+    "Vec",
+    "VecDeque",
+    "HashSet",
+    "BTreeSet",
+    "BinaryHeap",
+    "LinkedList",
+    "Option",
+    "Result",
+    "Box",
+    "Rc",
+    "Arc",
+    "HashMap",
+    "BTreeMap",
+    "IndexMap",
+    "FxHashMap",
+];
+
+/// Like `plain_type_name`, but keeps the element type of the standard containers as `Name<Elem>`:
+/// `&[A]` and `[A; N]` become `Vec<A>`, `HashMap<K, V>` becomes `HashMap<V>`.
+fn type_repr(ty: &tree_sitter::Node, source: &str) -> Option<String> {
+    match ty.kind() {
+        "reference_type" => type_repr(&ty.child_by_field_name("type")?, source),
+        "array_type" => {
+            let elem = type_repr(&ty.child_by_field_name("element")?, source)?;
+            Some(format!("Vec<{elem}>"))
+        }
+        "generic_type" => {
+            let base = plain_type_name(ty, source)?;
+            if !KEPT_WRAPPERS.contains(&base.as_str()) {
+                return Some(base);
+            }
+            let args = ty.child_by_field_name("type_arguments")?;
+            let mut cursor = args.walk();
+            let mut types = args
+                .named_children(&mut cursor)
+                .filter(|c| c.kind() != "lifetime");
+            let arg = if base.ends_with("Map") {
+                types.last()
+            } else {
+                types.next()
+            };
+            Some(match arg.and_then(|a| type_repr(&a, source)) {
+                Some(inner) => format!("{base}<{inner}>"),
+                None => base,
+            })
+        }
+        _ => plain_type_name(ty, source),
+    }
+}
+
 /// Temporary `Calls` edge from a function to `file::@ret:Type` for a plain return type, consumed by
 /// the calls phase to type `let x = f()` and `f().m()` (see `calls::RET_MARK`).
 fn push_return_hint_edge(
@@ -950,7 +1004,7 @@ fn push_return_hint_edge(
 ) {
     if let Some(ty) = node
         .child_by_field_name("return_type")
-        .and_then(|t| plain_type_name(&t, source))
+        .and_then(|t| type_repr(&t, source))
     {
         edges.push((
             function_id.clone(),
@@ -978,7 +1032,7 @@ fn push_field_type_edge(
         node.child_by_field_name("name")
             .and_then(|n| source.get(n.byte_range())),
         node.child_by_field_name("type")
-            .and_then(|t| plain_type_name(&t, source)),
+            .and_then(|t| type_repr(&t, source)),
     ) else {
         return;
     };
@@ -991,6 +1045,40 @@ fn push_field_type_edge(
         )),
         EdgeType::Calls,
     ));
+}
+
+/// Temporary `Calls` edges from an enum or struct to `file::Variant#i@field:Type`, one per tuple
+/// payload (`Variant(T0, T1)`, `struct S(T0)`), so `Variant(x)` patterns can be typed.
+fn push_payload_type_edges(
+    parent: Option<&NodeId>,
+    list: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let (Some(from), Some(owner)) = (parent, list.parent()) else {
+        return;
+    };
+    let Some(name) = owner
+        .child_by_field_name("name")
+        .and_then(|n| source.get(n.byte_range()))
+    else {
+        return;
+    };
+    let mut cursor = list.walk();
+    for (i, ty) in list.children_by_field_name("type", &mut cursor).enumerate() {
+        if let Some(ty) = type_repr(&ty, source) {
+            edges.push((
+                from.clone(),
+                NodeId::new(format!(
+                    "{}::{name}#{i}{}{ty}",
+                    file_id.as_str(),
+                    super::calls::FIELD_MARK
+                )),
+                EdgeType::Calls,
+            ));
+        }
+    }
 }
 
 /// Is `n` an identifier that introduces a binding (pattern position)?
@@ -1033,7 +1121,7 @@ fn simple_binding<'a>(
 /// for the binding in effect: initialisers of other bindings may refer back to this one.
 fn declaration_hint(decl: &tree_sitter::Node, source: &str) -> Option<String> {
     decl.child_by_field_name("type")
-        .and_then(|t| plain_type_name(&t, source))
+        .and_then(|t| type_repr(&t, source))
         .or_else(|| {
             decl.child_by_field_name("value")
                 .and_then(|v| expr_hint(&v, source))
@@ -1059,9 +1147,273 @@ fn named_identifiers<'a>(
     }
 }
 
-/// Type of the local `x` (an identifier at the call site) from its nearest `let`/parameter binding
-/// in the enclosing function. Any other kind of binding of the same name (closure parameter,
-/// pattern, `for`, `if let`) makes it unknown: shadowing is not tracked.
+/// How a local is bound, with the byte range where the binding is visible and the offset after
+/// which it is in effect.
+struct Binder<'a> {
+    start: usize,
+    end: usize,
+    after: usize,
+    kind: BinderKind<'a>,
+}
+
+enum BinderKind<'a> {
+    /// `let x[: T] = ..` / `fn f(x: T)`.
+    Declared(tree_sitter::Node<'a>),
+    /// `let PAT = value`.
+    Let(tree_sitter::Node<'a>, tree_sitter::Node<'a>),
+    /// `for PAT in value`: the iterable and the pattern.
+    For(tree_sitter::Node<'a>, tree_sitter::Node<'a>),
+    /// `if let`/`while let PAT = value`: the `let_condition` and the pattern.
+    Cond(tree_sitter::Node<'a>, tree_sitter::Node<'a>),
+    /// A `match` arm: the arm and its pattern.
+    Arm(tree_sitter::Node<'a>, tree_sitter::Node<'a>),
+    /// A closure parameter: the closure and the parameter (a pattern, or a typed `parameter`).
+    Closure(tree_sitter::Node<'a>, tree_sitter::Node<'a>),
+}
+
+/// The construct binding identifier `id`; `None` for any other kind of binding (tuple parameters, ..).
+fn binder_of<'a>(id: &tree_sitter::Node<'a>) -> Option<Binder<'a>> {
+    let range = |n: &tree_sitter::Node| (n.start_byte(), n.end_byte());
+    let make = |(start, end): (usize, usize), after, kind| {
+        Some(Binder {
+            start,
+            end,
+            after,
+            kind,
+        })
+    };
+    if let Some((scope, decl)) = simple_binding(id) {
+        return make(range(&scope), decl.end_byte(), BinderKind::Declared(decl));
+    }
+    let mut top = *id;
+    loop {
+        let p = top.parent()?;
+        let is_pattern = p.child_by_field_name("pattern") == Some(top);
+        match p.kind() {
+            "let_declaration" if is_pattern => {
+                return make(range(&p.parent()?), p.end_byte(), BinderKind::Let(p, top));
+            }
+            "for_expression" if is_pattern => {
+                let body = p.child_by_field_name("body")?;
+                return make(
+                    range(&body),
+                    body.start_byte(),
+                    BinderKind::For(p.child_by_field_name("value")?, top),
+                );
+            }
+            "let_condition" if is_pattern => {
+                let mut c = p;
+                while let Some(q) = c.parent() {
+                    match q.kind() {
+                        "if_expression" | "while_expression" => {
+                            let body = q
+                                .child_by_field_name("consequence")
+                                .or_else(|| q.child_by_field_name("body"))?;
+                            return make(
+                                (p.start_byte(), body.end_byte()),
+                                p.end_byte(),
+                                BinderKind::Cond(p, top),
+                            );
+                        }
+                        "binary_expression" | "let_chain" | "parenthesized_expression" => c = q,
+                        _ => return None,
+                    }
+                }
+                return None;
+            }
+            "match_pattern" => {
+                let arm = p.parent().filter(|a| a.kind() == "match_arm")?;
+                return make(range(&arm), arm.start_byte(), BinderKind::Arm(arm, top));
+            }
+            "closure_parameters" => {
+                let closure = p.parent()?;
+                return make(
+                    range(&closure),
+                    closure.start_byte(),
+                    BinderKind::Closure(closure, top),
+                );
+            }
+            "parameter" if p.parent()?.kind() == "closure_parameters" => {
+                let closure = p.parent()?.parent()?;
+                return make(
+                    range(&closure),
+                    closure.start_byte(),
+                    BinderKind::Closure(closure, p),
+                );
+            }
+            k if k.ends_with("_pattern") => top = p,
+            _ => return None,
+        }
+    }
+}
+
+/// Type recipe of the identifier `id` inside the pattern `pat` that matches a value of type recipe
+/// `h`: the value itself, or a `Some`/`Ok`/`Variant(..)` payload (`Variant(T0, ..)` needs no `h`).
+fn pattern_hint(
+    pat: &tree_sitter::Node,
+    id: &tree_sitter::Node,
+    h: Option<String>,
+    source: &str,
+) -> Option<String> {
+    if pat == id {
+        return h;
+    }
+    match pat.kind() {
+        "mut_pattern" | "ref_pattern" | "reference_pattern" => {
+            let inner = pat.named_child(pat.named_child_count().checked_sub(1)?)?;
+            pattern_hint(&inner, id, h, source)
+        }
+        "tuple_struct_pattern" => {
+            let path = pat.child_by_field_name("type")?;
+            if path.kind() == "generic_type" {
+                return None;
+            }
+            let path_text = source.get(path.byte_range())?;
+            let mut cursor = pat.walk();
+            let mut found = None;
+            for (i, arg) in pat
+                .named_children(&mut cursor)
+                .filter(|c| *c != path && !c.kind().ends_with("comment"))
+                .enumerate()
+            {
+                if arg.start_byte() <= id.start_byte() && id.end_byte() <= arg.end_byte() {
+                    found = Some((arg, i));
+                    break;
+                }
+                if arg.kind() == "remaining_field_pattern" {
+                    return None;
+                }
+            }
+            let (arg, i) = found?;
+            let segs: Vec<&str> = path_text.split("::").collect();
+            let last = segs.last()?;
+            let sub = match (*last, i) {
+                ("Some" | "Ok", 0) => h.map(|h| format!("{h}.?")),
+                ("Some" | "Ok" | "Err" | "None", _) => None,
+                _ => Some(match segs.len().checked_sub(2).map(|k| segs[k]) {
+                    Some(owner) if owner.starts_with(char::is_uppercase) => {
+                        format!("{owner}.{last}#{i}")
+                    }
+                    _ => format!("%{last}#{i}"),
+                }),
+            };
+            pattern_hint(&arg, id, sub, source)
+        }
+        _ => None,
+    }
+}
+
+/// Closure-taking methods whose closure parameters are the receiver's elements: (argument position
+/// of the closure, positions of the element parameters).
+fn closure_elem_params(method: &str) -> Option<(usize, &'static [usize])> {
+    Some(match method {
+        "map"
+        | "for_each"
+        | "filter"
+        | "any"
+        | "all"
+        | "find"
+        | "position"
+        | "rposition"
+        | "filter_map"
+        | "flat_map"
+        | "inspect"
+        | "take_while"
+        | "skip_while"
+        | "map_while"
+        | "max_by_key"
+        | "min_by_key"
+        | "is_some_and"
+        | "is_ok_and"
+        | "is_none_or"
+        | "and_then"
+        | "retain"
+        | "retain_mut"
+        | "sort_by_key"
+        | "sort_unstable_by_key"
+        | "partition"
+        | "find_map"
+        | "try_for_each" => (0, &[0]),
+        "map_or" | "map_or_else" => (1, &[0]),
+        "sort_by" | "sort_unstable_by" | "max_by" | "min_by" => (0, &[0, 1]),
+        "fold" | "try_fold" => (1, &[1]),
+        _ => return None,
+    })
+}
+
+/// Type recipe of the closure parameter `id`: its annotation, else the element type of the receiver
+/// of the method the closure is passed to.
+fn closure_param_hint(
+    closure: &tree_sitter::Node,
+    param: &tree_sitter::Node,
+    id: &tree_sitter::Node,
+    source: &str,
+) -> Option<String> {
+    if param.kind() == "parameter" {
+        let ty = type_repr(&param.child_by_field_name("type")?, source);
+        return pattern_hint(&param.child_by_field_name("pattern")?, id, ty, source);
+    }
+    let params = closure.child_by_field_name("parameters")?;
+    let pos = params
+        .named_children(&mut params.walk())
+        .position(|c| c == *param)?;
+    let args = closure.parent().filter(|a| a.kind() == "arguments")?;
+    let call = args.parent().filter(|c| c.kind() == "call_expression")?;
+    let callee = call
+        .child_by_field_name("function")
+        .filter(|f| f.kind() == "field_expression")?;
+    let method = source.get(callee.child_by_field_name("field")?.byte_range())?;
+    let (arg_pos, elem_params) = closure_elem_params(method)?;
+    let at = args
+        .named_children(&mut args.walk())
+        .position(|c| c == *closure)?;
+    if at != arg_pos || !elem_params.contains(&pos) {
+        return None;
+    }
+    let recv = expr_hint(&callee.child_by_field_name("value")?, source)?;
+    pattern_hint(param, id, Some(format!("{recv}.[]")), source)
+}
+
+/// Type recipe of the local bound at `id` (see `expr_hint`).
+fn binder_hint(b: &Binder, id: &tree_sitter::Node, source: &str) -> Option<String> {
+    match &b.kind {
+        BinderKind::Declared(decl) => declaration_hint(decl, source),
+        BinderKind::Let(decl, top) => pattern_hint(
+            top,
+            id,
+            decl.child_by_field_name("value")
+                .and_then(|v| expr_hint(&v, source)),
+            source,
+        ),
+        BinderKind::For(iterable, top) => pattern_hint(
+            top,
+            id,
+            expr_hint(iterable, source).map(|h| format!("{h}.[]")),
+            source,
+        ),
+        BinderKind::Cond(cond, top) => pattern_hint(
+            top,
+            id,
+            cond.child_by_field_name("value")
+                .and_then(|v| expr_hint(&v, source)),
+            source,
+        ),
+        BinderKind::Arm(arm, top) => pattern_hint(
+            top,
+            id,
+            arm.parent()
+                .and_then(|m| m.parent())
+                .and_then(|m| m.child_by_field_name("value"))
+                .and_then(|v| expr_hint(&v, source)),
+            source,
+        ),
+        BinderKind::Closure(closure, param) => closure_param_hint(closure, param, id, source),
+    }
+}
+
+/// Type of the local `x` (an identifier at the call site) from its nearest binding in the enclosing
+/// function: `let`, parameter, `for`, `if let`/`while let`, `match` arm or closure parameter. Any
+/// other kind of binding of the same name makes it unknown; shadowing across functions is not tracked.
 fn binding_type(x: &tree_sitter::Node, source: &str) -> Option<String> {
     let name = source.get(x.byte_range())?;
     let mut func = x.parent()?;
@@ -1070,18 +1422,21 @@ fn binding_type(x: &tree_sitter::Node, source: &str) -> Option<String> {
     }
     let mut ids = Vec::new();
     named_identifiers(&func, source, name, &mut ids);
-    let mut best: Option<(usize, tree_sitter::Node)> = None;
+    let mut best: Option<(Binder, tree_sitter::Node)> = None;
     for id in ids.iter().filter(|n| is_binder(n)) {
-        let (scope, decl) = simple_binding(id)?;
-        let covers = scope.start_byte() <= x.start_byte() && x.end_byte() <= scope.end_byte();
+        let b = binder_of(id)?;
+        let covers = b.start <= x.start_byte() && x.end_byte() <= b.end;
         if covers
-            && decl.end_byte() <= x.start_byte()
-            && best.as_ref().is_none_or(|b| id.start_byte() > b.0)
+            && b.after <= x.start_byte()
+            && best
+                .as_ref()
+                .is_none_or(|(_, prev)| id.start_byte() > prev.start_byte())
         {
-            best = Some((id.start_byte(), decl));
+            best = Some((b, *id));
         }
     }
-    declaration_hint(&best?.1, source)
+    let (b, id) = best?;
+    binder_hint(&b, &id, source)
 }
 
 /// Recipe for the type of expression `e`, evaluated by the calls phase (`calls::eval_hint`): a type
@@ -1094,6 +1449,16 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
         "identifier" => binding_type(e, source),
         "struct_expression" => plain_type_name(&e.child_by_field_name("name")?, source),
         "reference_expression" => expr_hint(&e.child_by_field_name("value")?, source),
+        "try_expression" => Some(format!("{}.?", expr_hint(&e.child(0)?, source)?)),
+        "index_expression" => {
+            let base = expr_hint(&e.child(0)?, source)?;
+            // `v[a..b]` is a sub-slice: still the same container.
+            Some(if e.child(2)?.kind() == "range_expression" {
+                base
+            } else {
+                format!("{base}.[]")
+            })
+        }
         "parenthesized_expression" => expr_hint(&e.child(1)?, source),
         "field_expression" => {
             let field = e.child_by_field_name("field")?;

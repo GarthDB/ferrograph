@@ -207,18 +207,83 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
     let mut ty = match first.strip_prefix('=') {
         Some(call) => call_return_type(call.strip_suffix("()")?, from, from_file, idx)?,
         None if first == "Self" => enclosing_impl_type(from, idx)?.to_string(),
+        // `%Variant#i`: payload of a tuple variant or struct named by a bare path.
+        None if first.starts_with('%') => field_type("", &first[1..], idx)?,
         None => first.to_string(),
     };
     for part in parts {
-        if !idx.type_names.contains(&ty) {
-            return None;
-        }
-        ty = match part.strip_suffix("()") {
-            Some(m) => return_type_of(&methods_of_type(m, &ty, idx), &ty, idx)?,
-            None => field_type(&ty, part, idx)?,
-        };
+        ty = step_type(&ty, part, idx)?;
     }
     Some(ty)
+}
+
+/// Strip `Box`/`Rc`/`Arc`, which method calls see through.
+fn auto_deref(mut ty: &str) -> &str {
+    while let Some((name, inner)) = split_generic(ty) {
+        if !matches!(name, "Box" | "Rc" | "Arc") {
+            break;
+        }
+        ty = inner;
+    }
+    ty
+}
+
+/// `Name<Inner>` into (`Name`, `Inner`).
+fn split_generic(ty: &str) -> Option<(&str, &str)> {
+    let (name, rest) = ty.split_once('<')?;
+    Some((name, rest.strip_suffix('>')?))
+}
+
+/// One step of a hint: `[]` (element), `?` (`Option`/`Result` payload), `m()` (method) or a field.
+fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
+    let ty = auto_deref(ty);
+    match part {
+        "[]" => split_generic(ty).map(|(_, inner)| inner.to_string()),
+        "?" => split_generic(ty)
+            .filter(|(name, _)| matches!(*name, "Option" | "Result"))
+            .map(|(_, inner)| inner.to_string()),
+        _ => {
+            let is_project_type = idx.type_names.contains(ty);
+            match part.strip_suffix("()") {
+                Some(m) if is_project_type => {
+                    let fns = methods_of_type(m, ty, idx);
+                    if fns.is_empty() && m == "clone" {
+                        return Some(ty.to_string());
+                    }
+                    return_type_of(&fns, ty, idx)
+                }
+                Some(m) => container_method(ty, m),
+                None if is_project_type => field_type(ty, part, idx),
+                None => None,
+            }
+        }
+    }
+}
+
+/// Result type of the std method `m` on the container type `ty`: adapters keep the container, element
+/// accessors yield `Option<Elem>`, `unwrap` and friends yield the payload.
+fn container_method(ty: &str, m: &str) -> Option<String> {
+    let (name, inner) = split_generic(ty)?;
+    let wrapper = matches!(name, "Option" | "Result");
+    match m {
+        "iter" | "iter_mut" | "into_iter" | "as_ref" | "as_mut" | "as_deref" | "as_deref_mut"
+        | "as_slice" | "as_mut_slice" | "drain" | "rev" | "filter" | "skip" | "take"
+        | "step_by" | "cloned" | "copied" | "by_ref" | "peekable" | "skip_while" | "take_while"
+        | "chain" | "clone" | "to_vec" | "values" | "values_mut" | "into_values" | "borrow"
+        | "borrow_mut" => Some(ty.to_string()),
+        "first" | "last" | "get" | "get_mut" | "first_mut" | "last_mut" | "pop" | "pop_front"
+        | "pop_back" | "front" | "back" | "front_mut" | "back_mut" | "next" | "next_back"
+        | "find" | "peek" | "nth" | "min" | "max" | "min_by_key" | "max_by_key" | "min_by"
+        | "max_by"
+            if !wrapper =>
+        {
+            Some(format!("Option<{inner}>"))
+        }
+        "unwrap" | "expect" | "unwrap_or" | "unwrap_or_else" | "unwrap_or_default" if wrapper => {
+            Some(inner.to_string())
+        }
+        _ => None,
+    }
 }
 
 /// The one plain type declared for field `field` of the struct `ty`.
@@ -236,8 +301,13 @@ fn return_type_of(fns: &[NodeId], self_ty: &str, idx: &Index) -> Option<String> 
         .iter()
         .map(|f| idx.rets.get(f.as_str()).map(String::as_str));
     let first = tys.next()??;
-    tys.all(|t| t == Some(first))
-        .then(|| if first == "Self" { self_ty } else { first }.to_string())
+    tys.all(|t| t == Some(first)).then(|| {
+        if first == "Self" {
+            self_ty.to_string()
+        } else {
+            first.replace("<Self>", &format!("<{self_ty}>"))
+        }
+    })
 }
 
 /// Return type of the call `path()` (`f`, `Type::f`, `Self::f`, `module::f`).
@@ -297,8 +367,12 @@ fn resolve_typed_method(
     from_file: &str,
     idx: &Index,
 ) -> Option<Resolution> {
-    let ty = eval_hint(hint, from, from_file, idx).filter(|t| idx.type_names.contains(t))?;
-    let mut cands = methods_of_type(name, &ty, idx);
+    let ty = eval_hint(hint, from, from_file, idx)?;
+    let ty = auto_deref(&ty);
+    if !idx.type_names.contains(ty) {
+        return None;
+    }
+    let mut cands = methods_of_type(name, ty, idx);
     let key = crate_key(from_file);
     if cands.iter().any(|c| crate_key(c.as_str()) == key) {
         cands.retain(|c| crate_key(c.as_str()) == key);
@@ -820,6 +894,13 @@ fn fill_fields(
             continue;
         };
         if let (Some(owner), Some(field)) = (idx.type_by_id.get(&from), path.rsplit("::").next()) {
+            // Tuple payloads (`Variant#i`) are also found by variant name alone, for bare patterns.
+            if field.contains('#') {
+                idx.fields
+                    .entry((String::new(), field.to_string()))
+                    .or_default()
+                    .insert(ty.to_string());
+            }
             idx.fields
                 .entry((owner.clone(), field.to_string()))
                 .or_default()
