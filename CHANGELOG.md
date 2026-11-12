@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0](https://github.com/GarthDB/ferrograph/compare/v4.0.4...v4.1.0) - 2026-11-12
+
+### Added
+
+- *(calls)* type receivers bound through tuples, map iteration, Option adapters and fn pointers ([#115](https://github.com/GarthDB/ferrograph/pull/115))
+- *(calls)* type receivers through call return types and method chains
+- *(calls)* resolve method calls through receiver types
+
+### Fixed
+
+- *(calls)* leave a name renamed to different items in one file unresolved
+- *(calls)* resolve qualified calls through use-as aliases of types in other files
+- *(calls)* scope function-local use-as aliases and type receivers behind lock/RefCell guards
+- *(ast)* index type aliases once per file, stop alias cycles, type empty tuple hints as _
+- *(calls)* accept pub(crate) use re-exports when typing module-path receivers ([#91](https://github.com/GarthDB/ferrograph/pull/91))
+- *(calls)* accept module-path receiver types only for project modules ([#91](https://github.com/GarthDB/ferrograph/pull/91))
+- *(calls)* type receivers whose declared type is a module path ([#91](https://github.com/GarthDB/ferrograph/pull/91))
+- *(calls)* keep a child-module match inside the caller's crate
+- *(calls)* resolve glob imports, module-file paths, #[path] modules and non-src bin roots to certain edges ([#124](https://github.com/GarthDB/ferrograph/pull/124))
+- *(calls)* map iteration yields pairs, hasher is not the value type, Rc::clone is not the inner clone
+- *(calls)* resolve bare tuple-variant patterns among the variants of the same file
+- *(calls)* prefer the same-file type when several types share a name
+- *(calls)* type receivers bound by patterns, for loops and closures ([#115](https://github.com/GarthDB/ferrograph/pull/115))
+- *(calls)* alias call behind an unconfirmed leading path segment is low-confidence ([#117](https://github.com/GarthDB/ferrograph/pull/117))
+- *(calls)* resolve qualified calls through use-as aliases of a module ([#117](https://github.com/GarthDB/ferrograph/pull/117))
+- *(modules)* importing a module itself leaves no imports edge
+- *(modules)* an unfound CamelCase import leaf is not evidence about bare fn calls
+- *(calls)* only module-level imports make the global fallback low-confidence
+- *(modules)* honour #[path] mod declarations when resolving use paths
+- *(modules)* resolve use declarations (crate::/self::/pub use/child modules/braces/workspace members)
+- *(calls)* library paths and std-qualified types never take a project fn's or type's identity
+- *(calls)* a bare call never binds to a method of the same file
+- *(calls)* resolve calls through 'use .. as ..' renames
+- *(calls)* a lone same-file candidate must match the path owner
+- *(calls)* resolve self.m() against the enclosing impl's type first
+- *(calls)* names imported from other crates are not matched to same-named local fns
+- *(index)* skip unreadable entries (dangling symlinks) instead of aborting the index
+- caveat typo; unresolved-import bare fallback is low-confidence; test
+- *(dead)* treat #[test_case], #[rstest] and #[wasm_bindgen_test] fns as test roots
+- *(dead)* keep pub(crate) as roots until call resolution improves; #91 test ignored
+- *(calls)* fall back to the project-wide lookup when a file's use paths do not resolve a bare call
+- *(calls)* resolve module paths through re-exports and unknown owners as low-confidence
+- *(calls)* resolve qualified path calls whose owner is in another file
+- *(dead)* restricted-visibility fns are not roots; attribute-argument names are references
+
+### Other
+
+- *(calls)* describe the new receiver hint forms
+- *(calls)* cover map indexing and Rc::clone receivers ([#115](https://github.com/GarthDB/ferrograph/pull/115))
+- *(modules)* index items per file once instead of one query per use
+- cover imported-fn and std-qualified type receivers
+- update the #91 ignore note with the receiver-type numbers
+- *(calls)* describe typed receivers in the module docs
+- add compiler-ground-truth accuracy harness for dead and pr
+- address review feedback on accuracy wording
+- state accuracy limits of dead and pr
+- *(skill)* state accuracy limits of dead code results
+
 ## [4.0.4](https://github.com/GarthDB/ferrograph/compare/v4.0.3...v4.0.4) - 2026-11-10
 
 ### Fixed
