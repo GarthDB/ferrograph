@@ -1189,9 +1189,7 @@ fn pipeline_function_local_aliases_do_not_collide() {
             "{twin}"
         );
     }
-    for neg in ["neg_a_twice"] {
-        assert!(dead_types.contains(&types[neg]), "{neg}");
-    }
+    assert!(dead_types.contains(&types["neg_a_twice"]));
     assert!(dead_main.contains(&main["neg_e_twice"]));
     for stays_dead in ["dead_d_new", "dead_only_b", "dead_c_make"] {
         assert!(dead_types.contains(&types[stays_dead]), "{stays_dead}");
