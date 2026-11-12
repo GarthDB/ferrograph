@@ -920,16 +920,58 @@ fn callee_placeholder(
     Some(NodeId::new(format!("{}::{}", file_id.as_str(), name)))
 }
 
+/// True when the file declares `mod first` or imports `first` through a project-rooted `use`
+/// (`use super as first`, `use crate::a::{first, ..}`), so `first::T` is a project path rather than
+/// an external crate or the standard library (`anyhow::Error`, `io::Error`).
+/// shortcut: item-level scan, a function-local `use` stays untyped; the `use` match is by word and
+/// nested `mod` names count file-wide; upgrade if a wrong certain edge shows up.
+fn names_project_module(ty: &tree_sitter::Node, source: &str, first: &str) -> bool {
+    fn scan(node: &tree_sitter::Node, source: &str, first: &str) -> bool {
+        let mut cursor = node.walk();
+        let found = node.children(&mut cursor).any(|c| match c.kind() {
+            "mod_item" => {
+                c.child_by_field_name("name")
+                    .and_then(|n| source.get(n.byte_range()))
+                    == Some(first)
+                    || c.child_by_field_name("body")
+                        .is_some_and(|b| scan(&b, source, first))
+            }
+            "use_declaration" => source.get(c.byte_range()).is_some_and(|t| {
+                let t = t.strip_prefix("pub").unwrap_or(t).trim_start();
+                let t = t
+                    .strip_prefix('(')
+                    .and_then(|r| r.split_once(')'))
+                    .map_or(t, |x| x.1);
+                let t = t.trim_start().strip_prefix("use").unwrap_or(t).trim_start();
+                let root = t
+                    .split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+                    .next();
+                matches!(root, Some("crate" | "self" | "super"))
+                    && t.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+                        .any(|w| w == first)
+            }),
+            _ => false,
+        });
+        found
+    }
+    let mut root = *ty;
+    while let Some(p) = root.parent() {
+        root = p;
+    }
+    scan(&root, source, first)
+}
+
 /// Name of a plain type: `T`, `a::T`, `T<..>`, `&T`, `&mut T`. Anything else (tuples, slices, `dyn`,
 /// `impl`, pointers) is `None`.
 fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
     match ty.kind() {
         "type_identifier" => type_name_from_node(ty, source),
-        // `std::io::Error` is not the project's `Error`: only project-relative paths count.
+        // `std::io::Error`/`anyhow::Error` are not the project's `Error`: the path must start at
+        // `crate`/`self`/`super` or at a module the file declares or imports from the project.
         "scoped_type_identifier" => {
             let first = ty.child_by_field_name("path")?;
             let first = source.get(first.byte_range())?.split("::").next()?;
-            matches!(first, "crate" | "self" | "super")
+            (matches!(first, "crate" | "self" | "super") || names_project_module(ty, source, first))
                 .then(|| type_name_from_node(ty, source))
                 .flatten()
         }
