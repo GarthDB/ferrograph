@@ -1160,8 +1160,10 @@ fn pipeline_project_types_named_like_std_wrappers() {
     let store = run_fixture("wrapper_names");
     let tags = tagged_lines("wrapper_names", "src/lib.rs");
     let dead = dead_lines(&store, true, "src/lib.rs");
-    assert!(dead.contains(&tags["dead_b_go"]));
-    assert!(!dead.contains(&tags["live_a_go"]));
+    for class in ["go", "cell"] {
+        assert!(dead.contains(&tags[&format!("dead_b_{class}")]), "{class}");
+        assert!(!dead.contains(&tags[&format!("live_a_{class}")]), "{class}");
+    }
 }
 
 /// #131: a `use .. as Name` inside a function is only visible there.

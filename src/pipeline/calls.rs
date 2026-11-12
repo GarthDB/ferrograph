@@ -302,7 +302,10 @@ fn split_top(s: &str, sep: char) -> impl Iterator<Item = &str> {
 }
 
 /// Std locks and guards; a project type of the same name is not one of them.
-const GUARDS: [&str; 5] = [
+/// The guard `lock()`/`borrow()` yield: not a valid identifier, so no project type is named like it.
+const SYNTH_GUARD: &str = "$Guard";
+const GUARDS: [&str; 6] = [
+    SYNTH_GUARD,
     "MutexGuard",
     "RwLockReadGuard",
     "RwLockWriteGuard",
@@ -426,9 +429,9 @@ fn container_method(ty: &str, m: &str) -> Option<String> {
     // `lock()` is typed as the guard itself, so it covers `parking_lot` as well as `.lock().unwrap()`.
     match (name, m) {
         ("Mutex" | "RwLock", "lock" | "read" | "write") => {
-            return Some(format!("MutexGuard<{inner}>"))
+            return Some(format!("{SYNTH_GUARD}<{inner}>"))
         }
-        ("RefCell", "borrow" | "borrow_mut") => return Some(format!("Ref<{inner}>")),
+        ("RefCell", "borrow" | "borrow_mut") => return Some(format!("{SYNTH_GUARD}<{inner}>")),
         // `get_mut` borrows the cell directly: `&mut T`, or `LockResult<&mut T>`.
         ("RefCell", "get_mut") => return Some(inner.to_string()),
         ("Mutex" | "RwLock", "get_mut") => return Some(format!("Result<{inner}>")),
