@@ -582,7 +582,16 @@ fn pipeline_closure_param_receivers_resolve_to_their_type() {
 
 #[test]
 fn pipeline_index_and_map_receivers_resolve_to_their_type() {
-    assert_pattern_receivers_resolved(&["index_chain", "map_values"]);
+    assert_pattern_receivers_resolved(&["index_chain", "map_values", "map_index"]);
+}
+
+#[test]
+fn pipeline_rc_clone_is_not_the_inner_types_clone() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    // `Rc::clone` is not `A::clone`: neither candidate gets a certain edge.
+    let strict = dead_lines(&store, true, "src/lib.rs");
+    assert!(strict.contains(&tags["rc_clone_a"]) && strict.contains(&tags["rc_clone_b"]));
 }
 
 #[test]

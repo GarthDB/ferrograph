@@ -1,5 +1,6 @@
 mod other;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 // Each class has a method on `A` that is called through a pattern, loop or closure binding, and a
 // same-named method on `B` that never is (`dead_b_*`): the name alone cannot pick the type.
@@ -28,6 +29,8 @@ impl A {
     fn index_chain(&self) {} // live_a_index_chain
     fn boxed(&self) {} // live_a_boxed
     fn map_values(&self) {} // live_a_map_values
+    fn map_index(&self) {} // live_a_map_index
+    fn clone(&self) -> A { A } // rc_clone_a
     fn shadowed(&self) {} // shadowed_a
 }
 
@@ -53,6 +56,8 @@ impl B {
     fn index_chain(&self) {} // dead_b_index_chain
     fn boxed(&self) {} // dead_b_boxed
     fn map_values(&self) {} // dead_b_map_values
+    fn map_index(&self) {} // dead_b_map_index
+    fn clone(&self) -> B { B } // rc_clone_b
     fn shadowed(&self) {} // shadowed_b
 }
 
@@ -68,6 +73,7 @@ pub struct Holder {
     items: Vec<A>,
     maybe: Option<A>,
     boxed: Vec<Box<A>>,
+    shared: Rc<A>,
     by_name: HashMap<String, A>,
 }
 
@@ -146,6 +152,11 @@ impl Holder {
         for a in self.by_name.values() {
             a.map_values();
         }
+    }
+
+    pub fn map_and_rc(&self) {
+        self.by_name["k"].map_index();
+        let _ = self.shared.clone();
     }
 
     pub fn shadowing(&self, items: &[A]) {
