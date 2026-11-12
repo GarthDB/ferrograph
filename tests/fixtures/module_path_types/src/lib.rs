@@ -29,7 +29,7 @@ impl Error {
 }
 
 mod user {
-    use super as parent;
+    pub(crate) use super as parent;
 
     pub struct Holder {
         a: parent::A,

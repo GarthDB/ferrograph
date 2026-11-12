@@ -923,7 +923,8 @@ fn callee_placeholder(
 /// True when the file declares `mod first` or imports `first` through a project-rooted `use`
 /// (`use super as first`, `use crate::a::{first, ..}`), so `first::T` is a project path rather than
 /// an external crate or the standard library (`anyhow::Error`, `io::Error`).
-/// shortcut: item-level scan, a function-local `use` stays untyped; the `use` match is by word.
+/// shortcut: item-level scan, a function-local `use` stays untyped; the `use` match is by word and
+/// nested `mod` names count file-wide; upgrade if a wrong certain edge shows up.
 fn names_project_module(ty: &tree_sitter::Node, source: &str, first: &str) -> bool {
     fn scan(node: &tree_sitter::Node, source: &str, first: &str) -> bool {
         let mut cursor = node.walk();
@@ -936,8 +937,12 @@ fn names_project_module(ty: &tree_sitter::Node, source: &str, first: &str) -> bo
                         .is_some_and(|b| scan(&b, source, first))
             }
             "use_declaration" => source.get(c.byte_range()).is_some_and(|t| {
-                let t = t.trim_start_matches("pub").trim_start();
-                let t = t.trim_start_matches(|ch: char| ch != ' ').trim_start();
+                let t = t.strip_prefix("pub").unwrap_or(t).trim_start();
+                let t = t
+                    .strip_prefix('(')
+                    .and_then(|r| r.split_once(')'))
+                    .map_or(t, |x| x.1);
+                let t = t.trim_start().strip_prefix("use").unwrap_or(t).trim_start();
                 let root = t
                     .split(|ch: char| !ch.is_alphanumeric() && ch != '_')
                     .next();
