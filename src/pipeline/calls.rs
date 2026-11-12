@@ -373,6 +373,12 @@ fn resolve_typed_method(
         return None;
     }
     let mut cands = methods_of_type(name, ty, idx);
+    // Several types may share a name (one per example or test file): the one declared next to the
+    // call is the likeliest.
+    let prefix = format!("{from_file}#");
+    if cands.iter().any(|c| c.as_str().starts_with(&prefix)) {
+        cands.retain(|c| c.as_str().starts_with(&prefix));
+    }
     let key = crate_key(from_file);
     if cands.iter().any(|c| crate_key(c.as_str()) == key) {
         cands.retain(|c| crate_key(c.as_str()) == key);
