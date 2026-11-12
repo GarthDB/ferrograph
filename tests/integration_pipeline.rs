@@ -522,6 +522,94 @@ fn pipeline_typed_receivers_resolve_to_their_type() {
     }
 }
 
+/// #115: the `B` twin of each method is the only dead one. `--strict` must not report the `A` method
+/// reached through a pattern, `for` loop, `?` or closure binding.
+fn assert_pattern_receivers_resolved(classes: &[&str]) {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    let dead = dead_lines(&store, true, "src/lib.rs");
+    for class in classes {
+        assert!(
+            dead.contains(&tags[&format!("dead_b_{class}")]),
+            "{class}: B"
+        );
+        assert!(
+            !dead.contains(&tags[&format!("live_a_{class}")]),
+            "{class}: A"
+        );
+    }
+}
+
+#[test]
+fn pipeline_for_loop_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&[
+        "for_field",
+        "for_slice",
+        "for_iter",
+        "for_option",
+        "boxed",
+    ]);
+}
+
+#[test]
+fn pipeline_variant_payload_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&[
+        "variant_if_let",
+        "variant_match",
+        "variant_bare",
+        "variant_struct",
+        "variant_self",
+        "some_pattern",
+        "while_let",
+    ]);
+}
+
+#[test]
+fn pipeline_try_operator_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["try_option", "try_result"]);
+}
+
+#[test]
+fn pipeline_closure_param_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&[
+        "closure_map",
+        "closure_typed",
+        "closure_option",
+        "closure_for_each",
+        "closure_fold",
+    ]);
+}
+
+#[test]
+fn pipeline_index_and_map_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["index_chain", "map_values", "map_index"]);
+}
+
+#[test]
+fn pipeline_rc_clone_is_not_the_inner_types_clone() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    // `Rc::clone` is not `A::clone`: neither candidate gets a certain edge.
+    let strict = dead_lines(&store, true, "src/lib.rs");
+    assert!(strict.contains(&tags["rc_clone_a"]) && strict.contains(&tags["rc_clone_b"]));
+}
+
+#[test]
+fn pipeline_pattern_receivers_rebound_to_an_unknown_type_stay_unresolved() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    // The `for` binding of `a` is out of scope at `a.shadowed()`: both candidates stay low-confidence.
+    let mut certain: Vec<usize> = tags
+        .iter()
+        .filter(|(k, _)| k.starts_with("dead_b_"))
+        .map(|(_, l)| *l)
+        .collect();
+    certain.sort_unstable();
+    assert_eq!(dead_lines(&store, false, "src/lib.rs"), certain);
+    let strict = dead_lines(&store, true, "src/lib.rs");
+    assert!(strict.contains(&tags["shadowed_a"]) && strict.contains(&tags["shadowed_b"]));
+}
+
 #[test]
 fn pipeline_bare_call_does_not_bind_to_a_method_of_the_same_file() {
     let store = run_fixture("bare_vs_method");
