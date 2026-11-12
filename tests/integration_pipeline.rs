@@ -522,6 +522,27 @@ fn pipeline_typed_receivers_resolve_to_their_type() {
     }
 }
 
+#[test]
+fn pipeline_module_path_types_resolve_to_their_type() {
+    let store = run_fixture("module_path_types");
+    let tags = tagged_lines("module_path_types", "src/lib.rs");
+    let dead = dead_lines(&store, true, "src/lib.rs");
+    for class in ["field", "param", "local", "wrapped"] {
+        assert!(
+            dead.contains(&tags[&format!("dead_b_{class}")]),
+            "{class}: B"
+        );
+        assert!(
+            !dead.contains(&tags[&format!("live_a_{class}")]),
+            "{class}: A"
+        );
+    }
+    // `io::Error` stays unknown: both `raw` methods remain candidates, so `--strict` drops both.
+    for tag in ["dead_b_raw", "dead_error_raw"] {
+        assert!(dead.contains(&tags[tag]), "{tag}");
+    }
+}
+
 /// #115: the `B` twin of each method is the only dead one. `--strict` must not report the `A` method
 /// reached through a pattern, `for` loop, `?` or closure binding.
 fn assert_pattern_receivers_resolved(classes: &[&str]) {

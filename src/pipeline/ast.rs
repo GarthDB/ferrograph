@@ -920,16 +920,45 @@ fn callee_placeholder(
     Some(NodeId::new(format!("{}::{}", file_id.as_str(), name)))
 }
 
+/// First segments of a type path that name the standard library (`std::io::Error`, `io::Error`).
+const STD_PATH_ROOTS: [&str; 24] = [
+    "std",
+    "core",
+    "alloc",
+    "io",
+    "fmt",
+    "fs",
+    "path",
+    "env",
+    "process",
+    "net",
+    "thread",
+    "sync",
+    "cell",
+    "rc",
+    "collections",
+    "ffi",
+    "time",
+    "mem",
+    "ptr",
+    "any",
+    "borrow",
+    "ops",
+    "atomic",
+    "hash",
+];
+
 /// Name of a plain type: `T`, `a::T`, `T<..>`, `&T`, `&mut T`. Anything else (tuples, slices, `dyn`,
 /// `impl`, pointers) is `None`.
 fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
     match ty.kind() {
         "type_identifier" => type_name_from_node(ty, source),
-        // `std::io::Error` is not the project's `Error`: only project-relative paths count.
+        // `std::io::Error` is not the project's `Error`, `timer_wake::TimerWake` (a sibling module
+        // reached through the parent's `use`) is a project type: only std roots are rejected here.
         "scoped_type_identifier" => {
             let first = ty.child_by_field_name("path")?;
             let first = source.get(first.byte_range())?.split("::").next()?;
-            matches!(first, "crate" | "self" | "super")
+            (!STD_PATH_ROOTS.contains(&first))
                 .then(|| type_name_from_node(ty, source))
                 .flatten()
         }
