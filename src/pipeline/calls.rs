@@ -934,6 +934,10 @@ fn resolve_qualified_elsewhere(
     let (Some(all), Some(&owner)) = (idx.global_by_name.get(fn_name), segs.last()) else {
         return Resolution::None;
     };
+    // `use Orig as owner;` names the type or module `Orig`.
+    let owner = idx
+        .alias_of(from_file, from, owner)
+        .map_or(owner, String::as_str);
     let relative = matches!(owner, "crate" | "super" | "self");
     // `m::f` where the calling file declares `mod m;`: its file, not any inline `mod m` elsewhere.
     if !relative {

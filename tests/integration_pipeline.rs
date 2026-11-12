@@ -1156,12 +1156,20 @@ fn pipeline_guard_receivers_resolve_to_their_inner_type() {
 #[test]
 fn pipeline_function_local_aliases_do_not_collide() {
     let store = run_fixture("alias_scopes");
-    let tags = tagged_lines("alias_scopes", "src/main.rs");
-    let dead = dead_lines(&store, true, "src/main.rs");
-    for live in ["live_a_new", "live_b_new"] {
-        assert!(!dead.contains(&tags[live]), "{live}");
+    let main = tagged_lines("alias_scopes", "src/main.rs");
+    let types = tagged_lines("alias_scopes", "src/types.rs");
+    let (dead_main, dead_types) = (
+        dead_lines(&store, true, "src/main.rs"),
+        dead_lines(&store, true, "src/types.rs"),
+    );
+    for live in ["live_e_new", "live_f_new"] {
+        assert!(!dead_main.contains(&main[live]), "{live}");
     }
-    for stays_dead in ["dead_d_new", "dead_only_b", "dead_c_make", "neg_ext_make"] {
-        assert!(dead.contains(&tags[stays_dead]), "{stays_dead}");
+    for live in ["live_a_new", "live_b_new"] {
+        assert!(!dead_types.contains(&types[live]), "{live}");
+    }
+    assert!(dead_main.contains(&main["neg_ext_make"]));
+    for stays_dead in ["dead_d_new", "dead_only_b", "dead_c_make"] {
+        assert!(dead_types.contains(&types[stays_dead]), "{stays_dead}");
     }
 }
