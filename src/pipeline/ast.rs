@@ -1002,14 +1002,79 @@ const KEPT_WRAPPERS: [&str; 15] = [
     "FxHashMap",
 ];
 
+/// `type Access<S> = fn(&mut S) -> &mut T;` in the same file: the `type_repr` of the target for a use
+/// `Access<..>`, unless it mentions one of the alias's own parameters (arguments are not substituted)
+/// or names the alias itself.
+fn alias_repr(ty: &tree_sitter::Node, source: &str) -> Option<String> {
+    let id = match ty.kind() {
+        "type_identifier" => *ty,
+        "generic_type" => ty
+            .child_by_field_name("type")
+            .filter(|t| t.kind() == "type_identifier")?,
+        _ => return None,
+    };
+    let name = source.get(id.byte_range())?;
+    let mut root = *ty;
+    while let Some(p) = root.parent() {
+        root = p;
+    }
+    let mut cursor = root.walk();
+    let alias = root.children(&mut cursor).find(|c| {
+        c.kind() == "type_item"
+            && c.child_by_field_name("name")
+                .is_some_and(|n| source.get(n.byte_range()) == Some(name))
+    })?;
+    let target = alias.child_by_field_name("type")?;
+    let head = source.get(target.byte_range())?;
+    if head
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .next()
+        == Some(name)
+    {
+        return None;
+    }
+    let repr = type_repr(&target, source)?;
+    let mentions = |word: &str| {
+        repr.split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|w| w == word)
+    };
+    let params = alias.child_by_field_name("type_parameters");
+    let uses_param = params.is_some_and(|p| {
+        p.named_children(&mut p.walk()).any(|c| {
+            let n = c.child_by_field_name("name").unwrap_or(c);
+            source.get(n.byte_range()).is_some_and(mentions)
+        })
+    });
+    (!uses_param && !mentions(name)).then_some(repr)
+}
+
 /// Like `plain_type_name`, but keeps the element type of the standard containers as `Name<Elem>`:
 /// `&[A]` and `[A; N]` become `Vec<A>`, `HashMap<K, V>` becomes `HashMap<V>`.
 fn type_repr(ty: &tree_sitter::Node, source: &str) -> Option<String> {
+    if let Some(repr) = alias_repr(ty, source) {
+        return Some(repr);
+    }
     match ty.kind() {
         "reference_type" => type_repr(&ty.child_by_field_name("type")?, source),
         "array_type" => {
             let elem = type_repr(&ty.child_by_field_name("element")?, source)?;
             Some(format!("Vec<{elem}>"))
+        }
+        // `(A, B)` keeps `_` for the elements it cannot tell, so positions stay aligned.
+        "tuple_type" => {
+            let elems: Vec<String> = ty
+                .named_children(&mut ty.walk())
+                .map(|e| type_repr(&e, source).unwrap_or_else(|| "_".to_string()))
+                .collect();
+            elems
+                .iter()
+                .any(|e| e != "_")
+                .then(|| format!("({})", elems.join(",")))
+        }
+        // `fn(..) -> R` is `fn<R>`: calling it yields `R`.
+        "function_type" => {
+            let ret = type_repr(&ty.child_by_field_name("return_type")?, source)?;
+            Some(format!("fn<{ret}>"))
         }
         "generic_type" => {
             let base = plain_type_name(ty, source)?;
@@ -1290,6 +1355,18 @@ fn binder_of<'a>(id: &tree_sitter::Node<'a>) -> Option<Binder<'a>> {
     }
 }
 
+/// The element patterns of a tuple(-struct) pattern, wildcards (`_`, an unnamed token) included.
+fn element_patterns<'a>(
+    pat: &tree_sitter::Node<'a>,
+    skip: Option<tree_sitter::Node<'a>>,
+) -> Vec<tree_sitter::Node<'a>> {
+    let mut cursor = pat.walk();
+    pat.children(&mut cursor)
+        .filter(|c| (c.is_named() || c.kind() == "_") && Some(*c) != skip)
+        .filter(|c| !c.kind().ends_with("comment"))
+        .collect()
+}
+
 /// Type recipe of the identifier `id` inside the pattern `pat` that matches a value of type recipe
 /// `h`: the value itself, or a `Some`/`Ok`/`Variant(..)` payload (`Variant(T0, ..)` needs no `h`).
 fn pattern_hint(
@@ -1312,13 +1389,8 @@ fn pattern_hint(
                 return None;
             }
             let path_text = source.get(path.byte_range())?;
-            let mut cursor = pat.walk();
             let mut found = None;
-            for (i, arg) in pat
-                .named_children(&mut cursor)
-                .filter(|c| *c != path && !c.kind().ends_with("comment"))
-                .enumerate()
-            {
+            for (i, arg) in element_patterns(pat, Some(path)).into_iter().enumerate() {
                 if arg.start_byte() <= id.start_byte() && id.end_byte() <= arg.end_byte() {
                     found = Some((arg, i));
                     break;
@@ -1341,6 +1413,17 @@ fn pattern_hint(
                 }),
             };
             pattern_hint(&arg, id, sub, source)
+        }
+        "tuple_pattern" => {
+            for (i, arg) in element_patterns(pat, None).into_iter().enumerate() {
+                if arg.kind() == "remaining_field_pattern" {
+                    return None;
+                }
+                if arg.start_byte() <= id.start_byte() && id.end_byte() <= arg.end_byte() {
+                    return pattern_hint(&arg, id, h.map(|h| format!("{h}.#{i}")), source);
+                }
+            }
+            None
         }
         _ => None,
     }
@@ -1501,6 +1584,17 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
             })
         }
         "parenthesized_expression" => expr_hint(&e.child(1)?, source),
+        "tuple_expression" => {
+            let hints: Vec<String> = e
+                .named_children(&mut e.walk())
+                .filter(|c| !c.kind().ends_with("comment"))
+                .map(|c| expr_hint(&c, source).unwrap_or_default())
+                .collect();
+            hints
+                .iter()
+                .any(|h| !h.is_empty())
+                .then(|| format!("@tuple({})", hints.join(";")))
+        }
         "field_expression" => {
             let field = e.child_by_field_name("field")?;
             if field.kind() != "field_identifier" {
@@ -1518,9 +1612,19 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
                 f = f.child_by_field_name("function")?;
             }
             match f.kind() {
-                "identifier" | "scoped_identifier" => Some(format!("={}()", text(&f)?)),
+                // A local holding a `fn` pointer is called through its type, not a free function.
+                "identifier" => Some(match binding_type(&f, source) {
+                    Some(h) => format!("{h}.()"),
+                    None => format!("={}()", text(&f)?),
+                }),
+                "scoped_identifier" => Some(format!("={}()", text(&f)?)),
                 "field_expression" => {
                     let name = f.child_by_field_name("field")?;
+                    let method = text(&name)?;
+                    let recv = f.child_by_field_name("value")?;
+                    if let Some(h) = adapter_hint(method, &recv, e, source) {
+                        return Some(h);
+                    }
                     Some(format!(
                         "{}.{}()",
                         expr_hint(&f.child_by_field_name("value")?, source)?,
@@ -1529,6 +1633,67 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
                 }
                 _ => None,
             }
+        }
+        _ => None,
+    }
+}
+
+/// Hint of the value a closure returns: its body, or the tail expression of a block body.
+fn closure_result_hint(closure: &tree_sitter::Node, source: &str) -> Option<String> {
+    let mut body = closure.child_by_field_name("body")?;
+    if body.kind() == "block" {
+        body = body.named_child(body.named_child_count().checked_sub(1)?)?;
+    }
+    expr_hint(&body, source)
+}
+
+/// Is `e` syntactically a `bool` (a comparison, `&&`/`||`, `!`, a literal)?
+fn is_bool_expr(e: &tree_sitter::Node, source: &str) -> bool {
+    match e.kind() {
+        "boolean_literal" => true,
+        "parenthesized_expression" => e.child(1).is_some_and(|c| is_bool_expr(&c, source)),
+        "unary_expression" => e.child(0).is_some_and(|c| c.kind() == "!"),
+        "binary_expression" => e
+            .child(1)
+            .and_then(|o| source.get(o.byte_range()))
+            .is_some_and(|o| matches!(o, "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=")),
+        _ => false,
+    }
+}
+
+/// Hint for the `Option` adapters whose result type is the closure's:
+/// `x.and_then(|..| f(..))` (`R.and_then(F)`, `x.map(|..| f(..))` (`R.map(F)`) and
+/// `cond.then(|| f())` (`@some(F)`); `and_then` on an untyped receiver is `@and_then(F)`. `None` leaves the call to the plain method hint. The
+/// calls phase keeps `R.m(F)` only when `R` is an `Option`/`Result`, so a project method of the same
+/// name still resolves by its declared return type.
+fn adapter_hint(
+    method: &str,
+    recv: &tree_sitter::Node,
+    call: &tree_sitter::Node,
+    source: &str,
+) -> Option<String> {
+    let arg = call
+        .child_by_field_name("arguments")?
+        .named_child(0)
+        .filter(|a| !a.kind().ends_with("comment"))?;
+    let closure = |a: &tree_sitter::Node| {
+        (a.kind() == "closure_expression")
+            .then(|| closure_result_hint(a, source))
+            .flatten()
+    };
+    match method {
+        "and_then" | "map" => {
+            let f = closure(&arg)?;
+            match expr_hint(recv, source) {
+                Some(r) => Some(format!("{r}.{method}({f})")),
+                // `and_then` returns the closure's own `Option`/`Result` whatever the receiver is.
+                None if method == "and_then" => Some(format!("@and_then({f})")),
+                None => None,
+            }
+        }
+        "then" if is_bool_expr(recv, source) => closure(&arg).map(|f| format!("@some({f})")),
+        "then_some" if is_bool_expr(recv, source) => {
+            expr_hint(&arg, source).map(|f| format!("@some({f})"))
         }
         _ => None,
     }

@@ -208,21 +208,80 @@ fn methods_of_type(name: &str, ty: &str, idx: &Index) -> Vec<NodeId> {
 /// `None` when a step is not a project struct/enum, has no (or several different) such field or
 /// method, or the callee cannot be told: generics, trait objects, std types stay unknown.
 fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<String> {
-    let mut parts = hint.split('.');
+    let mut parts = split_top(hint, '.');
     let first = parts.next()?;
-    let mut ty = match first.strip_prefix('=') {
-        Some(call) => call_return_type(call.strip_suffix("()")?, from, from_file, idx)?,
-        None if first == "Self" => enclosing_impl_type(from, idx)?.to_string(),
+    let mut ty = if let Some(call) = first.strip_prefix('=') {
+        call_return_type(call.strip_suffix("()")?, from, from_file, idx)?
+    } else if let Some(elems) = first.strip_prefix("@tuple(") {
+        // Elements that cannot be typed stay `_` so the positions line up.
+        let elems: Vec<String> = split_top(elems.strip_suffix(')')?, ';')
+            .map(|e| eval_hint(e, from, from_file, idx).unwrap_or_else(|| "_".to_string()))
+            .collect();
+        format!("({})", elems.join(","))
+    } else if let Some(inner) = first.strip_prefix("@some(") {
+        format!(
+            "Option<{}>",
+            eval_hint(inner.strip_suffix(')')?, from, from_file, idx)?
+        )
+    } else if let Some(inner) = first.strip_prefix("@and_then(") {
+        let ty = eval_hint(inner.strip_suffix(')')?, from, from_file, idx)?;
+        split_generic(&ty).filter(|(name, _)| matches!(*name, "Option" | "Result"))?;
+        ty
+    } else if first == "Self" {
+        enclosing_impl_type(from, idx)?.to_string()
+    } else if let Some(variant) = first.strip_prefix('%') {
         // `%Variant#i`: payload of a tuple variant or struct named by a bare path.
-        None if first.starts_with('%') => {
-            field_type(from_file, &first[1..], idx).or_else(|| field_type("", &first[1..], idx))?
-        }
-        None => first.to_string(),
+        field_type(from_file, variant, idx).or_else(|| field_type("", variant, idx))?
+    } else {
+        first.to_string()
     };
     for part in parts {
+        // `m(F)`: an `Option`/`Result` adapter whose closure returns `F`; a project type's own
+        // method of that name is a plain method step.
+        if let Some((m, closure)) = part
+            .split_once('(')
+            .filter(|(_, c)| !c.starts_with(')'))
+            .and_then(|(m, c)| Some((m, c.strip_suffix(')')?)))
+        {
+            // A payload that is not a kept type leaves a bare `Option`/`Result`.
+            let ty_ref = auto_deref(&ty);
+            let name = split_generic(ty_ref).map_or(ty_ref, |(name, _)| name);
+            if matches!(name, "Option" | "Result") {
+                let name = name.to_string();
+                let result = eval_hint(closure, from, from_file, idx)?;
+                ty = if m == "map" {
+                    format!("{name}<{result}>")
+                } else {
+                    result
+                };
+                continue;
+            }
+            ty = step_type(&ty, &format!("{m}()"), idx)?;
+            continue;
+        }
         ty = step_type(&ty, part, idx)?;
     }
     Some(ty)
+}
+
+/// Split a hint on `sep` outside parentheses.
+fn split_top(s: &str, sep: char) -> impl Iterator<Item = &str> {
+    let mut depth = 0usize;
+    let mut start = 0;
+    let mut cuts = Vec::new();
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            c if c == sep && depth == 0 => {
+                cuts.push((start, i));
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    cuts.push((start, s.len()));
+    cuts.into_iter().map(move |(a, b)| &s[a..b])
 }
 
 /// Strip `Box`/`Rc`/`Arc`, which method calls see through.
@@ -245,11 +304,22 @@ fn split_generic(ty: &str) -> Option<(&str, &str)> {
 /// One step of a hint: `[]` (element), `?` (`Option`/`Result` payload), `m()` (method) or a field.
 fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
     let ty = auto_deref(ty);
+    if ty.starts_with('(') {
+        return tuple_elem(ty, part.strip_prefix('#')?.parse().ok()?);
+    }
     match part {
-        // Iterating a map yields `(K, V)` pairs, not its value type.
-        "[]" => split_generic(ty)
-            .filter(|(name, _)| !name.ends_with("Map"))
-            .map(|(_, inner)| inner.to_string()),
+        // Iterating a map yields `(K, V)` pairs; the key type is not kept.
+        "[]" => split_generic(ty).map(|(name, inner)| {
+            if name.ends_with("Map") {
+                format!("(_,{inner})")
+            } else {
+                inner.to_string()
+            }
+        }),
+        // Calling a `fn` pointer (`fn<R>`).
+        "()" => split_generic(ty)
+            .filter(|(name, _)| *name == "fn")
+            .map(|(_, ret)| ret.to_string()),
         "[i]" => split_generic(ty).map(|(_, inner)| inner.to_string()),
         "?" => split_generic(ty)
             .filter(|(name, _)| matches!(*name, "Option" | "Result"))
@@ -272,12 +342,34 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
     }
 }
 
+/// Element `i` of the tuple type `(A,B,..)` (`None` for `_`).
+fn tuple_elem(ty: &str, i: usize) -> Option<String> {
+    let inner = ty.strip_prefix('(')?.strip_suffix(')')?;
+    let (mut depth, mut start, mut n) = (0usize, 0, 0);
+    for (k, c) in inner.char_indices().chain([(inner.len(), ',')]) {
+        match c {
+            '(' | '<' => depth += 1,
+            ')' | '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                if n == i {
+                    return Some(inner[start..k].to_string()).filter(|t| t != "_");
+                }
+                start = k + 1;
+                n += 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Result type of the std method `m` on the container type `ty`: adapters keep the container, element
 /// accessors yield `Option<Elem>`, `unwrap` and friends yield the payload.
 fn container_method(ty: &str, m: &str) -> Option<String> {
     let (name, inner) = split_generic(ty)?;
     if name.ends_with("Map") {
         return match m {
+            "iter" | "iter_mut" | "into_iter" | "drain" => Some(format!("Vec<(_,{inner})>")),
             "values" | "values_mut" | "into_values" => Some(format!("Vec<{inner}>")),
             "get" | "get_mut" => Some(format!("Option<{inner}>")),
             "clone" | "as_ref" | "as_mut" | "borrow" | "borrow_mut" => Some(ty.to_string()),
@@ -340,7 +432,23 @@ fn call_return_type(path: &str, from: &str, from_file: &str, idx: &Index) -> Opt
         o => o,
     };
     if let Some(ty) = owner.filter(|o| idx.type_names.contains(*o)) {
-        return return_type_of(&methods_of_type(name, ty, idx), ty, idx);
+        let mut fns = methods_of_type(name, ty, idx);
+        // Types of one name in several modules (`input::keycaps::Overlay`, `overlay::Overlay`): the
+        // module in the path picks the one meant.
+        if let Some(module) = segs
+            .next()
+            .filter(|m| !matches!(*m, "crate" | "self" | "super"))
+        {
+            let named: Vec<NodeId> = fns
+                .iter()
+                .filter(|c| file_is_module(c.as_str().split('#').next().unwrap_or(""), module))
+                .cloned()
+                .collect();
+            if !named.is_empty() {
+                fns = named;
+            }
+        }
+        return return_type_of(&fns, ty, idx);
     }
     // `Vec::new()`, `fs::read()`, an imported `args()`: library paths must not pick a project fn
     // that merely shares the name.

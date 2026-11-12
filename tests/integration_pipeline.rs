@@ -611,6 +611,72 @@ fn pipeline_index_and_map_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["index_chain", "map_values", "map_index"]);
 }
 
+/// #115: receivers bound through tuples, map iteration, `Option` adapters with closures and stored `fn`
+/// pointers. The `B` twin of each positive class is the only dead one under `--strict`; a negative class
+/// never gives a project type, so both twins stay (dead under `--strict`, kept alive by default).
+fn assert_shape_receivers(positive: &[&str], negative: &[&str]) {
+    let store = run_fixture("shape_receivers");
+    let tags = tagged_lines("shape_receivers", "src/lib.rs");
+    let dead = dead_lines(&store, true, "src/lib.rs");
+    for class in positive {
+        assert!(
+            dead.contains(&tags[&format!("dead_b_{class}")]),
+            "{class}: B"
+        );
+        assert!(
+            !dead.contains(&tags[&format!("live_a_{class}")]),
+            "{class}: A"
+        );
+    }
+    for class in negative {
+        for twin in ["a", "b"] {
+            assert!(
+                dead.contains(&tags[&format!("neg_{twin}_{class}")]),
+                "{class}: {twin} stays untyped"
+            );
+        }
+    }
+}
+
+#[test]
+fn pipeline_tuple_pattern_receivers_resolve_to_their_type() {
+    assert_shape_receivers(
+        &["tuple_for", "tuple_if_let", "tuple_let"],
+        &["tuple_pos", "tuple_rest", "tuple_let_ext"],
+    );
+}
+
+#[test]
+fn pipeline_map_iteration_receivers_resolve_to_their_type() {
+    assert_shape_receivers(&["map_pairs", "map_field"], &["map_key"]);
+}
+
+#[test]
+fn pipeline_option_adapter_receivers_resolve_to_their_type() {
+    assert_shape_receivers(
+        &["and_then", "opt_map", "then", "and_then_untyped"],
+        &["and_then_ext", "then_flag"],
+    );
+}
+
+#[test]
+fn pipeline_fn_pointer_result_receivers_resolve_to_their_type() {
+    assert_shape_receivers(
+        &["fn_param", "fn_field", "fn_alias"],
+        &["fn_ext", "fn_alias_generic"],
+    );
+}
+
+#[test]
+fn pipeline_module_path_constructor_receivers_resolve_to_their_type() {
+    assert_shape_receivers(&["maker_path"], &["maker_ext"]);
+}
+
+#[test]
+fn pipeline_let_else_receivers_resolve_to_their_type() {
+    assert_shape_receivers(&["let_else"], &[]);
+}
+
 #[test]
 fn pipeline_rc_clone_is_not_the_inner_types_clone() {
     let store = run_fixture("pattern_receivers");
