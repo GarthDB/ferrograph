@@ -1,5 +1,7 @@
 //! Phase 2: AST extraction (tree-sitter) into graph nodes and edges.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
@@ -15,6 +17,7 @@ use crate::graph::Store;
 /// # Errors
 /// Fails if parsing fails, the language cannot be loaded, or store writes fail.
 pub fn extract_ast(store: &Store, path: &Path, content: &str, root: &Path) -> Result<()> {
+    ALIASES.with(|a| *a.borrow_mut() = AliasCache::default());
     let mut parser = Parser::new();
     parser.set_language(&LANGUAGE.into())?;
     let tree = parser
@@ -1002,6 +1005,19 @@ const KEPT_WRAPPERS: [&str; 15] = [
     "FxHashMap",
 ];
 
+/// Per-file index of top-level `type` aliases (name to item byte range), built on first use, and the
+/// aliases being expanded (a cycle `type A = B; type B = A;` stops instead of recursing).
+#[derive(Default)]
+struct AliasCache {
+    key: (usize, usize),
+    ranges: Option<HashMap<String, (usize, usize)>>,
+    expanding: Vec<String>,
+}
+
+thread_local! {
+    static ALIASES: RefCell<AliasCache> = RefCell::new(AliasCache::default());
+}
+
 /// `type Access<S> = fn(&mut S) -> &mut T;` in the same file: the `type_repr` of the target for a use
 /// `Access<..>`, unless it mentions one of the alias's own parameters (arguments are not substituted)
 /// or names the alias itself.
@@ -1018,12 +1034,42 @@ fn alias_repr(ty: &tree_sitter::Node, source: &str) -> Option<String> {
     while let Some(p) = root.parent() {
         root = p;
     }
-    let mut cursor = root.walk();
-    let alias = root.children(&mut cursor).find(|c| {
-        c.kind() == "type_item"
-            && c.child_by_field_name("name")
-                .is_some_and(|n| source.get(n.byte_range()) == Some(name))
+    let (start, end) = ALIASES.with(|a| {
+        let mut a = a.borrow_mut();
+        if a.expanding.iter().any(|n| n == name) {
+            return None;
+        }
+        let key = (source.as_ptr() as usize, source.len());
+        if a.key != key {
+            a.key = key;
+            a.ranges = None;
+        }
+        let ranges = a.ranges.get_or_insert_with(|| {
+            let mut cursor = root.walk();
+            root.children(&mut cursor)
+                .filter(|c| c.kind() == "type_item")
+                .filter_map(|c| {
+                    let n = c.child_by_field_name("name")?;
+                    Some((
+                        source.get(n.byte_range())?.to_string(),
+                        (c.start_byte(), c.end_byte()),
+                    ))
+                })
+                .collect()
+        });
+        ranges.get(name).copied()
     })?;
+    let mut alias = root.descendant_for_byte_range(start, end)?;
+    while alias.kind() != "type_item" {
+        alias = alias.parent()?;
+    }
+    ALIASES.with(|a| a.borrow_mut().expanding.push(name.to_string()));
+    let repr = alias_target_repr(&alias, name, source);
+    ALIASES.with(|a| a.borrow_mut().expanding.pop());
+    repr
+}
+
+fn alias_target_repr(alias: &tree_sitter::Node, name: &str, source: &str) -> Option<String> {
     let target = alias.child_by_field_name("type")?;
     let head = source.get(target.byte_range())?;
     if head

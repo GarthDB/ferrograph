@@ -84,8 +84,12 @@ pub struct Layer {
 }
 type Access = fn(&mut u8) -> &mut A;
 type Pick<T> = fn(u8) -> T;
+// Cyclic aliases do not compile; indexing must still finish.
+type Cyc1 = Cyc2;
+type Cyc2 = Cyc1;
 
 pub struct Ctl {
+    cyc: Option<Cyc1>,
     alias: Option<Access>,
     generic: Option<Pick<A>>,
     access: Option<fn(&mut u8) -> &mut A>,

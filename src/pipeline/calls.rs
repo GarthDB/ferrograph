@@ -217,7 +217,12 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
     } else if let Some(elems) = first.strip_prefix("@tuple(") {
         // Elements that cannot be typed stay `_` so the positions line up.
         let elems: Vec<String> = split_top(elems.strip_suffix(')')?, ';')
-            .map(|e| eval_hint(e, from, from_file, idx).unwrap_or_else(|| "_".to_string()))
+            .map(|e| {
+                Some(e)
+                    .filter(|e| !e.is_empty())
+                    .and_then(|e| eval_hint(e, from, from_file, idx))
+                    .unwrap_or_else(|| "_".to_string())
+            })
             .collect();
         format!("({})", elems.join(","))
     } else if let Some(inner) = first.strip_prefix("@some(") {
