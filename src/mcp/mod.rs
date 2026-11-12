@@ -44,6 +44,11 @@ fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
                 "type": "boolean",
                 "description": "Ignore ambiguous (low-confidence) call edges when deciding liveness (default false)",
                 "default": false
+            },
+            "restricted_vis_not_root": {
+                "type": "boolean",
+                "description": "Do not treat pub(crate)/pub(super)/pub(in ..) functions as entry points; bare pub still is (default false)",
+                "default": false
             }
         }
     })
@@ -553,7 +558,8 @@ impl FerrographMcp {
         store: &crate::graph::Store,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let strict = get_bool_arg(request, "strict");
-        let mut ids = if strict {
+        let restricted = get_bool_arg(request, "restricted_vis_not_root");
+        let mut ids = if strict || restricted {
             Vec::new()
         } else {
             crate::graph::Query::stored_dead_functions(store).map_err(|e| {
@@ -561,9 +567,13 @@ impl FerrographMcp {
             })?
         };
         let source = if ids.is_empty() {
-            ids = crate::graph::Query::compute_dead_functions_opts(store, strict).map_err(|e| {
-                rmcp::ErrorData::internal_error(format!("Dead code (live) query failed: {e}"), None)
-            })?;
+            ids = crate::graph::Query::compute_dead_functions_with(store, strict, &[], restricted)
+                .map_err(|e| {
+                    rmcp::ErrorData::internal_error(
+                        format!("Dead code (live) query failed: {e}"),
+                        None,
+                    )
+                })?;
             "computed"
         } else {
             "stored"

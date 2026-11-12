@@ -1,6 +1,6 @@
 //! Common graph queries.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Result;
 use cozo::DataValue;
@@ -164,8 +164,14 @@ impl Query {
         store: &Store,
         strict: bool,
         extra_entries: &[String],
+        restricted_vis_not_root: bool,
     ) -> Result<Vec<NodeTriple>> {
-        let ids = Self::compute_dead_functions_with(store, strict, extra_entries)?;
+        let ids = Self::compute_dead_functions_with(
+            store,
+            strict,
+            extra_entries,
+            restricted_vis_not_root,
+        )?;
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -214,10 +220,12 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn compute_dead_functions_opts(store: &Store, strict: bool) -> Result<Vec<String>> {
-        Self::compute_dead_functions_with(store, strict, &[])
+        Self::compute_dead_functions_with(store, strict, &[], false)
     }
 
     /// Like [`Self::compute_dead_functions_opts`], with extra entry-point node ids (roots).
+    /// With `restricted_vis_not_root`, `pub(crate)`/`pub(super)`/`pub(in ..)` functions are not roots
+    /// (bare `pub` still is); graphs indexed before the marker existed are unaffected by it.
     ///
     /// # Errors
     /// Fails if the store query fails.
@@ -225,6 +233,7 @@ impl Query {
         store: &Store,
         strict: bool,
         extra_entries: &[String],
+        restricted_vis_not_root: bool,
     ) -> Result<Vec<String>> {
         let not_low = if strict { ", not low[from, to]" } else { "" };
         let type_function = NodeType::Function.to_string();
@@ -239,17 +248,36 @@ impl Query {
             &format!("?[id, payload] := *nodes[id, type, payload], type = \"{type_function}\""),
             BTreeMap::new(),
         )?;
+        let restricted: HashSet<String> = if restricted_vis_not_root {
+            store
+                .run_query(
+                    &format!("?[id] := *edges[id, \"attr::pub_restricted\", \"{edge_attr}\"]"),
+                    BTreeMap::new(),
+                )?
+                .rows
+                .iter()
+                .filter_map(|row| row.first())
+                .map(unquote_datavalue)
+                .collect()
+        } else {
+            HashSet::new()
+        };
         let entry_ids: Vec<DataValue> = all_fns
             .rows
             .iter()
             .filter_map(|row| {
                 let id = row.first().map(unquote_datavalue)?;
                 let payload = row.get(1).map(unquote_datavalue).unwrap_or_default();
+                // A restricted-visibility marker only demotes plain `pub(..) fn`, never tests, benches or `main`.
+                let demoted = restricted.contains(&id)
+                    && payload.strip_prefix("pub::").is_some_and(|rest| {
+                        !["test::", "bench::"].iter().any(|p| rest.starts_with(p)) && rest != "main"
+                    });
                 let is_entry = payload == "main"
                     || payload.starts_with("pub::")
                     || payload.starts_with("test::")
                     || payload.starts_with("bench::");
-                is_entry.then(|| DataValue::from(id))
+                (is_entry && !demoted).then(|| DataValue::from(id))
             })
             .chain(extra_entries.iter().map(|id| DataValue::from(id.as_str())))
             .collect();

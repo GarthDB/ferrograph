@@ -299,6 +299,10 @@ fn pipeline_fn_used_as_value_is_not_dead() {
 
 fn dead_names(store: &Store, strict: bool) -> Vec<String> {
     let ids = ferrograph::graph::Query::compute_dead_functions_opts(store, strict).unwrap();
+    dead_names_of(store, &ids)
+}
+
+fn dead_names_of(store: &Store, ids: &[String]) -> Vec<String> {
     let nodes = ferrograph::graph::Query::all_nodes(store).unwrap();
     nodes
         .rows
@@ -715,19 +719,26 @@ fn pipeline_bare_call_does_not_bind_to_a_method_of_the_same_file() {
     }
 }
 
-/// Target behaviour for #91. Ignored: with `pub(crate)`/`pub(super)` as non-roots the accuracy harness
-/// measured 3.8% judgeable precision (280 reported, 8 right; 8/207 judgeable) even with receiver
-/// types, because `use` paths and pattern/loop-bound receivers are not resolved (#114, #115).
-/// Remove the `ignore` together with the `is_pub` change in `ast.rs`.
+/// #91, opt-in: with `restricted_vis_not_root`, `pub(crate)`/`pub(super)`/`pub(in ..)` fns are not roots
+/// (bare `pub` still is). The default keeps them all alive.
 #[test]
-#[ignore = "#91: needs better method/path call resolution first"]
 fn pipeline_restricted_visibility_fns_are_not_roots() {
     let store = run_fixture("restricted_vis");
+    let dead = |strict, restricted| {
+        let ids =
+            ferrograph::graph::Query::compute_dead_functions_with(&store, strict, &[], restricted)
+                .unwrap();
+        let mut names: Vec<String> = dead_names_of(&store, &ids)
+            .iter()
+            .map(|n| n.trim_start_matches("pub::").to_string())
+            .collect();
+        names.sort();
+        names
+    };
     for strict in [false, true] {
-        let mut dead = dead_names(&store, strict);
-        dead.sort();
+        assert_eq!(dead(strict, false), Vec::<String>::new(), "strict={strict}");
         assert_eq!(
-            dead,
+            dead(strict, true),
             [
                 "unused_crate",
                 "unused_in_path",
