@@ -47,7 +47,8 @@ def clone(c, work, n):
             cwd=dest,
             timeout=900,
         )
-        A.run(["git", "checkout", "-q", "--detach", "FETCH_HEAD"], cwd=dest)
+        A.run(["git", "tag", "replay-head", "FETCH_HEAD"], cwd=dest)
+        A.run(["git", "checkout", "-q", "--detach", "replay-head"], cwd=dest)
     return dest
 
 
@@ -64,9 +65,9 @@ def replay(c, fg, work, args):
     index_root = (repo / c.get("index_path", ".")).resolve()
     cargo_args = c.get("cargo_args", DEFAULT_CARGO_ARGS)
     tgt = Path(work) / "target" / c.get("group", c["name"]) / "replay"
-    _, head, _ = git(repo, "rev-parse", "HEAD")
+    _, head, _ = git(repo, "rev-parse", "replay-head")
     res["head"] = head.strip()
-    _, revs, _ = git(repo, "rev-list", "--first-parent", "-n", str(args.n), "HEAD")
+    _, revs, _ = git(repo, "rev-list", "--first-parent", "-n", str(args.n), "replay-head")
     # rustc's answer depends only on the commit, so it is kept on disk and reused across `--extra-args` arms.
     cache_file = Path(work) / "replay" / f"{c['name']}.dead.json"
     raw = json.loads(cache_file.read_text()) if cache_file.exists() else {}
@@ -74,7 +75,7 @@ def replay(c, fg, work, args):
 
     def dead_at(sha):
         if sha not in cache:
-            git(repo, "checkout", "-q", "--detach", sha)
+            git(repo, "checkout", "-q", "-f", "--detach", sha)
             msgs, _, _, _ = A.run_rustc(repo, cargo_args, tgt, timeout=args.timeout)
             if msgs is None:
                 cache[sha] = None
@@ -102,7 +103,7 @@ def replay(c, fg, work, args):
         if before is None or after is None:
             skipped.append({"sha": sha, "reason": "cargo check failed"})
             continue
-        git(repo, "checkout", "-q", "--detach", sha)
+        git(repo, "checkout", "-q", "-f", "--detach", sha)
         t0 = time.time()
         rc, out, err = A.run(
             [
