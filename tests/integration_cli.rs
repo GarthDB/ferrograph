@@ -1021,3 +1021,45 @@ fn cli_blast_and_callers_formats() {
         assert!(String::from_utf8_lossy(&md.stdout).starts_with("<!-- ferrograph -->"));
     }
 }
+
+const RESTRICTED_SRC: &str =
+    "fn main() {}\npub fn bare_pub() {}\npub(crate) fn only_crate() {}\npub(super) fn only_super() {}\n";
+
+fn dead_restricted(config: Option<&str>, extra: &[&str]) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/main.rs"), RESTRICTED_SRC).unwrap();
+    if let Some(c) = config {
+        std::fs::write(root.join(".ferrograph.toml"), c).unwrap();
+    }
+    let db = root.join(".ferrograph");
+    let out = run(&["index", "--output", s(&db), s(root)]);
+    assert!(out.status.success());
+    let out = run(&["dead", "--db", s(&db)]
+        .iter()
+        .chain(extra)
+        .copied()
+        .collect::<Vec<_>>());
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn cli_dead_restricted_vis_not_root() {
+    let out = dead_restricted(None, &[]);
+    assert!(
+        !out.contains("only_crate") && !out.contains("only_super"),
+        "{out}"
+    );
+    for out in [
+        dead_restricted(None, &["--restricted-vis-not-root"]),
+        dead_restricted(Some("[dead]\nrestricted_vis_not_root = true\n"), &[]),
+    ] {
+        assert!(
+            out.contains("only_crate") && out.contains("only_super"),
+            "{out}"
+        );
+        assert!(!out.contains("bare_pub"), "bare pub stays a root: {out}");
+    }
+}

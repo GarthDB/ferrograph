@@ -213,6 +213,13 @@ fn traverse(
                     EdgeType::HasAttribute,
                 ));
             }
+            if has_restricted_visibility(&node, source) {
+                edges.push((
+                    id.clone(),
+                    NodeId::new(format!("attr::{RESTRICTED_VIS_ATTR}")),
+                    EdgeType::HasAttribute,
+                ));
+            }
             if is_trait_impl_method(&node) {
                 edges.push((
                     id.clone(),
@@ -303,6 +310,8 @@ fn is_comment(node: &tree_sitter::Node) -> bool {
 /// Synthetic attribute marking a method inside `impl Trait for Type` (a dead-code root).
 /// Keep in sync with the entry rules in `graph::query`.
 const TRAIT_IMPL_ATTR: &str = "trait_impl";
+/// Marks a function whose visibility is `pub(..)` rather than bare `pub` (opt-in non-root, see `graph::query`).
+const RESTRICTED_VIS_ATTR: &str = "pub_restricted";
 
 /// True for a function directly inside `impl <Trait> for <Type>` (including generic traits).
 fn is_trait_impl_method(node: &tree_sitter::Node) -> bool {
@@ -432,6 +441,13 @@ fn attribute_contains_identifier(node: &tree_sitter::Node, source: &str, name: &
         }
     }
     false
+}
+
+/// `pub(crate)`, `pub(super)`, `pub(in ..)`, `pub(self)`: any visibility modifier other than bare `pub`.
+fn has_restricted_visibility(node: &tree_sitter::Node, source: &str) -> bool {
+    node.child(0).is_some_and(|c| {
+        c.kind() == "visibility_modifier" && source.get(c.byte_range()) != Some("pub")
+    })
 }
 
 /// Payload for a function node: "`pub::name`" if public, "`test::name`" if test, "`bench::name`" if bench, else "name". Used for dead-code entry point detection.

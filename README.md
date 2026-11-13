@@ -124,7 +124,7 @@ Notes:
 
 - The diff is `git diff <base>...HEAD` (from the merge base). The base is indexed in a temporary `git worktree` that is removed on exit, on SIGINT/SIGTERM, and (for a killed run) pruned by the next `pr` run; pass `--base-db PATH` to reuse an already indexed base graph (e.g. from a CI cache). Your working tree is not touched.
 - HEAD is read from `--db` (default `./.ferrograph`). A missing or stale graph is an error; pass `--index-head` to index the HEAD commit into memory instead. Uncommitted changes are ignored (a warning is printed); a `--db` graph is assumed to match HEAD, and `--base-db` is assumed to be indexed from the merge base (a warning says so).
-- `--strict`, `--entry`, `--ignore` and `.ferrograph.toml` (read from the HEAD commit, for both sides) apply identically to base and head. `--exclude-low-confidence` applies to blast.
+- `--strict`, `--restricted-vis-not-root`, `--entry`, `--ignore` and `.ferrograph.toml` (read from the HEAD commit, for both sides) apply identically to base and head. `--exclude-low-confidence` applies to blast.
 - Functions are matched across base and head by file, name and occurrence among same-name functions in the file, not by node id, so shifting line numbers is harmless. A renamed function, or one moved to another file, looks like one removed plus one added; a function inserted above a same-name function in the same file can shift the match. Pure file renames are followed.
 - Run it from the project root inside a git repository. Exit codes: 0 ok, 1 threshold breached (`--fail-on-new-dead`, `--max-new-dead`, `--max-blast`), 2 error (including an unknown base ref).
 
@@ -273,13 +273,16 @@ Beyond `main`, `pub`, `#[test]` and `#[bench]`, `ferrograph dead` accepts extra 
 [dead]
 entry  = ["examples/**", "build.rs", "#[no_mangle]", "#[extern]"]  # file globs or attributes
 ignore = ["src/generated/**"]                                       # never reported
+restricted_vis_not_root = false                                     # opt-in, see below
 ```
 
 ```bash
 ferrograph dead --entry 'examples/**' --entry '#[no_mangle]' --ignore 'src/generated/**'
 ```
 
-Using `--entry`/`--strict` recomputes liveness instead of reading the index-time result. Not yet applied by the MCP `dead_code` tool.
+Using `--entry`/`--strict`/`--restricted-vis-not-root` recomputes liveness instead of reading the index-time result. The MCP `dead_code` tool accepts `strict` and `restricted_vis_not_root`, but not entries or ignores.
+
+`--restricted-vis-not-root` (also `restricted_vis_not_root = true` under `[dead]`; `dead` and `pr`, applied to both sides of `pr`) stops treating `pub(crate)`, `pub(super)` and `pub(in ..)` functions as roots; bare `pub` stays one. It raises recall a lot (most rustc-dead functions are restricted or bare `pub` in binary crates) at the price of more false positives, because unresolved calls then make live code look dead. It is off by default; see [#92](https://github.com/GarthDB/ferrograph/issues/92) for measurements. A graph indexed by an older ferrograph has no visibility marker, so re-index after upgrading.
 
 The schema defines 12 edge types; all 12 are currently populated:
 
@@ -303,9 +306,9 @@ The schema defines 12 edge types; all 12 are currently populated:
 Dead-code and blast-radius results are a review aid, not proof.
 
 - **What is analysed**: syntactic (tree-sitter) extraction with name-based call resolution. Ambiguous names become low-confidence edges, which `--strict` (and `--exclude-low-confidence`) ignore.
-- **Always live**: all `pub` items, trait impl methods, entry attributes, `main`, and test code.
+- **Always live**: all `pub` items (with `--restricted-vis-not-root`, only bare `pub`; `pub(crate)`/`pub(super)` become ordinary candidates), trait impl methods, entry attributes, `main`, and test code.
 - **Known false positives** (live code reported dead): names used only in attribute or macro arguments ([#89](https://github.com/GarthDB/ferrograph/issues/89)), attribute-macro impls ([#102](https://github.com/GarthDB/ferrograph/issues/102)), `write!` calling `write_fmt` ([#101](https://github.com/GarthDB/ferrograph/issues/101)), some cross-file qualified paths, methods above the 8-candidate cap, and `dyn Trait` dynamic dispatch.
-- **Known false negatives** (dead code not reported): anything `pub` or `pub(crate)` (including in private modules and binary crates), trait impls, and name collisions ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
+- **Known false negatives** (dead code not reported): anything `pub` or, unless `--restricted-vis-not-root` is set, `pub(crate)` (including in private modules and binary crates), trait impls, and name collisions ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
 - **Recall**: measured against rustc's `dead_code` with `scripts/accuracy/` (5.6% of rustc-dead functions in v4.0.4, mostly lost to the `pub` rule). A short list may reflect over-approximation of liveness rather than a clean codebase.
 - Hand-checked samples of what is still reported showed poor precision (about 1 true-dead in 45 sampled reports) as of v4.0.4 (2026-11-10); see [#92](https://github.com/GarthDB/ferrograph/issues/92) and [#103](https://github.com/GarthDB/ferrograph/pull/103).
 

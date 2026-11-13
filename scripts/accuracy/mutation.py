@@ -8,6 +8,7 @@ diagnostics rustc gains.
 """
 
 import argparse
+import shlex
 import json
 import platform
 import random
@@ -100,6 +101,11 @@ def main():
     ap.add_argument("--max-attempts", type=int, default=90)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--timeout", type=int, default=1800)
+    ap.add_argument(
+        "--extra-args",
+        default="",
+        help="extra args for `ferrograph pr`/`dead`, e.g. '--restricted-vis-not-root'",
+    )
     ap.add_argument("--out-md", default="mutation-report.md")
     ap.add_argument("--out-json", default="mutation-data.json")
     args = ap.parse_args()
@@ -111,7 +117,7 @@ def main():
         for x in tomllib.loads(Path(args.config).read_text())["corpus"]
         if x["name"] == args.corpus
     )
-    fg = A.Fg(args.ferrograph)
+    fg = A.Fg(args.ferrograph, shlex.split(args.extra_args))
     src, sha, dirty = A.prepare_corpus(c, work)
     repo = work / "mutrepo" / args.corpus
     if repo.exists():
@@ -140,7 +146,7 @@ def main():
         sys.exit("base does not build: " + note)
     db = work / "base.db"
     fg.index(index_root, db)
-    g = A.prepare_model(fg.load_graph(db))
+    g = A.prepare_model(fg.load_graph(db), fg.restricted)
     by_file = A.build_index(g)
     cands = find_candidates(g, index_root, random.Random(args.seed), args.max_attempts)
     A.log(f"{len(cands)} candidates; base rustc-dead fns: {len(before)}")
@@ -173,6 +179,7 @@ def main():
                 "--index-head",
                 "--format",
                 "json",
+                *fg.extra,
             ],
             cwd=index_root,
             check=False,
@@ -217,7 +224,7 @@ def main():
         if fn_ids:
             hdb = work / "head.db"
             fg.index(index_root, hdb)
-            hg = A.prepare_model(fg.load_graph(hdb))
+            hg = A.prepare_model(fg.load_graph(hdb), fg.restricted)
             head_dead = fg.dead(hdb)
             base_dead = fg.dead(db)
             info = A.reach(hg, False, dead_rustc=set(fn_ids))
@@ -278,6 +285,7 @@ def main():
     w(
         f"- oracle command: `{cmd}` ({note or 'no fallback'}); newly dead = dead-in-all-units after minus before (function items only)"
     )
+    w(f"- extra args: `{' '.join(fg.extra) or 'none'}`; brackets are Wilson 95% intervals")
     w(
         f"- system under test: `ferrograph pr --base HEAD~1 --index-head --format json` on a throwaway git repo (one commit per mutation)"
     )
@@ -298,9 +306,9 @@ def main():
     w(
         f"- oracle newly dead: {n_or}; ferrograph reported: {n_rep}; true positives: {tp}"
     )
-    w(f"- recall: {A.frac(tp, n_or)}; precision (all reports): {A.frac(tp, n_rep)}")
+    w(f"- recall: {A.frac_ci(tp, n_or)}; precision (all reports): {A.frac_ci(tp, n_rep)}")
     judge = n_rep - fpc["not judgeable (cfg-gated)"] - fpc["already dead in rustc before the change"]
-    w(f"- precision over judgeable reports (excluding cfg-gated and already-dead-before): {A.frac(tp, judge)}")
+    w(f"- precision over judgeable reports (excluding cfg-gated and already-dead-before): {A.frac_ci(tp, judge)}")
     ts = [r["pr_seconds"] for r in runs]
     if ts:
         w(

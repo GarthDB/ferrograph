@@ -114,6 +114,9 @@ pub enum Command {
         /// Do not treat ambiguous (low-confidence) call edges as keeping a function alive.
         #[arg(long)]
         strict: bool,
+        /// Do not treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (bare `pub` still is).
+        #[arg(long)]
+        restricted_vis_not_root: bool,
         /// Extra entry point: file glob (`examples/**`) or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
@@ -148,6 +151,9 @@ pub enum Command {
         /// Do not treat ambiguous (low-confidence) call edges as keeping a function alive.
         #[arg(long)]
         strict: bool,
+        /// Do not treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (bare `pub` still is).
+        #[arg(long)]
+        restricted_vis_not_root: bool,
         /// Extra entry point: file glob or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
@@ -296,6 +302,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             db,
             file,
             strict,
+            restricted_vis_not_root,
             entry,
             ignore,
             fail_on_any,
@@ -306,6 +313,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             file.as_deref(),
             crate::ops::DeadOptions {
                 strict,
+                restricted_vis_not_root,
                 entry,
                 ignore,
             },
@@ -318,6 +326,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             base_db,
             index_head,
             strict,
+            restricted_vis_not_root,
             entry,
             ignore,
             exclude_low_confidence,
@@ -334,6 +343,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 head_db: resolve_db_path(db.as_ref())?,
                 index_head,
                 strict,
+                restricted_vis_not_root,
                 entry,
                 ignore,
                 exclude_low_confidence,
@@ -514,6 +524,9 @@ pub struct DeadConfig {
     /// File globs whose functions are never reported.
     #[serde(default)]
     pub ignore: Vec<String>,
+    /// Treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as non-roots (default false).
+    #[serde(default)]
+    pub restricted_vis_not_root: bool,
 }
 
 /// Load `.ferrograph.toml` from the database's directory, falling back to the cwd.
@@ -563,6 +576,7 @@ fn run_dead(
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
     let cfg = load_file_config(&db_path)?;
+    opts.restricted_vis_not_root |= cfg.dead.restricted_vis_not_root;
     opts.entry.extend(cfg.dead.entry);
     opts.ignore.extend(cfg.dead.ignore);
     let result = crate::ops::dead_code(&store, file, &opts)?;

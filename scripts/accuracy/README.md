@@ -20,6 +20,17 @@ python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph \
     --work /tmp/fg-acc --corpus clap --n 30 \
     --out-md mutation-report.md --out-json mutation-data.json
 
+# 2b. Same, with an option under test (the python model of `dead` follows --restricted-vis-not-root).
+#     Use the `=` form: argparse reads a bare `--extra-args --flag` as two options.
+python3 scripts/accuracy/groundtruth.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
+    --extra-args=--restricted-vis-not-root
+python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc --corpus clap \
+    --extra-args=--restricted-vis-not-root
+
+# 2c. Replay: false-alarm rate of `pr` on the last N (default 50) real commits of url corpora.
+python3 scripts/accuracy/replay.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
+    --only clap,ripgrep --n 50 --extra-args=--restricted-vis-not-root
+
 # 3. Self-test of the harness on the built-in synthetic corpus (~2 s, no network).
 python3 scripts/accuracy/test_harness.py       # uses $FERROGRAPH or target/{debug,release}/ferrograph
 ```
@@ -41,6 +52,9 @@ first builds, ~2-4 GB of `target/` in total for the supplementary set; a 17k-fun
 `group`, `cargo_args`. The runner tries `cargo check --workspace --all-targets --all-features`, then without
 `--all-features`, then without benches (`--lib --bins --tests --examples`, for crates whose benches need nightly),
 and prints which variant ran.
+
+Corpora with `heldout = true` were not used while tuning ferrograph; the reports pool them separately from the
+others. Recall and precision carry Wilson 95% intervals (`[lo-hi]`).
 
 ## What is measured
 
@@ -74,6 +88,12 @@ statement (callee uniquely named, exactly one high-confidence call edge) with `(
 dead set after minus before. System under test: `ferrograph pr --base HEAD~1 --index-head --format json`. Reports
 TP/FN/FP per mutation and pooled, FN buckets (graph replay on the mutated tree), FP kinds, `pr` wall time, and the
 `git worktree list` afterwards.
+
+**Replay** (`replay.py`): for each of the last N first-parent commits that change a `.rs` file, check out the commit in its
+own history-carrying clone, run `ferrograph pr --base <parent> --index-head`, and compare the newly-dead fns with rustc's
+(dead-in-all-units at the commit minus at the parent; rustc answers are cached on disk per commit). Reports the
+false-alarm commit rate (commits with an unconfirmed, judgeable report), report precision and recall. Commits that do
+not build with the current toolchain are skipped, so the sample is biased toward buildable history.
 
 ## What is not measured / limitations
 

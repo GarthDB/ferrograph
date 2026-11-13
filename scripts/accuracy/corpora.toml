@@ -1,7 +1,7 @@
 # Corpora for groundtruth.py / mutation.py.
 #   url (shallow-cloned at `ref`, a branch, tag or full SHA) or path (copied, never modified)
 #   optional: group (share copy + target dir), index_path (subdir to index, default "."),
-#             cargo_args (default: --workspace --all-targets --all-features; the runner falls back
+#             heldout (true = not used while tuning; reported separately), cargo_args (default: --workspace --all-targets --all-features; the runner falls back
 #             step by step if that fails and reports which variant ran)
 
 # Primary corpora (pinned to the commits measured in the first report).
@@ -54,3 +54,36 @@ cargo_args = ["-p", "rune-kit", "--all-targets", "--all-features"]
 name = "rune"
 group = "rune"
 path = "~/repos/rune"
+
+# Held-out corpora (heldout = true): NOT used while tuning ferrograph's call resolution or the pub rule, so
+# they give an unbiased check of the defaults. Mostly binary crates, where rustc reports unused `pub` fns.
+# Report them separately from the corpora above. Pinned to HEAD of the default branch on 2026-11-12.
+[[corpus]]
+name = "bat"
+heldout = true
+url = "https://github.com/sharkdp/bat"
+ref = "8cf33bdde9a6e4c11d0f866415b1fc867df0cd40"
+
+[[corpus]]
+name = "hyperfine"
+heldout = true
+url = "https://github.com/sharkdp/hyperfine"
+ref = "c5161524980522320c7d3425e714cc0965a869a5"
+
+[[corpus]]
+name = "zoxide"
+heldout = true
+url = "https://github.com/ajeetdsouza/zoxide"
+ref = "1bb062057bef85aecb44e2e5c2a7983be4ebb710"
+
+[[corpus]]
+name = "dust"
+heldout = true
+url = "https://github.com/bootandy/dust"
+ref = "079c55266917387e416e0f871c97c06da52df12d"
+
+[[corpus]]
+name = "eza"
+heldout = true
+url = "https://github.com/eza-community/eza"
+ref = "471bfbc7b03cbac8c738e8d9050edb06ee79132a"

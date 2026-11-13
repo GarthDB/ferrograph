@@ -350,3 +350,44 @@ fn pr_sarif_and_markdown_formats() {
     );
     assert!(md.contains("| main |"), "{md}");
 }
+
+#[test]
+fn restricted_vis_not_root_applies_to_base_and_head() {
+    let Some(d) = repo() else { return };
+    let restricted = |s: &str| {
+        s.replace("fn used", "pub(crate) fn used")
+            .replace("fn helper", "pub(crate) fn helper")
+            .replace("fn already_dead", "pub(crate) fn already_dead")
+    };
+    // Same visibility on both sides; the change only removes the call to `helper`.
+    write(d.path(), "src/main.rs", &restricted(BASE));
+    commit(d.path(), "restrict");
+    git(d.path(), &["checkout", "-q", "main"]);
+    git(d.path(), &["merge", "-q", "--ff-only", "feature"]);
+    git(d.path(), &["checkout", "-q", "-b", "feature2"]);
+    write(
+        d.path(),
+        "src/main.rs",
+        &restricted(&BASE.replace("    helper();\n", "")),
+    );
+    commit(d.path(), "drop call");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert!(
+        names(&v["newly_dead"]).is_empty(),
+        "default keeps them roots"
+    );
+    let v = json(&pr(d.path(), &["--json", "--restricted-vis-not-root"]));
+    assert_eq!(
+        names(&v["newly_dead"]),
+        ["helper"],
+        "already_dead is pre-existing"
+    );
+    write(
+        d.path(),
+        ".ferrograph.toml",
+        "[dead]\nrestricted_vis_not_root = true\n",
+    );
+    commit(d.path(), "config");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert_eq!(names(&v["newly_dead"]), ["helper"]);
+}
