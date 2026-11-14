@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0](https://github.com/GarthDB/ferrograph/compare/v4.1.0...v5.0.0) - 2026-11-14
+
+### Added
+
+- *(dead)* opt-in --bin-pub-not-root for bare pub fns in bin/test-only files
+- *(dead)* opt-in --restricted-vis-not-root for pub(crate)/pub(super) functions
+
+### Fixed
+
+- *(calls)* prefer own-file impl for self.method() on same-named types ([#151](https://github.com/GarthDB/ferrograph/pull/151))
+- *(calls)* type .map(Type::new) results and same-named bare variants in dead --strict ([#115](https://github.com/GarthDB/ferrograph/pull/115))
+- *(clippy)* nest or-pattern; note positional limit
+- *(clippy)* nest or-pattern; note positional limit
+- *(dead)* positional callback may be last attribute arg
+- *(dead)* treat positional attribute args as fn references ([#147](https://github.com/GarthDB/ferrograph/pull/147))
+- *(calls)* type closure receivers over `let v: Vec<_> = it.map(|x| S{..}).collect()` ([#115](https://github.com/GarthDB/ferrograph/pull/115))
+- *(dead)* #[serde(default = "f")] names a fn (default is a keyword token)
+- *(status)* exit 2 with stderr error when the graph is missing
+- *(pr)* warn when only one side has the visibility marker an option needs
+- *(calls)* type tokio lock().await and try_lock/try_read/try_write receivers
+- *(calls)* conflicting local aliases hide file-level renames; cover RwLock/RefMut
+- *(calls)* synthesized guards never collide with project type names
+- *(calls)* keep project types named like std wrappers, type get_mut, conflict local aliases
+
+### Other
+
+- satisfy clippy assert_is_empty, fmt
+- *(calls)* fix misplaced doc line, note name-only type match
+- *(calls)* note the enclosing-impl variant fallback limit
+- drop fmt churn from the fixture, wrap doc line
+- note that neg_b_own is live but deliberately unresolved
+- drop single-element loop
+
 ## [4.1.0](https://github.com/GarthDB/ferrograph/compare/v4.0.4...v4.1.0) - 2026-11-12
 
 ### Added
