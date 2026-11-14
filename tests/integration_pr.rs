@@ -436,3 +436,29 @@ fn bin_pub_not_root_applies_to_base_and_head() {
     let v = json(&pr(d.path(), &["--json"]));
     assert_eq!(names(&v["newly_dead"]), ["helper"]);
 }
+
+#[test]
+fn bin_pub_not_root_warns_when_only_one_side_has_the_marker() {
+    let Some(d) = repo() else { return };
+    // Base has no Cargo.toml (no bin-only files, so no markers); head adds it and marks `main.rs` bin-only.
+    write(
+        d.path(),
+        "Cargo.toml",
+        "[package]\nname = \"p\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(
+        d.path(),
+        "src/main.rs",
+        &BASE.replace("fn used", "pub fn used"),
+    );
+    commit(d.path(), "manifest");
+    let warned = |extra: &[&str]| {
+        json(&pr(d.path(), extra))["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w.as_str().unwrap().contains("pub_bin_only"))
+    };
+    assert!(!warned(&["--json"]), "option off: nothing to warn about");
+    assert!(warned(&["--json", "--bin-pub-not-root"]));
+}
