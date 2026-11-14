@@ -18,6 +18,14 @@ struct Conf {
     x: u8,
 }
 
+#[derive(Deserialize)]
+struct Defaulted {
+    #[serde(default = "make_default")]
+    y: u8,
+    #[serde(rename = "z", default = "make_other", deserialize_with = "de_with")]
+    z: u8,
+}
+
 #[command(version = my_version())]
 struct Versioned;
 
@@ -26,6 +34,9 @@ fn parse_pair() {}
 fn default_name() {}
 fn mapper() {}
 fn is_default() {}
+fn make_default() {}
+fn make_other() {}
+fn de_with() {}
 fn my_version() {}
 
 // `short` and `long` appear only as bare flags in the attribute above: not references.

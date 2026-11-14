@@ -1945,7 +1945,8 @@ fn scan_attribute_tree(
         match kind {
             "=" => in_expr = true,
             "," if !inherited_expr => in_expr = false,
-            "identifier" if !in_expr => key = source.get(child.byte_range()),
+            // `default` is a keyword token in tree-sitter-rust, not an identifier.
+            "identifier" | "default" if !in_expr => key = source.get(child.byte_range()),
             "identifier" if prev_kind != "." && tt.child(i + 1).map(|n| n.kind()) != Some("!") => {
                 if !is_path_segment(tt, i) {
                     push_attribute_ref(tt, i, &child, source, file_id, anchor, edges);
