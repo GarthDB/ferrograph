@@ -264,7 +264,11 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
         enclosing_impl_type(from, idx)?.to_string()
     } else if let Some(variant) = first.strip_prefix('%') {
         // `%Variant#i`: payload of a tuple variant or struct named by a bare path.
-        field_type(from_file, variant, idx).or_else(|| field_type("", variant, idx))?
+        // Several same-named variants in the file (`Regex(..)` in two enums): the enclosing impl's own enum.
+        // shortcut: wrong if the impl matches a different enum (`use Other::*`) that shares the variant name; carry the scrutinee type to fix.
+        field_type(from_file, variant, idx)
+            .or_else(|| field_type(enclosing_impl_type(from, idx)?, variant, idx))
+            .or_else(|| field_type("", variant, idx))?
     } else {
         first.to_string()
     };

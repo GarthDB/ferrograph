@@ -593,6 +593,7 @@ fn pipeline_variant_payload_receivers_resolve_to_their_type() {
         "variant_bare",
         "variant_struct",
         "variant_self",
+        "variant_dup",
         "some_pattern",
         "while_let",
     ]);
@@ -600,7 +601,7 @@ fn pipeline_variant_payload_receivers_resolve_to_their_type() {
 
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
-    assert_pattern_receivers_resolved(&["try_option", "try_result"]);
+    assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);
 }
 
 #[test]

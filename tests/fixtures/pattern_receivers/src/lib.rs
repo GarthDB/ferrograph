@@ -188,3 +188,37 @@ pub fn while_let(mut v: Vec<A>) {
         a.while_let();
     }
 }
+
+impl A {
+    fn variant_dup(&self) {} // live_a_variant_dup
+    fn map_path(&self) {} // live_a_map_path
+    pub fn make(_s: String) -> A { A }
+}
+impl B {
+    fn variant_dup(&self) {} // dead_b_variant_dup
+    fn map_path(&self) {} // dead_b_map_path
+}
+
+// `Pair` names a variant of two enums in this file: the payload type comes from the enclosing impl.
+pub enum E2 {
+    Pair(A),
+    Z(B),
+}
+pub enum Noise {
+    Pair(String),
+}
+impl E2 {
+    pub fn run(&self) {
+        use self::E2::*;
+        match *self {
+            Pair(ref a) => a.variant_dup(),
+            Z(_) => {}
+        }
+    }
+}
+
+pub fn map_path(r: Result<String, ()>) -> Result<(), ()> {
+    let a = r.map(A::make)?;
+    a.map_path();
+    Ok(())
+}
