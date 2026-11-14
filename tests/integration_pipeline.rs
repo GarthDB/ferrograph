@@ -501,7 +501,7 @@ fn pipeline_self_method_prefers_own_file_impl_of_same_named_type() {
     strict_b.sort_unstable();
     assert_eq!(dead_lines(&store, true, "src/a.rs"), [a["amb_a"]]);
     assert_eq!(dead_lines(&store, true, "src/b.rs"), strict_b);
-    assert!(dead_lines(&store, false, "src/a.rs").is_empty());
+    assert_eq!(dead_lines(&store, false, "src/a.rs"), [] as [usize; 0]);
     assert_eq!(
         dead_lines(&store, false, "src/b.rs"),
         [b["dead_b_err"], b["dead_b_parse"]]
