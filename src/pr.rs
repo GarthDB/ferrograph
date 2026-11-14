@@ -41,6 +41,8 @@ pub struct PrOptions {
     pub strict: bool,
     /// Applied to base and head alike; also enabled by `restricted_vis_not_root` in `[dead]` of the HEAD config.
     pub restricted_vis_not_root: bool,
+    /// Applied to base and head alike; also enabled by `bin_pub_not_root` in `[dead]` of the HEAD config.
+    pub bin_pub_not_root: bool,
     pub entry: Vec<String>,
     pub ignore: Vec<String>,
     pub exclude_low_confidence: bool,
@@ -368,6 +370,7 @@ fn dead_state(
     entry: &[String],
     ignore: &[String],
     restricted_vis_not_root: bool,
+    bin_pub_not_root: bool,
 ) -> Result<DeadState> {
     let rows = store.run_query(
         &format!(
@@ -402,13 +405,53 @@ fn dead_state(
         .iter()
         .map(|p| glob::Pattern::new(p))
         .collect::<Result<Vec<_>, _>>()?;
-    let dead =
-        Query::compute_dead_functions_with(store, opts.strict, &entries, restricted_vis_not_root)?
-            .into_iter()
-            .filter(|id| !pats.iter().any(|p| crate::ops::path_matches(p, id)))
-            .filter_map(|id| by_id.get(&id).cloned())
-            .collect();
+    let dead = Query::compute_dead_functions_with(
+        store,
+        opts.strict,
+        &entries,
+        restricted_vis_not_root,
+        bin_pub_not_root,
+    )?
+    .into_iter()
+    .filter(|id| !pats.iter().any(|p| crate::ops::path_matches(p, id)))
+    .filter_map(|id| by_id.get(&id).cloned())
+    .collect();
     Ok(DeadState { all, dead })
+}
+
+/// Whether the graph has at least one `has_attribute` edge to `attr::{attr}`.
+fn has_marker(store: &Store, attr: &str) -> bool {
+    store
+        .run_query(
+            &format!(
+                "?[id] := *edges[id, \"attr::{attr}\", \"{}\"] :limit 1",
+                crate::graph::schema::EdgeType::HasAttribute
+            ),
+            BTreeMap::new(),
+        )
+        .is_ok_and(|r| !r.rows.is_empty())
+}
+
+/// A graph indexed before a visibility marker existed (`--db`/`--base-db` from an older ferrograph) cannot honour the
+/// matching option, so one side would demote functions the other keeps as roots and `pr` would report phantom
+/// changes. Warn when exactly one side has the marker.
+fn warn_stale_markers(
+    head: &Store,
+    base: &Store,
+    restricted: bool,
+    bin_pub: bool,
+    warnings: &mut Vec<String>,
+) {
+    for (enabled, attr, option) in [
+        (restricted, "pub_restricted", "restricted_vis_not_root"),
+        (bin_pub, "pub_bin_only", "bin_pub_not_root"),
+    ] {
+        if enabled && has_marker(head, attr) != has_marker(base, attr) {
+            warnings.push(format!(
+                "{option}: only one of the base and head graphs has the `{attr}` marker (indexed by an older ferrograph?); newly dead results may be wrong, re-index the older graph"
+            ));
+        }
+    }
 }
 
 fn open_graph(path: &Path, what: &str) -> Result<Store> {
@@ -639,23 +682,26 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
     let ignore: Vec<String> = opts.ignore.iter().cloned().chain(cfg.dead.ignore).collect();
 
     let restricted = opts.restricted_vis_not_root || cfg.dead.restricted_vis_not_root;
+    let bin_pub = opts.bin_pub_not_root || cfg.dead.bin_pub_not_root;
 
     let diffs = diff_files(&root, &merge_base, &head)?;
 
     let head_store = open_head(opts, &root, &prefix, &head, &mut warnings)?;
-    let head_state = dead_state(&head_store, opts, &entry, &ignore, restricted)?;
-    let base_state = if let Some(p) = &opts.base_db {
+    let head_state = dead_state(&head_store, opts, &entry, &ignore, restricted, bin_pub)?;
+    let base_store = if let Some(p) = &opts.base_db {
         warnings.push(format!(
             "using --base-db {}: it is assumed to be indexed from the merge base {merge_base:.8}",
             p.display()
         ));
-        dead_state(&open_graph(p, "Base")?, opts, &entry, &ignore, restricted)?
+        open_graph(p, "Base")?
     } else {
         let wt = Worktree::add(&root, &merge_base)?;
         let s = Store::new_memory()?;
         run_pipeline(&s, &wt.dir.join(&prefix), &PipelineConfig::default())?;
-        dead_state(&s, opts, &entry, &ignore, restricted)?
+        s
     };
+    warn_stale_markers(&head_store, &base_store, restricted, bin_pub, &mut warnings);
+    let base_state = dead_state(&base_store, opts, &entry, &ignore, restricted, bin_pub)?;
 
     let newly_dead = newly_dead(&head_state, &base_state, &diffs);
     let (changed_functions, changed_without_function, blast) = map_changes(

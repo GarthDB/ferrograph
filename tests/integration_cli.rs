@@ -1063,3 +1063,45 @@ fn cli_dead_restricted_vis_not_root() {
         assert!(!out.contains("bare_pub"), "bare pub stays a root: {out}");
     }
 }
+
+fn dead_bin_pub(config: Option<&str>, extra: &[&str]) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"p\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/main.rs"), RESTRICTED_SRC).unwrap();
+    if let Some(c) = config {
+        std::fs::write(root.join(".ferrograph.toml"), c).unwrap();
+    }
+    let db = root.join(".ferrograph");
+    assert!(run(&["index", "--output", s(&db), s(root)])
+        .status
+        .success());
+    let out = run(&["dead", "--db", s(&db)]
+        .iter()
+        .chain(extra)
+        .copied()
+        .collect::<Vec<_>>());
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn cli_dead_bin_pub_not_root() {
+    let out = dead_bin_pub(None, &[]);
+    assert!(!out.contains("bare_pub"), "{out}");
+    for out in [
+        dead_bin_pub(None, &["--bin-pub-not-root"]),
+        dead_bin_pub(Some("[dead]\nbin_pub_not_root = true\n"), &[]),
+    ] {
+        assert!(out.contains("bare_pub"), "{out}");
+        assert!(
+            !out.contains("only_crate") && !out.contains("only_super"),
+            "pub(..) stays a root without --restricted-vis-not-root: {out}"
+        );
+    }
+}

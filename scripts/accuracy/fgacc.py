@@ -22,6 +22,11 @@ ENTRY_ATTRS = {
 LIB_KINDS = {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
 
 
+def cohort(c):
+    """Pooling cohort of a corpora.toml entry: `cohort` if set, else held-out / original."""
+    return c.get("cohort") or ("held-out" if c.get("heldout") else "original")
+
+
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
 
@@ -137,6 +142,7 @@ class Fg:
         # Passed to `dead` and `pr` only (never to `index`/`query`).
         self.extra = list(extra_args)
         self.restricted = "--restricted-vis-not-root" in self.extra
+        self.bin_pub = "--bin-pub-not-root" in self.extra
 
     def version(self):
         _, out, _ = run([self.bin, "--version"])
@@ -210,7 +216,7 @@ def split_id(i):
 # ---------------------------------------------------------------- reachability model
 
 
-def root_kind(g, nid, implemented_trait_fns, restricted=False):
+def root_kind(g, nid, implemented_trait_fns, restricted=False, bin_pub=False):
     t, payload = g["nodes"][nid]
     payload = payload or ""
     if t != "function":
@@ -219,12 +225,12 @@ def root_kind(g, nid, implemented_trait_fns, restricted=False):
         return next((a[6:] for a in sorted(ENTRY_ATTRS) if a in attrs), None)
     if payload == "main":
         return "main"
-    if payload.startswith("pub::") and not (
-        restricted
-        and "attr::pub_restricted" in g["attrs"].get(nid, ())
-        and not payload.startswith(("pub::test::", "pub::bench::"))
-        and payload != "pub::main"
-    ):
+    attrs = g["attrs"].get(nid, set())
+    demoted = (
+        (restricted and "attr::pub_restricted" in attrs)
+        or (bin_pub and "attr::pub_bin_only" in attrs)
+    ) and not payload.startswith(("pub::test::", "pub::bench::")) and payload != "pub::main"
+    if payload.startswith("pub::") and not demoted:
         return "pub"
     if payload.startswith("test::"):
         return "test"
@@ -241,7 +247,7 @@ def root_kind(g, nid, implemented_trait_fns, restricted=False):
     return None
 
 
-def prepare_model(g, restricted=False):
+def prepare_model(g, restricted=False, bin_pub=False):
     attrs = defaultdict(set)
     adj = defaultdict(list)
     contains = defaultdict(list)
@@ -268,7 +274,7 @@ def prepare_model(g, restricted=False):
         if t in ("file", "module"):
             g["roots"][nid] = t
         else:
-            k = root_kind(g, nid, g["trait_fns"], restricted)
+            k = root_kind(g, nid, g["trait_fns"], restricted, bin_pub)
             if k:
                 g["roots"][nid] = k
     return g
@@ -332,7 +338,7 @@ def chain(info, nid, limit=6):
 
 def run_rustc(root, cargo_args, target_dir, timeout=1800, extra_env=None):
     """Run `cargo check` with force-warned dead_code. Returns (messages, command, fallback_note, err_tail); falls back step by step if the build fails."""
-    env = {"RUSTFLAGS": "--force-warn dead_code", "CARGO_TARGET_DIR": str(target_dir)}
+    env = {"RUSTFLAGS": "--force-warn dead_code", "CARGO_TARGET_DIR": str(Path(target_dir).resolve())}
     env.update(extra_env or {})
     nofeat = [a for a in cargo_args if a != "--all-features"]
     nobench = ["--lib", "--bins", "--tests", "--examples"]
@@ -345,6 +351,10 @@ def run_rustc(root, cargo_args, target_dir, timeout=1800, extra_env=None):
             (nofeat, "default features, no benches"),
         ):
             variants.append(([a for a in base if a != "--all-targets"] + nobench, note))
+            # bin-only packages have no library target, and `--lib` then fails the whole command
+            variants.append(
+                ([a for a in base if a != "--all-targets"] + nobench[1:], note + ", no --lib")
+            )
     err = ""
     for args, note in variants:
         cmd = ["cargo", "check", *args, "--message-format=json"]
@@ -617,3 +627,31 @@ def visibility(root, nid):
         if re.search(r"\bfn\b", ln):
             break
     return "not pub in source (inherited, e.g. impl of a pub trait or enclosing item)"
+
+
+# ---------------------------------------------------------------- sample size
+
+
+def n_unpaired(p, d, z_a=1.96, z_b=0.8416):
+    """Items per arm for a two-sided 5% test at 80% power to detect a drop/gain of `d` from proportion `p`
+    with two independent samples (p2 = p + d)."""
+    p2 = min(max(p + d, 0.0), 1.0)
+    return math.ceil((z_a + z_b) ** 2 * (p * (1 - p) + p2 * (1 - p2)) / d**2)
+
+
+def n_paired(q, d, z_a=1.96, z_b=0.8416):
+    """Items for a paired (McNemar) comparison when a fraction `q` of items is classified differently by the two arms
+    and the net difference is `d` (Connor 1987 normal approximation)."""
+    if q <= d:
+        return None
+    return math.ceil((z_a * math.sqrt(q) + z_b * math.sqrt(q - d * d)) ** 2 / d**2)
+
+
+def mcnemar_p(b, c):
+    """Exact two-sided McNemar (sign test) p-value for b vs c discordant items."""
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) / 2**n
+    return min(1.0, 2 * tail)

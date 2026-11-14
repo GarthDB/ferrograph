@@ -78,6 +78,20 @@ class SyntheticCorpus(unittest.TestCase):
         self.assertIn("crate_dead", found)
         self.assertNotIn("pub_dead", found)  # bare pub stays a root
 
+    def test_extra_args_bin_pub_not_root(self):
+        tmp = Path(self.tmp.name)
+        subprocess.run(
+            [sys.executable, str(HERE / "groundtruth.py"), "--config", str(tmp / "c.toml"), "--ferrograph", find_binary(),
+             "--work", str(tmp / "w"), "--extra-args=--bin-pub-not-root",
+             "--out-md", str(tmp / "r3.md"), "--out-json", str(tmp / "r3.json")],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
+        )
+        res = json.loads((tmp / "r3.json").read_text())["results"][0]
+        for mode, sc in res["selfcheck"].items():
+            self.assertEqual(sc["diff"], 0, mode)  # python model follows the option
+        found = {res["R"][n]["name"] for n in res["modes"]["default"]["F"] if n in res["R"]}
+        self.assertIn("pub_dead", found)  # bare pub in a bin-only package
+
     def test_pr_mutation_finds_orphaned_fn(self):
         tmp = Path(self.tmp.name)
         subprocess.run(
@@ -95,6 +109,57 @@ class SyntheticCorpus(unittest.TestCase):
             r = by[name]
             self.assertEqual(len(r["oracle"]), 1, name)
             self.assertEqual(r["tp"], r["oracle"], name)
+
+
+    def test_pr_mutation_families(self):
+        tmp = Path(self.tmp.name)
+        subprocess.run(
+            [sys.executable, str(HERE / "mutation.py"), "--config", str(tmp / "c.toml"), "--corpus", "synthetic",
+             "--ferrograph", find_binary(), "--work", str(tmp / "w2"), "--n", "5", "--family", "ref,impl,caller",
+             "--out-md", str(tmp / "mf.md"), "--out-json", str(tmp / "mf.json")],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
+        )
+        runs = json.loads((tmp / "mf.json").read_text())["runs"]
+        by = {(r["family"], r["name"]): r for r in runs}
+        for key in (("ref", "table_entry"), ("impl", "greeting_helper"), ("caller", "only_by_entry")):
+            self.assertIn(key, by)
+            self.assertEqual(by[key]["oracle"], by[key]["tp"], key)
+            self.assertEqual(len(by[key]["oracle"]), 1, key)
+
+
+class Mutators(unittest.TestCase):
+    def test_edits_keep_line_count(self):
+        import mutation
+
+        src = "#[inline]\nfn a() {\n    b();\n}\n\nfn c() {}\n"
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.rs").write_text(src)
+            lines = src.splitlines()
+            self.assertEqual(mutation.attr_start(lines, 2), 1)
+            self.assertEqual(mutation.block_end(lines, 2), 4)
+            mutation.apply_edits(d, [("a.rs", 1, 4, "")])
+            out = (Path(d) / "a.rs").read_text()
+            self.assertEqual(out.count("\n"), src.count("\n"))
+            self.assertIn("fn c() {}", out)
+            self.assertNotIn("fn a", out)
+
+    def test_attr_start_wrapped_attribute_and_array_tail(self):
+        import mutation
+
+        lines = ["const T: [u8; 1] = [", "    1,", "];", "#[derive(", "    A,", ")]", "fn f() {}"]
+        self.assertEqual(mutation.attr_start(lines, 7), 4)  # stops at the `#[derive(`, keeps the array
+        self.assertEqual(mutation.attr_start(["];", "fn g() {}"], 2), 2)
+
+
+class SampleSize(unittest.TestCase):
+    def test_formulas(self):
+        import fgacc
+
+        self.assertEqual(fgacc.n_unpaired(0.5, 0.05), 1562)
+        self.assertEqual(fgacc.n_paired(0.1, 0.05), 312)
+        self.assertIsNone(fgacc.n_paired(0.04, 0.05))
+        self.assertAlmostEqual(fgacc.mcnemar_p(0, 4), 0.125)
+        self.assertEqual(fgacc.mcnemar_p(0, 0), 1.0)
 
 
 class Wilson(unittest.TestCase):

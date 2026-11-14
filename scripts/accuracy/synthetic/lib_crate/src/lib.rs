@@ -13,3 +13,11 @@ fn lib_dead() -> u32 {
 pub fn pub_unused() -> u32 {
     3
 }
+
+pub fn entry() -> u32 {
+    only_by_entry()
+}
+
+fn only_by_entry() -> u32 {
+    11
+}

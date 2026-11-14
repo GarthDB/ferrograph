@@ -247,6 +247,8 @@ pub struct DeadOptions {
     pub strict: bool,
     /// `pub(crate)`/`pub(super)`/`pub(in ..)` functions are not roots (bare `pub` still is).
     pub restricted_vis_not_root: bool,
+    /// Bare `pub` functions in files compiled only by bin/test/example/bench units are not roots.
+    pub bin_pub_not_root: bool,
     /// Extra entry points: file globs (`examples/**`) or attributes (`#[no_mangle]`).
     pub entry: Vec<String>,
     /// File globs whose functions are never reported.
@@ -306,7 +308,10 @@ pub fn dead_code(
     opts: &DeadOptions,
 ) -> Result<DeadCodeResult> {
     // The stored relation reflects index-time defaults only, so any option forces a recompute.
-    let custom = opts.strict || opts.restricted_vis_not_root || !opts.entry.is_empty();
+    let custom = opts.strict
+        || opts.restricted_vis_not_root
+        || opts.bin_pub_not_root
+        || !opts.entry.is_empty();
     let mut triples = if custom {
         Vec::new()
     } else {
@@ -319,6 +324,7 @@ pub fn dead_code(
             opts.strict,
             &entries,
             opts.restricted_vis_not_root,
+            opts.bin_pub_not_root,
         )?;
         "computed"
     } else {
