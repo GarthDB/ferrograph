@@ -956,6 +956,22 @@ fn cli_runtime_error_exits_2() {
 }
 
 #[test]
+fn cli_status_missing_graph_exits_2_on_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("nope");
+    for args in [
+        vec!["status", "--db", s(&missing)],
+        vec!["status", s(&missing)],
+        vec!["--json", "status", "--db", s(&missing)],
+    ] {
+        let out = run(&args);
+        assert_eq!(code(&out), Some(2), "{args:?}");
+        assert!(out.stdout.is_empty(), "{args:?}");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("not found"));
+    }
+}
+
+#[test]
 fn cli_format_flag_and_json_alias() {
     let (db, _dir) = index_fixture();
     let d = s(&db);
