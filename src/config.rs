@@ -117,6 +117,9 @@ pub enum Command {
         /// Do not treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (bare `pub` still is).
         #[arg(long)]
         restricted_vis_not_root: bool,
+        /// Do not treat bare `pub` functions in files compiled only by bin/test/example/bench targets as entry points.
+        #[arg(long)]
+        bin_pub_not_root: bool,
         /// Extra entry point: file glob (`examples/**`) or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
@@ -154,6 +157,9 @@ pub enum Command {
         /// Do not treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (bare `pub` still is).
         #[arg(long)]
         restricted_vis_not_root: bool,
+        /// Do not treat bare `pub` functions in files compiled only by bin/test/example/bench targets as entry points.
+        #[arg(long)]
+        bin_pub_not_root: bool,
         /// Extra entry point: file glob or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
@@ -303,6 +309,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             file,
             strict,
             restricted_vis_not_root,
+            bin_pub_not_root,
             entry,
             ignore,
             fail_on_any,
@@ -314,6 +321,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             crate::ops::DeadOptions {
                 strict,
                 restricted_vis_not_root,
+                bin_pub_not_root,
                 entry,
                 ignore,
             },
@@ -327,6 +335,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             index_head,
             strict,
             restricted_vis_not_root,
+            bin_pub_not_root,
             entry,
             ignore,
             exclude_low_confidence,
@@ -344,6 +353,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 index_head,
                 strict,
                 restricted_vis_not_root,
+                bin_pub_not_root,
                 entry,
                 ignore,
                 exclude_low_confidence,
@@ -527,6 +537,9 @@ pub struct DeadConfig {
     /// Treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as non-roots (default false).
     #[serde(default)]
     pub restricted_vis_not_root: bool,
+    /// Treat bare `pub` functions in bin/test/example/bench-only files as non-roots (default false).
+    #[serde(default)]
+    pub bin_pub_not_root: bool,
 }
 
 /// Load `.ferrograph.toml` from the database's directory, falling back to the cwd.
@@ -577,6 +590,7 @@ fn run_dead(
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;
     let cfg = load_file_config(&db_path)?;
     opts.restricted_vis_not_root |= cfg.dead.restricted_vis_not_root;
+    opts.bin_pub_not_root |= cfg.dead.bin_pub_not_root;
     opts.entry.extend(cfg.dead.entry);
     opts.ignore.extend(cfg.dead.ignore);
     let result = crate::ops::dead_code(&store, file, &opts)?;

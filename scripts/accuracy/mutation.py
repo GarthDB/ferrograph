@@ -376,7 +376,7 @@ def main():
         sys.exit("base does not build: " + note)
     db = work / "base.db"
     fg.index(index_root, db)
-    g = A.prepare_model(fg.load_graph(db), fg.restricted)
+    g = A.prepare_model(fg.load_graph(db), fg.restricted, fg.bin_pub)
     by_file = A.build_index(g)
     fams = list(FAMILIES) if args.family == "all" else args.family.split(",")
     cands = []
@@ -454,7 +454,7 @@ def main():
         if fn_ids:
             hdb = work / "head.db"
             fg.index(index_root, hdb)
-            hg = A.prepare_model(fg.load_graph(hdb), fg.restricted)
+            hg = A.prepare_model(fg.load_graph(hdb), fg.restricted, fg.bin_pub)
             head_dead = fg.dead(hdb)
             base_dead = fg.dead(db)
             info = A.reach(hg, False, dead_rustc=set(fn_ids))

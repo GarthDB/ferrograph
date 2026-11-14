@@ -46,6 +46,10 @@ pub fn extract_ast(store: &Store, path: &Path, content: &str, root: &Path) -> Re
         &mut edges,
     );
 
+    if super::modules::is_bin_only_file(root, path) {
+        mark_bare_pub_in_bin_only(&nodes, &mut edges);
+    }
+
     if !nodes.is_empty() {
         let batch: Vec<_> = nodes
             .iter()
@@ -312,6 +316,45 @@ fn is_comment(node: &tree_sitter::Node) -> bool {
 const TRAIT_IMPL_ATTR: &str = "trait_impl";
 /// Marks a function whose visibility is `pub(..)` rather than bare `pub` (opt-in non-root, see `graph::query`).
 const RESTRICTED_VIS_ATTR: &str = "pub_restricted";
+
+/// Marks a bare `pub` function in a file compiled only by bin/test/example/bench units (opt-in non-root, see `graph::query`).
+const PUB_BIN_ONLY_ATTR: &str = "pub_bin_only";
+
+/// Adds the [`PUB_BIN_ONLY_ATTR`] marker to every bare-`pub` function (not `pub(..)`, test, bench or `main`) of a bin-only file.
+fn mark_bare_pub_in_bin_only(
+    nodes: &[(NodeId, NodeType, Option<String>)],
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let restricted_marker = NodeId::new(format!("attr::{RESTRICTED_VIS_ATTR}"));
+    let restricted: std::collections::HashSet<NodeId> = edges
+        .iter()
+        .filter(|(_, t, e)| *t == restricted_marker && *e == EdgeType::HasAttribute)
+        .map(|(f, _, _)| f.clone())
+        .collect();
+    let demotable: Vec<NodeId> = nodes
+        .iter()
+        .filter(|(id, typ, payload)| {
+            *typ == NodeType::Function
+                && payload
+                    .as_deref()
+                    .and_then(|p| p.strip_prefix("pub::"))
+                    .is_some_and(|rest| {
+                        !rest.starts_with("test::")
+                            && !rest.starts_with("bench::")
+                            && rest != "main"
+                    })
+                && !restricted.contains(id)
+        })
+        .map(|(id, _, _)| id.clone())
+        .collect();
+    for id in demotable {
+        edges.push((
+            id,
+            NodeId::new(format!("attr::{PUB_BIN_ONLY_ATTR}")),
+            EdgeType::HasAttribute,
+        ));
+    }
+}
 
 /// True for a function directly inside `impl <Trait> for <Type>` (including generic traits).
 fn is_trait_impl_method(node: &tree_sitter::Node) -> bool {

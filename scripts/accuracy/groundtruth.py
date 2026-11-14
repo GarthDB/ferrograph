@@ -71,7 +71,7 @@ def analyse(c, fg, work, args):
     t0 = time.time()
     fg.index(index_root, db)
     res["index_seconds"] = round(time.time() - t0, 1)
-    g = A.prepare_model(fg.load_graph(db), fg.restricted)
+    g = A.prepare_model(fg.load_graph(db), fg.restricted, fg.bin_pub)
     by_file = A.build_index(g)
     res["fn_nodes"] = sum(1 for t, _ in g["nodes"].values() if t == "function")
 

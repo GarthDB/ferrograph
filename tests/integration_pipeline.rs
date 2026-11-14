@@ -725,9 +725,14 @@ fn pipeline_bare_call_does_not_bind_to_a_method_of_the_same_file() {
 fn pipeline_restricted_visibility_fns_are_not_roots() {
     let store = run_fixture("restricted_vis");
     let dead = |strict, restricted| {
-        let ids =
-            ferrograph::graph::Query::compute_dead_functions_with(&store, strict, &[], restricted)
-                .unwrap();
+        let ids = ferrograph::graph::Query::compute_dead_functions_with(
+            &store,
+            strict,
+            &[],
+            restricted,
+            false,
+        )
+        .unwrap();
         let mut names: Vec<String> = dead_names_of(&store, &ids)
             .iter()
             .map(|n| n.trim_start_matches("pub::").to_string())
@@ -748,6 +753,36 @@ fn pipeline_restricted_visibility_fns_are_not_roots() {
             "strict={strict}"
         );
     }
+}
+
+/// Opt-in `bin_pub_not_root`: bare `pub` fns in bin/test-only files are not roots; a library file of the same
+/// package keeps its `pub` roots, and `pub(crate)` is only demoted by the other option.
+#[test]
+fn pipeline_bin_only_bare_pub_fns_are_not_roots() {
+    let store = run_fixture("bin_pub");
+    let dead = |restricted, bin_pub| {
+        let ids = ferrograph::graph::Query::compute_dead_functions_with(
+            &store,
+            false,
+            &[],
+            restricted,
+            bin_pub,
+        )
+        .unwrap();
+        let mut names: Vec<String> = dead_names_of(&store, &ids)
+            .iter()
+            .map(|n| n.trim_start_matches("pub::").to_string())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(dead(false, false), Vec::<String>::new());
+    assert_eq!(dead(false, true), ["bin_unused", "unused_support"]);
+    assert_eq!(dead(true, false), ["crate_unused"]);
+    assert_eq!(
+        dead(true, true),
+        ["bin_unused", "crate_unused", "unused_support"]
+    );
 }
 
 /// Line numbers (1-based) of fixture definitions, keyed by their trailing `// tag` or `/* tag */`.

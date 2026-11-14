@@ -41,6 +41,8 @@ pub struct PrOptions {
     pub strict: bool,
     /// Applied to base and head alike; also enabled by `restricted_vis_not_root` in `[dead]` of the HEAD config.
     pub restricted_vis_not_root: bool,
+    /// Applied to base and head alike; also enabled by `bin_pub_not_root` in `[dead]` of the HEAD config.
+    pub bin_pub_not_root: bool,
     pub entry: Vec<String>,
     pub ignore: Vec<String>,
     pub exclude_low_confidence: bool,
@@ -368,6 +370,7 @@ fn dead_state(
     entry: &[String],
     ignore: &[String],
     restricted_vis_not_root: bool,
+    bin_pub_not_root: bool,
 ) -> Result<DeadState> {
     let rows = store.run_query(
         &format!(
@@ -402,12 +405,17 @@ fn dead_state(
         .iter()
         .map(|p| glob::Pattern::new(p))
         .collect::<Result<Vec<_>, _>>()?;
-    let dead =
-        Query::compute_dead_functions_with(store, opts.strict, &entries, restricted_vis_not_root)?
-            .into_iter()
-            .filter(|id| !pats.iter().any(|p| crate::ops::path_matches(p, id)))
-            .filter_map(|id| by_id.get(&id).cloned())
-            .collect();
+    let dead = Query::compute_dead_functions_with(
+        store,
+        opts.strict,
+        &entries,
+        restricted_vis_not_root,
+        bin_pub_not_root,
+    )?
+    .into_iter()
+    .filter(|id| !pats.iter().any(|p| crate::ops::path_matches(p, id)))
+    .filter_map(|id| by_id.get(&id).cloned())
+    .collect();
     Ok(DeadState { all, dead })
 }
 
@@ -639,22 +647,30 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
     let ignore: Vec<String> = opts.ignore.iter().cloned().chain(cfg.dead.ignore).collect();
 
     let restricted = opts.restricted_vis_not_root || cfg.dead.restricted_vis_not_root;
+    let bin_pub = opts.bin_pub_not_root || cfg.dead.bin_pub_not_root;
 
     let diffs = diff_files(&root, &merge_base, &head)?;
 
     let head_store = open_head(opts, &root, &prefix, &head, &mut warnings)?;
-    let head_state = dead_state(&head_store, opts, &entry, &ignore, restricted)?;
+    let head_state = dead_state(&head_store, opts, &entry, &ignore, restricted, bin_pub)?;
     let base_state = if let Some(p) = &opts.base_db {
         warnings.push(format!(
             "using --base-db {}: it is assumed to be indexed from the merge base {merge_base:.8}",
             p.display()
         ));
-        dead_state(&open_graph(p, "Base")?, opts, &entry, &ignore, restricted)?
+        dead_state(
+            &open_graph(p, "Base")?,
+            opts,
+            &entry,
+            &ignore,
+            restricted,
+            bin_pub,
+        )?
     } else {
         let wt = Worktree::add(&root, &merge_base)?;
         let s = Store::new_memory()?;
         run_pipeline(&s, &wt.dir.join(&prefix), &PipelineConfig::default())?;
-        dead_state(&s, opts, &entry, &ignore, restricted)?
+        dead_state(&s, opts, &entry, &ignore, restricted, bin_pub)?
     };
 
     let newly_dead = newly_dead(&head_state, &base_state, &diffs);

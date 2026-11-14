@@ -142,6 +142,7 @@ class Fg:
         # Passed to `dead` and `pr` only (never to `index`/`query`).
         self.extra = list(extra_args)
         self.restricted = "--restricted-vis-not-root" in self.extra
+        self.bin_pub = "--bin-pub-not-root" in self.extra
 
     def version(self):
         _, out, _ = run([self.bin, "--version"])
@@ -215,7 +216,7 @@ def split_id(i):
 # ---------------------------------------------------------------- reachability model
 
 
-def root_kind(g, nid, implemented_trait_fns, restricted=False):
+def root_kind(g, nid, implemented_trait_fns, restricted=False, bin_pub=False):
     t, payload = g["nodes"][nid]
     payload = payload or ""
     if t != "function":
@@ -224,12 +225,12 @@ def root_kind(g, nid, implemented_trait_fns, restricted=False):
         return next((a[6:] for a in sorted(ENTRY_ATTRS) if a in attrs), None)
     if payload == "main":
         return "main"
-    if payload.startswith("pub::") and not (
-        restricted
-        and "attr::pub_restricted" in g["attrs"].get(nid, ())
-        and not payload.startswith(("pub::test::", "pub::bench::"))
-        and payload != "pub::main"
-    ):
+    attrs = g["attrs"].get(nid, set())
+    demoted = (
+        (restricted and "attr::pub_restricted" in attrs)
+        or (bin_pub and "attr::pub_bin_only" in attrs)
+    ) and not payload.startswith(("pub::test::", "pub::bench::")) and payload != "pub::main"
+    if payload.startswith("pub::") and not demoted:
         return "pub"
     if payload.startswith("test::"):
         return "test"
@@ -246,7 +247,7 @@ def root_kind(g, nid, implemented_trait_fns, restricted=False):
     return None
 
 
-def prepare_model(g, restricted=False):
+def prepare_model(g, restricted=False, bin_pub=False):
     attrs = defaultdict(set)
     adj = defaultdict(list)
     contains = defaultdict(list)
@@ -273,7 +274,7 @@ def prepare_model(g, restricted=False):
         if t in ("file", "module"):
             g["roots"][nid] = t
         else:
-            k = root_kind(g, nid, g["trait_fns"], restricted)
+            k = root_kind(g, nid, g["trait_fns"], restricted, bin_pub)
             if k:
                 g["roots"][nid] = k
     return g

@@ -391,3 +391,48 @@ fn restricted_vis_not_root_applies_to_base_and_head() {
     let v = json(&pr(d.path(), &["--json"]));
     assert_eq!(names(&v["newly_dead"]), ["helper"]);
 }
+
+#[test]
+fn bin_pub_not_root_applies_to_base_and_head() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "Cargo.toml",
+        "[package]\nname = \"p\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    let public = |s: &str| {
+        s.replace("fn used", "pub fn used")
+            .replace("fn helper", "pub fn helper")
+            .replace("fn already_dead", "pub fn already_dead")
+    };
+    write(d.path(), "src/main.rs", &public(BASE));
+    commit(d.path(), "pub");
+    git(d.path(), &["checkout", "-q", "main"]);
+    git(d.path(), &["merge", "-q", "--ff-only", "feature"]);
+    git(d.path(), &["checkout", "-q", "-b", "feature2"]);
+    write(
+        d.path(),
+        "src/main.rs",
+        &public(&BASE.replace("    helper();\n", "")),
+    );
+    commit(d.path(), "drop call");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert!(
+        names(&v["newly_dead"]).is_empty(),
+        "default keeps them roots"
+    );
+    let v = json(&pr(d.path(), &["--json", "--bin-pub-not-root"]));
+    assert_eq!(
+        names(&v["newly_dead"]),
+        ["helper"],
+        "already_dead is pre-existing"
+    );
+    write(
+        d.path(),
+        ".ferrograph.toml",
+        "[dead]\nbin_pub_not_root = true\n",
+    );
+    commit(d.path(), "config");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert_eq!(names(&v["newly_dead"]), ["helper"]);
+}

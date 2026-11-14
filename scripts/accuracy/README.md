@@ -21,7 +21,7 @@ python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph \
     --out-md mutation-report.md --out-json mutation-data.json
 
 # 2b. Same, with an option under test (the python model of `dead` follows --restricted-vis-not-root).
-#     Use the `=` form: argparse reads a bare `--extra-args --flag` as two options.
+#     (`--bin-pub-not-root` is followed by the model too). Use the `=` form: argparse reads a bare `--extra-args --flag` as two options.
 python3 scripts/accuracy/groundtruth.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
     --extra-args=--restricted-vis-not-root
 python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc --corpus clap \
@@ -49,7 +49,7 @@ python3 scripts/accuracy/scan.py --work /tmp/fg-scan owner/repo another/repo
 
 # 2h. Whole matrix (all url corpora x arms), one corpus at a time with target dirs deleted afterwards:
 python3 scripts/accuracy/run_matrix.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc --out /tmp/fg-out \
-    --arms default,restricted
+    --arms default,restricted,binpub,both     # arms: default, restricted, binpub, both
 
 # 3. Self-test of the harness on the built-in synthetic corpus (~2 s, no network).
 python3 scripts/accuracy/test_harness.py       # uses $FERROGRAPH or target/{debug,release}/ferrograph

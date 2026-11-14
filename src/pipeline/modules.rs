@@ -24,6 +24,38 @@ fn crate_dir(root: &Path, path: &Path) -> std::path::PathBuf {
         .to_path_buf()
 }
 
+/// True when every compilation unit that includes `path` is a bin, test, example, bench or build-script unit,
+/// so a bare `pub` item in it is invisible outside its own binary. Decided from Cargo's target layout, not
+/// from `mod` declarations: `tests/`, `examples/`, `benches/`, `build.rs`, `src/main.rs` and `src/bin/` are
+/// always bin-only; any other file of a package is bin-only when the package has no library target
+/// (no `src/lib.rs`, no `[lib]` table). Files outside any package (no `Cargo.toml` between `path` and `root`)
+/// are never bin-only. Limits: a file shared into a lib through `#[path]`/`include!` from `tests/` is still
+/// classified by its own location; and the `mod`s of `src/main.rs` in a package that also has a library
+/// count as library files (conservative: they stay roots).
+pub(crate) fn is_bin_only_file(root: &Path, path: &Path) -> bool {
+    let dir = crate_dir(root, path);
+    let manifest_path = dir.join("Cargo.toml");
+    let Ok(rel) = path.strip_prefix(&dir) else {
+        return false;
+    };
+    if !manifest_path.is_file() {
+        return false;
+    }
+    let first = rel.components().next().and_then(|c| c.as_os_str().to_str());
+    if matches!(first, Some("tests" | "examples" | "benches")) || rel == Path::new("build.rs") {
+        return true;
+    }
+    if rel == Path::new("src/main.rs") || rel.starts_with("src/bin") {
+        return true;
+    }
+    let has_lib = dir.join("src/lib.rs").is_file()
+        || std::fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|t| t.parse::<toml::Value>().ok())
+            .is_none_or(|m| m.get("lib").is_some());
+    !has_lib
+}
+
 /// Crate (directory relative to `root`) and module path within it for a file under `root`
 /// (e.g. `crate::utils` for `src/utils.rs`).
 fn file_to_module_path(root: &Path, path: &Path) -> Option<(String, String)> {
@@ -728,6 +760,45 @@ mod leaf_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bin_only_files_follow_cargo_target_layout() {
+        let d = tempfile::tempdir().unwrap();
+        let w = |rel: &str, text: &str| {
+            let p = d.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        let pkg = "[package]\nname = \"p\"\nversion = \"0.1.0\"\n";
+        w("app/Cargo.toml", pkg);
+        w("app/src/main.rs", "");
+        w("app/src/util.rs", "");
+        w("lib/Cargo.toml", pkg);
+        w("lib/src/lib.rs", "");
+        w("lib/src/main.rs", "");
+        w("lib/src/util.rs", "");
+        w("lib/src/bin/tool.rs", "");
+        w("lib/tests/support/mod.rs", "");
+        w(
+            "custom/Cargo.toml",
+            &format!("{pkg}[lib]\npath = \"core/lib.rs\"\n"),
+        );
+        w("custom/core/x.rs", "");
+        w("loose/x.rs", "");
+        let bin_only = |rel: &str| is_bin_only_file(d.path(), &d.path().join(rel));
+        assert!(bin_only("app/src/main.rs") && bin_only("app/src/util.rs"));
+        assert!(!bin_only("lib/src/lib.rs") && !bin_only("lib/src/util.rs"));
+        assert!(bin_only("lib/src/main.rs") && bin_only("lib/src/bin/tool.rs"));
+        assert!(bin_only("lib/tests/support/mod.rs"));
+        assert!(
+            !bin_only("custom/core/x.rs"),
+            "[lib] table means a library target"
+        );
+        assert!(
+            !bin_only("loose/x.rs"),
+            "no manifest: unknown, stay conservative"
+        );
+    }
 
     #[test]
     fn resolve_modules_empty_store_succeeds() {

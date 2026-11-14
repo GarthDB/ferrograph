@@ -165,12 +165,14 @@ impl Query {
         strict: bool,
         extra_entries: &[String],
         restricted_vis_not_root: bool,
+        bin_pub_not_root: bool,
     ) -> Result<Vec<NodeTriple>> {
         let ids = Self::compute_dead_functions_with(
             store,
             strict,
             extra_entries,
             restricted_vis_not_root,
+            bin_pub_not_root,
         )?;
         if ids.is_empty() {
             return Ok(Vec::new());
@@ -220,12 +222,14 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn compute_dead_functions_opts(store: &Store, strict: bool) -> Result<Vec<String>> {
-        Self::compute_dead_functions_with(store, strict, &[], false)
+        Self::compute_dead_functions_with(store, strict, &[], false, false)
     }
 
     /// Like [`Self::compute_dead_functions_opts`], with extra entry-point node ids (roots).
     /// With `restricted_vis_not_root`, `pub(crate)`/`pub(super)`/`pub(in ..)` functions are not roots
     /// (bare `pub` still is); graphs indexed before the marker existed are unaffected by it.
+    /// With `bin_pub_not_root`, bare `pub` functions in files compiled only by bin, test, example or
+    /// bench units (marker `attr::pub_bin_only`, see `pipeline::modules::is_bin_only_file`) are not roots either.
     ///
     /// # Errors
     /// Fails if the store query fails.
@@ -234,6 +238,7 @@ impl Query {
         strict: bool,
         extra_entries: &[String],
         restricted_vis_not_root: bool,
+        bin_pub_not_root: bool,
     ) -> Result<Vec<String>> {
         let not_low = if strict { ", not low[from, to]" } else { "" };
         let type_function = NodeType::Function.to_string();
@@ -248,27 +253,30 @@ impl Query {
             &format!("?[id, payload] := *nodes[id, type, payload], type = \"{type_function}\""),
             BTreeMap::new(),
         )?;
-        let restricted: HashSet<String> = if restricted_vis_not_root {
-            store
+        let marked = |enabled: bool, attr: &str| -> Result<HashSet<String>> {
+            if !enabled {
+                return Ok(HashSet::new());
+            }
+            Ok(store
                 .run_query(
-                    &format!("?[id] := *edges[id, \"attr::pub_restricted\", \"{edge_attr}\"]"),
+                    &format!("?[id] := *edges[id, \"attr::{attr}\", \"{edge_attr}\"]"),
                     BTreeMap::new(),
                 )?
                 .rows
                 .iter()
                 .filter_map(|row| row.first())
                 .map(unquote_datavalue)
-                .collect()
-        } else {
-            HashSet::new()
+                .collect())
         };
+        let mut restricted = marked(restricted_vis_not_root, "pub_restricted")?;
+        restricted.extend(marked(bin_pub_not_root, "pub_bin_only")?);
         let entry_ids: Vec<DataValue> = all_fns
             .rows
             .iter()
             .filter_map(|row| {
                 let id = row.first().map(unquote_datavalue)?;
                 let payload = row.get(1).map(unquote_datavalue).unwrap_or_default();
-                // A restricted-visibility marker only demotes plain `pub(..) fn`, never tests, benches or `main`.
+                // A restricted-visibility or bin-only marker only demotes plain `pub(..) fn`, never tests, benches or `main`.
                 let demoted = restricted.contains(&id)
                     && payload.strip_prefix("pub::").is_some_and(|rest| {
                         !["test::", "bench::"].iter().any(|p| rest.starts_with(p)) && rest != "main"
