@@ -197,11 +197,11 @@ fn resolution_of(mut v: Vec<NodeId>) -> Option<Resolution> {
     }
 }
 
-/// Resolve `x.name()` by name only: same-file methods first, else all methods project-wide.
 /// `self.m()`: the methods named `m` of the impls/trait enclosing the caller, i.e. of its `Self` type
 /// (every impl block of that type, in any file). `None` when the type is unknown or has no such
 /// method, so the caller falls back to the name-based lookup (`Deref`, trait methods, ..).
 /// Same-named types in different files: a single match in the caller's own file wins.
+/// shortcut: types are matched by name only, so `impl other::Iter` in a file that defines its own `Iter` binds to the local one; upgrade when scopes carry resolved type paths.
 fn resolve_self_method(name: &str, from: &str, idx: &Index) -> Option<Resolution> {
     let all = methods_of_type(name, enclosing_impl_type(from, idx)?, idx);
     let prefix = format!("{}#", from.split('#').next().unwrap_or(from));
@@ -619,6 +619,7 @@ fn resolve_typed_method(
     resolution_of(cands)
 }
 
+/// Resolve `x.name()` by name only: same-file methods first, else all methods project-wide.
 fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
     let all = idx.global_by_name.get(name).map_or(&[][..], Vec::as_slice);
     let prefix = format!("{from_file}#");
