@@ -201,8 +201,15 @@ fn resolution_of(mut v: Vec<NodeId>) -> Option<Resolution> {
 /// `self.m()`: the methods named `m` of the impls/trait enclosing the caller, i.e. of its `Self` type
 /// (every impl block of that type, in any file). `None` when the type is unknown or has no such
 /// method, so the caller falls back to the name-based lookup (`Deref`, trait methods, ..).
+/// Same-named types in different files: a single match in the caller's own file wins.
 fn resolve_self_method(name: &str, from: &str, idx: &Index) -> Option<Resolution> {
-    resolution_of(methods_of_type(name, enclosing_impl_type(from, idx)?, idx))
+    let all = methods_of_type(name, enclosing_impl_type(from, idx)?, idx);
+    let prefix = format!("{}#", from.split('#').next().unwrap_or(from));
+    let mut own = all.iter().filter(|c| c.as_str().starts_with(&prefix));
+    if let (Some(c), None) = (own.next(), own.next()) {
+        return Some(Resolution::One(c.clone()));
+    }
+    resolution_of(all)
 }
 
 /// The `Self` type of the impl/trait enclosing `from`.
