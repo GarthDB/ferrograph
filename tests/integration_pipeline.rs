@@ -672,6 +672,22 @@ fn pipeline_fn_pointer_result_receivers_resolve_to_their_type() {
 }
 
 #[test]
+fn pipeline_collected_vec_element_receivers_resolve_to_their_type() {
+    assert_shape_receivers(&["collect_map"], &["collect_ext"]);
+    let store = run_fixture("shape_receivers");
+    let tags = tagged_lines("shape_receivers", "src/lib.rs");
+    let dead = dead_lines(&store, false, "src/lib.rs");
+    assert!(dead.contains(&tags["dead_b_collect_map"]));
+    for k in [
+        "live_a_collect_map",
+        "neg_a_collect_ext",
+        "neg_b_collect_ext",
+    ] {
+        assert!(!dead.contains(&tags[k]), "{k} is alive by default");
+    }
+}
+
+#[test]
 fn pipeline_module_path_constructor_receivers_resolve_to_their_type() {
     assert_shape_receivers(&["maker_path"], &["maker_ext"]);
 }

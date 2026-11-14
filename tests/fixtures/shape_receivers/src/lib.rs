@@ -32,6 +32,8 @@ impl A {
     fn then_flag(&self) {} // neg_a_then_flag
     fn fn_ext(&self) {} // neg_a_fn_ext
     fn tuple_let_ext(&self) {} // neg_a_tuple_let_ext
+    fn collect_map(&self) {} // live_a_collect_map
+    fn collect_ext(&self) {} // neg_a_collect_ext
 }
 
 impl B {
@@ -58,6 +60,8 @@ impl B {
     fn then_flag(&self) {} // neg_b_then_flag
     fn fn_ext(&self) {} // neg_b_fn_ext
     fn tuple_let_ext(&self) {} // neg_b_tuple_let_ext
+    fn collect_map(&self) {} // dead_b_collect_map
+    fn collect_ext(&self) {} // neg_b_collect_ext
 }
 
 fn make() -> A {
@@ -124,6 +128,13 @@ impl Host {
         }
         let (a, _n) = (unknown(), 1);
         a.tuple_let_ext();
+    }
+
+    pub fn collected(&self, ns: Vec<u8>) {
+        let typed: Vec<_> = ns.into_iter().map(|_| A {}).collect();
+        typed.into_iter().for_each(|a| a.collect_map());
+        let untyped: Vec<_> = ns.into_iter().map(|_| unknown()).collect();
+        untyped.into_iter().for_each(|a| a.collect_ext());
     }
 
     pub fn maps(&self) {

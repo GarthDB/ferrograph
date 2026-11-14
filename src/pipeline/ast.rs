@@ -1341,12 +1341,38 @@ fn simple_binding<'a>(
 /// Declared type of a `let`/parameter, else (for `let`) the hint of its initialiser. Evaluated only
 /// for the binding in effect: initialisers of other bindings may refer back to this one.
 fn declaration_hint(decl: &tree_sitter::Node, source: &str) -> Option<String> {
-    decl.child_by_field_name("type")
-        .and_then(|t| type_repr(&t, source))
-        .or_else(|| {
-            decl.child_by_field_name("value")
-                .and_then(|v| expr_hint(&v, source))
-        })
+    let ty = decl
+        .child_by_field_name("type")
+        .and_then(|t| type_repr(&t, source));
+    let value = decl.child_by_field_name("value");
+    // `let v: Vec<_> = it.map(|x| S { .. }).collect()`: the annotation leaves the element to the value.
+    if matches!(
+        ty.as_deref(),
+        Some("Vec" | "Vec<_>" | "VecDeque" | "VecDeque<_>")
+    ) {
+        if let Some(h) = value.and_then(|v| collect_hint(&v, source)) {
+            return Some(h);
+        }
+    }
+    ty.or_else(|| value.and_then(|v| expr_hint(&v, source)))
+}
+
+/// `@vec(F)` for `<iter>.map(|..| F).collect()`, where `F` is the hint of the closure's result.
+fn collect_hint(value: &tree_sitter::Node, source: &str) -> Option<String> {
+    let name = |n: &tree_sitter::Node| source.get(n.child_by_field_name("field")?.byte_range());
+    let collect = value
+        .child_by_field_name("function")
+        .filter(|_| value.kind() == "call_expression")?;
+    let map = collect.child_by_field_name("value")?;
+    let map_fn = map.child_by_field_name("function")?;
+    if map.kind() != "call_expression" || name(&collect)? != "collect" || name(&map_fn)? != "map" {
+        return None;
+    }
+    let closure = map
+        .child_by_field_name("arguments")?
+        .named_child(0)
+        .filter(|c| c.kind() == "closure_expression")?;
+    Some(format!("@vec({})", closure_result_hint(&closure, source)?))
 }
 
 /// Collect the identifiers named `name` below `node`.
