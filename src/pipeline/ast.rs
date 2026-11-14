@@ -1816,10 +1816,11 @@ fn adapter_hint(
         .child_by_field_name("arguments")?
         .named_child(0)
         .filter(|a| !a.kind().ends_with("comment"))?;
-    let closure = |a: &tree_sitter::Node| {
-        (a.kind() == "closure_expression")
-            .then(|| closure_result_hint(a, source))
-            .flatten()
+    // A path argument (`.map(Yarn::new)`) is a call of that function.
+    let closure = |a: &tree_sitter::Node| match a.kind() {
+        "closure_expression" => closure_result_hint(a, source),
+        "scoped_identifier" => Some(format!("={}()", source.get(a.byte_range())?)),
+        _ => None,
     };
     match method {
         "and_then" | "map" => {
