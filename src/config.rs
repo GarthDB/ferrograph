@@ -885,12 +885,11 @@ fn run_status(db: Option<PathBuf>, legacy_path: Option<PathBuf>, json: bool) -> 
     let path = db.or(legacy_path).unwrap_or_else(|| PathBuf::from("."));
     let db_path = resolve_db_path(Some(&path))?;
     if !db_path.exists() {
-        println!(
-            "No graph at {}. Run 'ferrograph index --output {}' first.",
-            path.display(),
+        anyhow::bail!(
+            "Graph database not found at {}. Run 'ferrograph index --output {}' first.",
+            db_path.display(),
             db_path.display()
         );
-        return Ok(());
     }
     let store = crate::graph::Store::new_persistent(&db_path)
         .with_context(|| format!("Failed to open graph at {}", db_path.display()))?;

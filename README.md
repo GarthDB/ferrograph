@@ -57,6 +57,8 @@ Every query subcommand (`status`, `query`, `search`, `dead`, `blast`, `callers`,
 
 The positional form `status [PATH]` is deprecated (still works, prints a note on stderr); use `status --db PATH`.
 
+`status` on a missing graph exits 2 with the error on stderr and nothing on stdout (also with `--json`), like the other query subcommands.
+
 ### CI gating and exit codes
 
 `dead` and `blast` can fail a CI job when findings exceed a threshold. Flags are opt-in; without them the exit code is unchanged. Because dead-code results are not exact (see [Accuracy and limitations](#accuracy-and-limitations)), try advisory mode on your own repo before gating.
