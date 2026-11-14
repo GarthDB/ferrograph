@@ -129,6 +129,13 @@ class Mutators(unittest.TestCase):
             self.assertIn("fn c() {}", out)
             self.assertNotIn("fn a", out)
 
+    def test_attr_start_wrapped_attribute_and_array_tail(self):
+        import mutation
+
+        lines = ["const T: [u8; 1] = [", "    1,", "];", "#[derive(", "    A,", ")]", "fn f() {}"]
+        self.assertEqual(mutation.attr_start(lines, 7), 4)  # stops at the `#[derive(`, keeps the array
+        self.assertEqual(mutation.attr_start(["];", "fn g() {}"], 2), 2)
+
 
 class SampleSize(unittest.TestCase):
     def test_formulas(self):

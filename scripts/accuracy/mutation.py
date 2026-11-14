@@ -172,10 +172,22 @@ def block_end(lines, start):
 
 
 def attr_start(lines, start):
-    """First line of the attributes/doc comments directly above the item at `start` (1-based)."""
+    """First line of the attributes/doc comments directly above the item at `start` (1-based), including
+    attributes wrapped over several lines (found by walking up from their closing `]`)."""
     i = start
-    while i > 1 and re.match(r"^\s*(#\[|#!\[|///|//!|\)|\]|[\w\s,\"=().:]*\)\]$)", lines[i - 2]):
-        i -= 1
+    while i > 1:
+        prev = lines[i - 2].strip()
+        if prev.startswith(("#[", "#![", "///", "//!")):
+            i -= 1
+        elif prev.endswith("]") and not prev.endswith("];"):
+            j = i - 2
+            while j >= 0 and i - 2 - j < 40 and not lines[j].lstrip().startswith(("#[", "#![")):
+                j -= 1
+            if j < 0 or not lines[j].lstrip().startswith(("#[", "#![")):
+                break
+            i = j + 1
+        else:
+            break
     return i
 
 

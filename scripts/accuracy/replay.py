@@ -52,7 +52,9 @@ def clone(c, work, n):
         A.run(["git", "checkout", "-q", "--detach", "replay-head"], cwd=dest)
     else:
         _, cnt, _ = A.run(["git", "rev-list", "--count", "replay-head"], cwd=dest)
-        if int(cnt) < n + 2:  # an earlier run fetched less history (e.g. default mode, now `--select calls`)
+        _, shallow, _ = A.run(["git", "rev-parse", "--is-shallow-repository"], cwd=dest)
+        # an earlier run fetched less history (e.g. default mode, now `--select calls`); a complete history cannot grow
+        if int(cnt) < n + 2 and shallow.strip() == "true":
             _, head, _ = A.run(["git", "rev-parse", "replay-head"], cwd=dest)
             A.run(
                 ["git", "fetch", "-q", "--depth", str(n + 2), "origin", head.strip()],
@@ -147,7 +149,6 @@ def replay(c, fg, work, args):
             removed = removes_call(repo, parent, sha, fns)
             if not removed:
                 continue  # not a candidate: not counted as skipped, not built
-        selected += 1
         before, after = dead_at(parent), dead_at(sha)
         if before is None or after is None:
             skipped.append({"sha": sha, "reason": "cargo check failed"})
@@ -193,6 +194,7 @@ def replay(c, fg, work, args):
             for o in oracle
             if not any(o[2] == nm and match(o, i) for i, nm in reported)
         ]
+        selected += 1  # only measured commits count toward --n; unbuildable ones are skipped above
         runs.append(
             {
                 "sha": sha,
