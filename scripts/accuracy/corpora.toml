@@ -87,3 +87,10 @@ name = "eza"
 heldout = true
 url = "https://github.com/eza-community/eza"
 ref = "471bfbc7b03cbac8c738e8d9050edb06ee79132a"
+
+# Held-out, the project this tool is mostly used on: library crate + xtask, Adobe Spectrum components for Rune.
+[[corpus]]
+name = "spectrum-rune"
+heldout = true
+url = "https://github.com/GarthDB/spectrum-rune"
+ref = "e4e4371d6c0f413256c90271256721c886719780"
