@@ -1118,6 +1118,12 @@ fn pipeline_qualified_call_through_alias_to_nested_free_fn() {
 }
 
 #[test]
+fn pipeline_use_through_a_module_bound_by_another_use_resolves() {
+    let store = run_fixture("use_via_binding");
+    assert_one_certain_call(&store, "api_via_binding", "./src/a/helper.rs#");
+}
+
+#[test]
 fn pipeline_qualified_call_through_alias_of_reexport() {
     let store = run_fixture("alias_calls");
     assert_one_certain_call(&store, "api_chain", "./src/chain/mid/leaf.rs#");
