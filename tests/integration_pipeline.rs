@@ -491,6 +491,24 @@ fn pipeline_self_method_calls_resolve_to_the_enclosing_impl() {
 }
 
 #[test]
+fn pipeline_self_method_prefers_own_file_impl_of_same_named_type() {
+    let store = run_fixture("same_named_types");
+    let a = tagged_lines("same_named_types", "src/a.rs");
+    let b = tagged_lines("same_named_types", "src/b.rs");
+    // Own-file impl is the only live one: `a::err`/`a::parse_line` are live, `b`'s are dead.
+    // `c` has no own `amb`, so `self.amb()` stays ambiguous: both alive by default, dropped in strict.
+    let mut strict_b = vec![b["dead_b_err"], b["dead_b_parse"], b["amb_b"]];
+    strict_b.sort_unstable();
+    assert_eq!(dead_lines(&store, true, "src/a.rs"), [a["amb_a"]]);
+    assert_eq!(dead_lines(&store, true, "src/b.rs"), strict_b);
+    assert_eq!(dead_lines(&store, false, "src/a.rs"), [] as [usize; 0]);
+    assert_eq!(
+        dead_lines(&store, false, "src/b.rs"),
+        [b["dead_b_err"], b["dead_b_parse"]]
+    );
+}
+
+#[test]
 fn pipeline_typed_receivers_resolve_to_their_type() {
     let store = run_fixture("receiver_types");
     let tags = tagged_lines("receiver_types", "src/lib.rs");
