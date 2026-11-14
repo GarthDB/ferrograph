@@ -35,7 +35,7 @@ pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
 /// `name@method@on:HINT`, where `HINT` is a recipe for the receiver's type: `Type`, `Self` (the enclosing
 /// impl's type), `HINT.field`, `HINT.method()` or `=path::to::f()` (the result of a call). Further steps:
 /// `.[]` (element), `.?` (payload), `.#i` (tuple element), `.()` (call a `fn` pointer) and `.m(HINT)` (an
-/// `Option` adapter whose closure returns `HINT`); further starts: `@tuple(H0;H1)`, `@some(H)`, `@and_then(H)`.
+/// `Option` adapter whose closure returns `HINT`); further starts: `@tuple(H0;H1)`, `@some(H)`, `@vec(H)` (a `Vec` of `H`), `@and_then(H)`.
 pub(crate) const RECEIVER_MARK: &str = "@on:";
 /// Separator in the temporary struct-field placeholder `field@field:Type` (a `Calls` edge from the
 /// struct), consumed here to learn field types.
@@ -248,6 +248,11 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
     } else if let Some(inner) = first.strip_prefix("@some(") {
         format!(
             "Option<{}>",
+            eval_hint(inner.strip_suffix(')')?, from, from_file, idx)?
+        )
+    } else if let Some(inner) = first.strip_prefix("@vec(") {
+        format!(
+            "Vec<{}>",
             eval_hint(inner.strip_suffix(')')?, from, from_file, idx)?
         )
     } else if let Some(inner) = first.strip_prefix("@and_then(") {
