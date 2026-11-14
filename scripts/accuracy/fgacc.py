@@ -22,6 +22,11 @@ ENTRY_ATTRS = {
 LIB_KINDS = {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
 
 
+def cohort(c):
+    """Pooling cohort of a corpora.toml entry: `cohort` if set, else held-out / original."""
+    return c.get("cohort") or ("held-out" if c.get("heldout") else "original")
+
+
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
 
@@ -332,7 +337,7 @@ def chain(info, nid, limit=6):
 
 def run_rustc(root, cargo_args, target_dir, timeout=1800, extra_env=None):
     """Run `cargo check` with force-warned dead_code. Returns (messages, command, fallback_note, err_tail); falls back step by step if the build fails."""
-    env = {"RUSTFLAGS": "--force-warn dead_code", "CARGO_TARGET_DIR": str(target_dir)}
+    env = {"RUSTFLAGS": "--force-warn dead_code", "CARGO_TARGET_DIR": str(Path(target_dir).resolve())}
     env.update(extra_env or {})
     nofeat = [a for a in cargo_args if a != "--all-features"]
     nobench = ["--lib", "--bins", "--tests", "--examples"]
@@ -345,6 +350,10 @@ def run_rustc(root, cargo_args, target_dir, timeout=1800, extra_env=None):
             (nofeat, "default features, no benches"),
         ):
             variants.append(([a for a in base if a != "--all-targets"] + nobench, note))
+            # bin-only packages have no library target, and `--lib` then fails the whole command
+            variants.append(
+                ([a for a in base if a != "--all-targets"] + nobench[1:], note + ", no --lib")
+            )
     err = ""
     for args, note in variants:
         cmd = ["cargo", "check", *args, "--message-format=json"]
@@ -617,3 +626,31 @@ def visibility(root, nid):
         if re.search(r"\bfn\b", ln):
             break
     return "not pub in source (inherited, e.g. impl of a pub trait or enclosing item)"
+
+
+# ---------------------------------------------------------------- sample size
+
+
+def n_unpaired(p, d, z_a=1.96, z_b=0.8416):
+    """Items per arm for a two-sided 5% test at 80% power to detect a drop/gain of `d` from proportion `p`
+    with two independent samples (p2 = p + d)."""
+    p2 = min(max(p + d, 0.0), 1.0)
+    return math.ceil((z_a + z_b) ** 2 * (p * (1 - p) + p2 * (1 - p2)) / d**2)
+
+
+def n_paired(q, d, z_a=1.96, z_b=0.8416):
+    """Items for a paired (McNemar) comparison when a fraction `q` of items is classified differently by the two arms
+    and the net difference is `d` (Connor 1987 normal approximation)."""
+    if q <= d:
+        return None
+    return math.ceil((z_a * math.sqrt(q) + z_b * math.sqrt(q - d * d)) ** 2 / d**2)
+
+
+def mcnemar_p(b, c):
+    """Exact two-sided McNemar (sign test) p-value for b vs c discordant items."""
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) / 2**n
+    return min(1.0, 2 * tail)

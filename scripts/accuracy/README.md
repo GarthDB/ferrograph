@@ -31,6 +31,26 @@ python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph --work /tm
 python3 scripts/accuracy/replay.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
     --only clap,ripgrep --n 50 --extra-args=--restricted-vis-not-root
 
+# 2d. Replay on commits that delete call sites (instead of the last N): the N most recent commits within the
+#     last 10*N whose diff removes a line calling/referencing a fn defined in the repo.
+python3 scripts/accuracy/replay.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
+    --only clap,ripgrep --n 50 --select calls --depth 600
+
+# 2e. More mutation families (default is `call` only); --n applies per family.
+python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc --corpus clap \
+    --family all --n 15
+
+# 2f. Paired comparison of two groundtruth runs (default vs an option): recall with Wilson intervals,
+#     items found by only one arm (exact McNemar), extra reports by rustc verdict, sample size for a 5-point effect.
+python3 scripts/accuracy/compare.py groundtruth-default.json groundtruth-variant.json
+
+# 2g. Find corpus candidates: shallow-clones HEAD, runs the oracle, prints rustc-dead fn counts (deletes the target dir).
+python3 scripts/accuracy/scan.py --work /tmp/fg-scan owner/repo another/repo
+
+# 2h. Whole matrix (all url corpora x arms), one corpus at a time with target dirs deleted afterwards:
+python3 scripts/accuracy/run_matrix.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc --out /tmp/fg-out \
+    --arms default,restricted
+
 # 3. Self-test of the harness on the built-in synthetic corpus (~2 s, no network).
 python3 scripts/accuracy/test_harness.py       # uses $FERROGRAPH or target/{debug,release}/ferrograph
 ```
@@ -49,12 +69,17 @@ first builds, ~2-4 GB of `target/` in total for the supplementary set; a 17k-fun
 ## corpora.toml
 
 `[[corpus]]` entries: `name`, `url` + `ref` (branch, tag or SHA) or `path`; optional `index_path`,
-`group`, `cargo_args`. The runner tries `cargo check --workspace --all-targets --all-features`, then without
+`group`, `cargo_args`. Pooling cohorts used so far: `original` (first nine), `held-out` (bat, hyperfine, zoxide, dust, eza, spectrum-rune) and `held-out-2`
+(chosen by `scan.py` for >= 5 rustc-dead fns). `scan.py` sets `RUSTUP_TOOLCHAIN=stable` so a repo's `rust-toolchain` file cannot make rustup
+download another toolchain; the benchmark scripts do not, so a corpus with a pinned toolchain builds with it.
+
+The runner tries `cargo check --workspace --all-targets --all-features`, then without
 `--all-features`, then without benches (`--lib --bins --tests --examples`, for crates whose benches need nightly),
 and prints which variant ran.
 
 Corpora with `heldout = true` were not used while tuning ferrograph; the reports pool them separately from the
-others. Recall and precision carry Wilson 95% intervals (`[lo-hi]`).
+others. `cohort = "<name>"` puts a corpus in its own pool (default: `original`, or `held-out` when `heldout = true`),
+so later additions are never mixed with corpora that were already measured. Recall and precision carry Wilson 95% intervals (`[lo-hi]`).
 
 ## What is measured
 
@@ -83,17 +108,27 @@ unit compiles it, otherwise `bin`; test/example/bench units count as `bin`):
 - False positives not in R: not judgeable (above), live in some unit, or "genuine disagreement" (the list to hand-check;
   the JSON carries source lines that mention each name).
 
-**`pr` mutation test** (`mutation.py`): in a throwaway git repo, one commit per mutation replaces a single-line call
-statement (callee uniquely named, exactly one high-confidence call edge) with `();`, keeping line numbers. Oracle: rustc's
-dead set after minus before. System under test: `ferrograph pr --base HEAD~1 --index-head --format json`. Reports
-TP/FN/FP per mutation and pooled, FN buckets (graph replay on the mutated tree), FP kinds, `pr` wall time, and the
-`git worktree list` afterwards.
+**`pr` mutation test** (`mutation.py`): in a throwaway git repo, one commit per mutation, always starting from the pristine
+base tree. Oracle: rustc's dead set after minus before. System under test: `ferrograph pr --base HEAD~1 --index-head --format json`.
+Reports TP/FN/FP per mutation, per family and pooled, FN buckets (graph replay on the mutated tree), FP kinds, `pr` wall time,
+and the `git worktree list` afterwards. `--family` selects families (default `call`; `all`); `--n` compiling mutations per family.
+Edits blank or replace lines in place, so line numbers never shift; mutations that do not compile are skipped and counted.
+
+| family | what is edited | picks |
+|---|---|---|
+| `call` | a single-line call statement `[recv.]f(args);` becomes `();` | uniquely named fn with exactly one high-confidence call edge |
+| `ref` | a use site that is not a call: a `.adapter(f)` line or a table entry `f,` on its own line is blanked | uniquely named fn whose only incoming edge is one `references` edge |
+| `impl` | a whole `impl Trait for T { .. }` block, with its attributes, is blanked | helper fn whose only caller is a method of that impl |
+| `caller` | a whole fn (with attributes) that nothing calls or references is blanked | such a fn that is the only caller of some helper |
 
 **Replay** (`replay.py`): for each of the last N first-parent commits that change a `.rs` file, check out the commit in its
 own history-carrying clone, run `ferrograph pr --base <parent> --index-head`, and compare the newly-dead fns with rustc's
 (dead-in-all-units at the commit minus at the parent; rustc answers are cached on disk per commit). Reports the
 false-alarm commit rate (commits with an unconfirmed, judgeable report), report precision and recall. Commits that do
-not build with the current toolchain are skipped, so the sample is biased toward buildable history.
+not build with the current toolchain are skipped, so the sample is biased toward buildable history. The table lists
+how many commits had a rustc newly-dead fn at all (the real denominator for recall). With `--select calls` the commits are
+those whose diff removes a line that calls or references a fn defined in the repo (`--depth` first-parent commits are scanned,
+the first `--n` hits are measured); the default `--select last` keeps the last-N behaviour.
 
 ## What is not measured / limitations
 
@@ -106,5 +141,11 @@ not build with the current toolchain are skipped, so the sample is biased toward
   recall figures have wide error bars; the mutation test creates dead code on purpose. The supplementary corpora were chosen
   because rustc reports dead code in them, which biases toward crates with dead code.
 - The cfg heuristic is textual; hand-check the "genuine disagreement" list before quoting precision as a defect rate.
-- `pr` mutations are one syntactic family (deleting a call statement); they do not cover orphaning by signature changes,
-  deleted trait impls, or moved code.
+- Mutation families are synthetic. `ref` only sees fns with a single `references` edge, which the indexer creates mostly for
+  attribute arguments and a few path positions, so many corpora yield no candidates; `impl` and `caller` blank blocks found by a
+  naive brace count (strings and comments are stripped, raw strings and macros are not), and most candidates do not compile after
+  the deletion (an impl is usually needed by something) and are skipped, so the surviving sample is biased toward impls that
+  nothing uses (e.g. `Display`). None of the families covers signature changes, moved code or renames.
+- Replay `--select calls` keys on removed text (a removed line that mentions a fn defined at the replayed HEAD), not on the call
+  graph, so it overselects (deleted comments aside, renamed callees and moved lines count); it only raises the share of commits that
+  can orphan something. Read the `commits with rustc newly dead` column for the real denominator.

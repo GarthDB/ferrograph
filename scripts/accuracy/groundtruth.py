@@ -48,7 +48,7 @@ def miss_bucket(g, info, nid, index_root):
 
 
 def analyse(c, fg, work, args):
-    res = {"name": c["name"], "ok": False, "heldout": bool(c.get("heldout"))}
+    res = {"name": c["name"], "ok": False, "heldout": bool(c.get("heldout")), "cohort": A.cohort(c)}
     root, sha, dirty = A.prepare_corpus(c, work)
     res.update(
         sha=sha, dirty=dirty, url=c.get("url"), path=c.get("path"), ref=c.get("ref")
@@ -269,18 +269,15 @@ def render(results, meta, args):
         "R = rustc-dead fns mapped to nodes; F = ferrograph dead set. "
         "**Recall (all R)** = |F∩R|/|R|. **Recall (eligible)** = |F∩R| / |R minus items ferrograph treats as roots by policy "
         "(`pub`, trait impls, tests, attributes)|. **Precision raw** = |F∩R|/|F|. **Precision judgeable** = |F∩R| / |F minus items "
-        "rustc cannot judge (file never compiled, or under `#[cfg]`)|. Percentages are floored; counts given; brackets are Wilson 95% intervals. Held-out corpora were not used while tuning and are pooled separately.\n"
+        "rustc cannot judge (file never compiled, or under `#[cfg]`)|. Percentages are floored; counts given; brackets are Wilson 95% intervals. Cohorts (`original`, `held-out`, and any `cohort =` set in corpora.toml) are pooled separately; held-out ones were not used while tuning.\n"
     )
     w(
         "| corpus | class | mode | R | R eligible | F | F∩R | recall (all R) | recall (eligible) | precision raw | F not judgeable | F judgeable | precision judgeable |"
     )
     w("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
-    orig = [r for r in ok if not r.get("heldout")]
-    held = [r for r in ok if r.get("heldout")]
-    pools = [("**pooled (original)**", orig)] + (
-        [("**pooled (held-out)**", held)] if held else []
-    )
-    for name, rs in [(r["name"] + (" (held-out)" if r.get("heldout") else ""), [r]) for r in ok] + pools:
+    cohorts = list(dict.fromkeys(r.get("cohort", "held-out" if r.get("heldout") else "original") for r in ok))
+    pools = [(f"**pooled ({co})**", [r for r in ok if r.get("cohort", "held-out" if r.get("heldout") else "original") == co]) for co in cohorts]
+    for name, rs in [(r["name"] + (f" ({r['cohort']})" if r.get("cohort") not in (None, "original") else ""), [r]) for r in ok] + pools:
         for cls in ("lib", "bin", "all"):
             for mode in MODES:
                 m = metrics(rs, cls, mode)
@@ -365,9 +362,18 @@ def main():
         help="extra args for `ferrograph dead`, e.g. '--restricted-vis-not-root' (the python model follows it)",
     )
     ap.add_argument("--max-check", type=int, default=25)
+    ap.add_argument(
+        "--render-json",
+        default=None,
+        help="only re-render this groundtruth JSON (e.g. merged by run_matrix.py) to --out-md",
+    )
     ap.add_argument("--out-md", default="groundtruth-report.md")
     ap.add_argument("--out-json", default="groundtruth-data.json")
     args = ap.parse_args()
+    if args.render_json:
+        d = json.loads(Path(args.render_json).read_text())
+        Path(args.out_md).write_text(render(d["results"], d["meta"], args))
+        return
 
     work = Path(args.work) if args.work else Path(tempfile.mkdtemp(prefix="fg-acc-"))
     work.mkdir(parents=True, exist_ok=True)

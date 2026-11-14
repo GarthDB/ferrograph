@@ -97,6 +97,50 @@ class SyntheticCorpus(unittest.TestCase):
             self.assertEqual(r["tp"], r["oracle"], name)
 
 
+    def test_pr_mutation_families(self):
+        tmp = Path(self.tmp.name)
+        subprocess.run(
+            [sys.executable, str(HERE / "mutation.py"), "--config", str(tmp / "c.toml"), "--corpus", "synthetic",
+             "--ferrograph", find_binary(), "--work", str(tmp / "w2"), "--n", "5", "--family", "ref,impl,caller",
+             "--out-md", str(tmp / "mf.md"), "--out-json", str(tmp / "mf.json")],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
+        )
+        runs = json.loads((tmp / "mf.json").read_text())["runs"]
+        by = {(r["family"], r["name"]): r for r in runs}
+        for key in (("ref", "table_entry"), ("impl", "greeting_helper"), ("caller", "only_by_entry")):
+            self.assertIn(key, by)
+            self.assertEqual(by[key]["oracle"], by[key]["tp"], key)
+            self.assertEqual(len(by[key]["oracle"]), 1, key)
+
+
+class Mutators(unittest.TestCase):
+    def test_edits_keep_line_count(self):
+        import mutation
+
+        src = "#[inline]\nfn a() {\n    b();\n}\n\nfn c() {}\n"
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.rs").write_text(src)
+            lines = src.splitlines()
+            self.assertEqual(mutation.attr_start(lines, 2), 1)
+            self.assertEqual(mutation.block_end(lines, 2), 4)
+            mutation.apply_edits(d, [("a.rs", 1, 4, "")])
+            out = (Path(d) / "a.rs").read_text()
+            self.assertEqual(out.count("\n"), src.count("\n"))
+            self.assertIn("fn c() {}", out)
+            self.assertNotIn("fn a", out)
+
+
+class SampleSize(unittest.TestCase):
+    def test_formulas(self):
+        import fgacc
+
+        self.assertEqual(fgacc.n_unpaired(0.5, 0.05), 1562)
+        self.assertEqual(fgacc.n_paired(0.1, 0.05), 312)
+        self.assertIsNone(fgacc.n_paired(0.04, 0.05))
+        self.assertAlmostEqual(fgacc.mcnemar_p(0, 4), 0.125)
+        self.assertEqual(fgacc.mcnemar_p(0, 0), 1.0)
+
+
 class Wilson(unittest.TestCase):
     def test_interval(self):
         import fgacc

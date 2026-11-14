@@ -52,8 +52,28 @@ fn teardown() {
     println!("teardown");
 }
 
+impl std::fmt::Display for T {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", greeting_helper())
+    }
+}
+
+fn greeting_helper() -> u32 {
+    8
+}
+
+fn table_entry() -> u32 {
+    9
+}
+
+const TABLE: &[fn() -> u32] = &[
+    table_entry,
+];
+
 fn main() {
     let s = S;
+    let _t = T;
+    println!("{}", TABLE.len());
     println!("{} {} {}", live_a(), s.run(), s.speak());
     util::used();
     cleanup();

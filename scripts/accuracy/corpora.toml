@@ -94,3 +94,70 @@ name = "spectrum-rune"
 heldout = true
 url = "https://github.com/GarthDB/spectrum-rune"
 ref = "e4e4371d6c0f413256c90271256721c886719780"
+
+# Second held-out set (cohort "held-out-2"): picked AFTER the changes it is used to evaluate were designed, by scanning
+# 113 public crates (scan.py; 80 built with the active toolchain) for ones where rustc reports >= 5 dead fns with --force-warn dead_code. Pinned to the
+# default-branch HEAD at scan time (2026-11-13). Report separately from the original and the first held-out set.
+
+[[corpus]]
+name = "joshuto"   # binary, 5 rustc-dead
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/kamiyaa/joshuto"
+ref = "7de543e4dfb84dbdeccd7b66bd563022f87d3f39"
+
+[[corpus]]
+name = "bottom"   # binary with lib target, 5
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/ClementTsang/bottom"
+ref = "99d586a14ef8a83c8513183e8b016ae94d641a3b"
+
+[[corpus]]
+name = "axum-session"   # library workspace, 5 (default features)
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/AscendingCreations/AxumSession"
+ref = "01ffa3ef7d93d2c7e28b7745aaf85b7530244faa"
+
+[[corpus]]
+name = "rant"   # library workspace, 15
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/rant-lang/rant"
+ref = "caf374fda38801f0469d5e9ffccfd90b8a5bef83"
+
+[[corpus]]
+name = "rusternetes"   # large workspace with binaries, 17
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/calfonso/rusternetes"
+ref = "1f73ec89db85d3c3754adaff7d649ebfd8679aff"
+
+[[corpus]]
+name = "pyrometer"   # workspace, 8
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/nascentxyz/pyrometer"
+ref = "7d0b8e4f3d08028eea7e79f500678a1af33c5c4d"
+
+[[corpus]]
+name = "parley"   # library workspace with examples, 6
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/linebender/parley"
+ref = "7c06df1ffa4070eaf369fde9674a27444554aa5a"
+
+[[corpus]]
+name = "govee2mqtt"   # binary, 19 rustc-dead (all in bin files)
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/wez/govee2mqtt"
+ref = "6f5a8449ca63da8bdc7cc696288a993681ff2a69"
+
+[[corpus]]
+name = "kafka-rust"   # library, 6 rustc-dead
+heldout = true
+cohort = "held-out-2"
+url = "https://github.com/kafka-rust/kafka-rust"
+ref = "6681c81e0f7a84547e972ec545f3ed278d2ecfec"

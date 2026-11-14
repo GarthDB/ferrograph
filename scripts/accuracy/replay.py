@@ -9,6 +9,7 @@ Unlike mutation.py this uses real changes, so it measures how often `pr` cries w
 import argparse
 import json
 import platform
+import re
 import shlex
 import sys
 import tempfile
@@ -28,7 +29,7 @@ def git(repo, *a, check=True):
 
 
 def clone(c, work, n):
-    """Own clone with enough history for `n` commits (the shared corpus copy is shallow)."""
+    """Own clone with at least `n` commits of history (the shared corpus copy is shallow)."""
     dest = Path(work) / "replay" / c["name"]
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -49,7 +50,45 @@ def clone(c, work, n):
         )
         A.run(["git", "tag", "replay-head", "FETCH_HEAD"], cwd=dest)
         A.run(["git", "checkout", "-q", "--detach", "replay-head"], cwd=dest)
+    else:
+        _, cnt, _ = A.run(["git", "rev-list", "--count", "replay-head"], cwd=dest)
+        if int(cnt) < n + 2:  # an earlier run fetched less history (e.g. default mode, now `--select calls`)
+            _, head, _ = A.run(["git", "rev-parse", "replay-head"], cwd=dest)
+            A.run(
+                ["git", "fetch", "-q", "--depth", str(n + 2), "origin", head.strip()],
+                cwd=dest,
+                timeout=900,
+            )
     return dest
+
+
+FN_DEF = re.compile(r"\bfn\s+([A-Za-z_]\w*)")
+COMMON = {"new", "default", "from", "into", "fmt", "eq", "hash", "clone", "drop", "next", "len", "get", "set", "run", "main", "build", "write", "read", "parse", "name", "init"}
+
+
+def defined_fns(repo, rev):
+    """Names of fns defined in the `.rs` files of `rev` (via `git grep`; common trait-method names dropped)."""
+    _, out, _ = A.run(["git", "grep", "-hoE", r"fn[[:space:]]+[A-Za-z_][A-Za-z0-9_]*", rev, "--", "*.rs"], cwd=repo, check=False)
+    names = {m.group(1) for m in map(FN_DEF.search, out.splitlines()) if m}
+    return {n for n in names if len(n) >= 4 and n not in COMMON}
+
+
+def removes_call(repo, parent, sha, names):
+    """Does the commit delete a line that calls or references a fn defined in the repo? Returns the names hit."""
+    _, diff, _ = A.run(["git", "diff", "-U0", parent, sha, "--", "*.rs"], cwd=repo, check=False)
+    removed = [l[1:] for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
+    hit = set()
+    for l in removed:
+        if l.lstrip().startswith("//") or FN_DEF.search(l):
+            continue
+        for m in re.finditer(r"[A-Za-z_]\w*", l):
+            w = m.group(0)
+            if w in names:
+                rest = l[m.end():].lstrip()
+                before = l[: m.start()]
+                if rest.startswith(("(", "::<")) or before.endswith((".", "::", "(", ", ", "& ", "&")):
+                    hit.add(w)
+    return sorted(hit)
 
 
 def match(item, node_id):
@@ -60,14 +99,16 @@ def match(item, node_id):
 
 
 def replay(c, fg, work, args):
-    res = {"name": c["name"], "heldout": bool(c.get("heldout")), "ok": False}
-    repo = clone(c, work, args.n)
+    res = {"name": c["name"], "heldout": bool(c.get("heldout")), "cohort": A.cohort(c), "ok": False}
+    repo = clone(c, work, args.depth)
     index_root = (repo / c.get("index_path", ".")).resolve()
     cargo_args = c.get("cargo_args", DEFAULT_CARGO_ARGS)
     tgt = Path(work) / "target" / c.get("group", c["name"]) / "replay"
     _, head, _ = git(repo, "rev-parse", "replay-head")
     res["head"] = head.strip()
-    _, revs, _ = git(repo, "rev-list", "--first-parent", "-n", str(args.n), "replay-head")
+    _, revs, _ = git(repo, "rev-list", "--first-parent", "-n", str(args.depth), "replay-head")
+    fns = defined_fns(repo, "replay-head") if args.select == "calls" else set()
+    selected = 0
     # rustc's answer depends only on the commit, so it is kept on disk and reused across `--extra-args` arms.
     cache_file = Path(work) / "replay" / f"{c['name']}.dead.json"
     raw = json.loads(cache_file.read_text()) if cache_file.exists() else {}
@@ -89,6 +130,8 @@ def replay(c, fg, work, args):
 
     runs, skipped = [], []
     for sha in revs.split():
+        if selected >= args.n:
+            break
         _, parents, _ = git(repo, "rev-list", "--parents", "-n", "1", sha)
         parts = parents.split()
         if len(parts) < 2:
@@ -99,6 +142,12 @@ def replay(c, fg, work, args):
         if not rs:
             skipped.append({"sha": sha, "reason": "no .rs change"})
             continue
+        removed = []
+        if args.select == "calls":
+            removed = removes_call(repo, parent, sha, fns)
+            if not removed:
+                continue  # not a candidate: not counted as skipped, not built
+        selected += 1
         before, after = dead_at(parent), dead_at(sha)
         if before is None or after is None:
             skipped.append({"sha": sha, "reason": "cargo check failed"})
@@ -148,6 +197,7 @@ def replay(c, fg, work, args):
             {
                 "sha": sha,
                 "rs_files": len(rs),
+                "removed_calls": removed,
                 "oracle": [list(o) for o in oracle],
                 "reported": [list(r) for r in reported],
                 "tp": tp,
@@ -168,6 +218,7 @@ def pool(rs):
     judged_fp = [f for x in runs for f in x["fp"] if f["kind"] != CFG]
     return {
         "commits": len(runs),
+        "oracle_commits": sum(1 for x in runs if x["oracle"]),
         "alarm_commits": sum(1 for x in runs if any(f["kind"] != CFG for f in x["fp"])),
         "commits_with_report": sum(1 for x in runs if x["reported"]),
         "reported": sum(len(x["reported"]) for x in runs),
@@ -179,7 +230,7 @@ def pool(rs):
 
 def row(name, p):
     return (
-        f"| {name} | {p['commits']} | {p['commits_with_report']} | {A.frac_ci(p['alarm_commits'], p['commits'])} | "
+        f"| {name} | {p['commits']} | {p['oracle_commits']} | {p['commits_with_report']} | {A.frac_ci(p['alarm_commits'], p['commits'])} | "
         f"{p['reported']} | {A.frac_ci(p['tp'], p['tp'] + p['fp'])} | {p['oracle']} | {A.frac_ci(p['tp'], p['oracle'])} |"
     )
 
@@ -192,7 +243,12 @@ def render(results, meta):
         f"- ferrograph `{meta['version']}`; {meta['rustc']}; {meta['platform']}; {meta['date']}"
     )
     w(
-        f"- extra args: `{' '.join(meta['extra_args']) or 'none'}`; N = {meta['n']} first-parent commits per corpus"
+        f"- extra args: `{' '.join(meta['extra_args']) or 'none'}`; "
+        + (
+            f"selection `calls`: the first {meta['n']} of the last {meta['depth']} first-parent commits whose diff removes a line calling or referencing a fn defined in the repo"
+            if meta["select"] == "calls"
+            else f"selection `last`: the last {meta['n']} first-parent commits"
+        )
     )
     w(
         "- per commit with a `.rs` change: `ferrograph pr --base <parent> --index-head`; oracle = rustc dead-in-all-units after minus before. "
@@ -201,15 +257,14 @@ def render(results, meta):
         "commits that did not build are skipped, so this is biased toward buildable history.\n"
     )
     w(
-        "| corpus | commits | commits with a report | false-alarm commits | reported | precision | rustc newly dead | recall |"
+        "| corpus | commits | commits with rustc newly dead | commits with a report | false-alarm commits | reported | precision | rustc newly dead | recall |"
     )
-    w("|---|---|---|---|---|---|---|---|")
+    w("|---|---|---|---|---|---|---|---|---|")
     ok = [r for r in results if r["ok"]]
     for r in ok:
-        w(row(r["name"] + (" (held-out)" if r["heldout"] else ""), pool([r])))
-    w(row("**pooled (original)**", pool([r for r in ok if not r["heldout"]])))
-    if any(r["heldout"] for r in ok):
-        w(row("**pooled (held-out)**", pool([r for r in ok if r["heldout"]])))
+        w(row(r["name"] + (f" ({r['cohort']})" if r["cohort"] != "original" else ""), pool([r])))
+    for co in dict.fromkeys(r["cohort"] for r in ok):
+        w(row(f"**pooled ({co})**", pool([r for r in ok if r["cohort"] == co])))
     kinds = Counter(f["kind"] for r in ok for x in r["runs"] for f in x["fp"])
     w(
         "\nUnconfirmed reports by kind: "
@@ -247,6 +302,18 @@ def main():
         "--n", type=int, default=50, help="recent first-parent commits per corpus"
     )
     ap.add_argument(
+        "--select",
+        choices=["last", "calls"],
+        default="last",
+        help="`last`: the last N commits; `calls`: the N most recent commits (within --depth) whose diff removes a call/reference to a repo fn",
+    )
+    ap.add_argument(
+        "--depth",
+        type=int,
+        default=None,
+        help="first-parent commits to scan (default N for `last`, 10*N for `calls`)",
+    )
+    ap.add_argument(
         "--extra-args",
         default="",
         help="extra args for `ferrograph pr`, e.g. '--restricted-vis-not-root'",
@@ -255,6 +322,7 @@ def main():
     ap.add_argument("--out-md", default="replay-report.md")
     ap.add_argument("--out-json", default="replay-data.json")
     args = ap.parse_args()
+    args.depth = args.depth or (args.n * 10 if args.select == "calls" else args.n)
     work = Path(args.work) if args.work else Path(tempfile.mkdtemp(prefix="fg-replay-"))
     work.mkdir(parents=True, exist_ok=True)
     fg = A.Fg(args.ferrograph, shlex.split(args.extra_args))
@@ -266,6 +334,8 @@ def main():
         "date": time.strftime("%Y-%m-%d"),
         "extra_args": fg.extra,
         "n": args.n,
+        "depth": args.depth,
+        "select": args.select,
     }
     only = {s for s in args.only.split(",") if s}
     results = []
@@ -280,6 +350,7 @@ def main():
                 {
                     "name": c["name"],
                     "heldout": bool(c.get("heldout")),
+                    "cohort": A.cohort(c),
                     "ok": False,
                     "error": str(e)[-800:],
                 }
