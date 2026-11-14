@@ -1965,12 +1965,28 @@ fn scan_attribute_tree(
     let mut in_expr = inherited_expr;
     let mut key: Option<&str> = None;
     let mut prev_kind = "";
+    // logos-style `#[regex("..", callback)]`: after a leading literal, bare identifiers are values.
+    // shortcut: stays on for the rest of the tree, so `#[x("a", flag)]` marks a fn named `flag` live, upgrade if that matters.
+    let mut positional = false;
+    let mut segment_start = true;
     let mut i = 0;
     while let Some(child) = tt.child(i) {
         let kind = child.kind();
+        if segment_start && kind.contains("literal") {
+            positional = true;
+        }
+        segment_start = kind == "(" || (kind == "," && !inherited_expr);
         match kind {
             "=" => in_expr = true,
             "," if !inherited_expr => in_expr = false,
+            "identifier"
+                if positional
+                    && !in_expr
+                    && prev_kind == ","
+                    && matches!(tt.child(i + 1).map(|n| n.kind()), None | Some("," | ")")) =>
+            {
+                push_attribute_ref(tt, i, &child, source, file_id, anchor, edges);
+            }
             // `default` is a keyword token in tree-sitter-rust, not an identifier.
             "identifier" | "default" if !in_expr => key = source.get(child.byte_range()),
             "identifier" if prev_kind != "." && tt.child(i + 1).map(|n| n.kind()) != Some("!") => {

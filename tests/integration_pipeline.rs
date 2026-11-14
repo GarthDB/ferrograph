@@ -415,7 +415,11 @@ fn pipeline_fns_named_in_attribute_arguments_are_live() {
     for strict in [false, true] {
         let mut dead = dead_names(&store, strict);
         dead.sort();
-        assert_eq!(dead, ["long", "short", "unused_private"], "strict={strict}");
+        assert_eq!(
+            dead,
+            ["ignore", "long", "priority", "short", "unused_private"],
+            "strict={strict}"
+        );
     }
 }
 
