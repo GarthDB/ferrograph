@@ -1966,6 +1966,7 @@ fn scan_attribute_tree(
     let mut key: Option<&str> = None;
     let mut prev_kind = "";
     // logos-style `#[regex("..", callback)]`: after a leading literal, bare identifiers are values.
+    // shortcut: stays on for the rest of the tree, so `#[x("a", flag)]` marks a fn named `flag` live, upgrade if that matters.
     let mut positional = false;
     let mut segment_start = true;
     let mut i = 0;
@@ -1984,7 +1985,7 @@ fn scan_attribute_tree(
                     && prev_kind == ","
                     && matches!(
                         tt.child(i + 1).map(|n| n.kind()),
-                        None | Some(",") | Some(")")
+                        None | Some("," | ")")
                     ) =>
             {
                 push_attribute_ref(tt, i, &child, source, file_id, anchor, edges);
