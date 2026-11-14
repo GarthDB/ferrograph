@@ -1151,6 +1151,12 @@ fn pipeline_bare_call_resolves_through_glob_import() {
 }
 
 #[test]
+fn pipeline_bare_call_resolves_when_the_module_file_is_imported_too() {
+    let store = run_fixture("import_module_twice");
+    assert_one_certain_call(&store, "api_twice_imported", "./src/q/mod.rs#");
+}
+
+#[test]
 fn pipeline_glob_import_does_not_pick_between_same_named_fns() {
     let store = run_fixture("glob_calls");
     let targets = call_targets(&store, "api_glob_twin");

@@ -811,7 +811,8 @@ fn resolve_via_named_imports(
             }
         };
         if let Some(found) = found {
-            if candidate.is_some() {
+            // The same item can be reached by its own import and through its module file's import.
+            if candidate.as_ref().is_some_and(|c| *c != found) {
                 return Some(Resolution::None);
             }
             candidate = Some(found);
