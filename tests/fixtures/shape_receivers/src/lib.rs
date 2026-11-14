@@ -173,17 +173,13 @@ impl Host {
     pub fn pointers(&mut self, f: fn(u8) -> A) {
         f(1).fn_param();
         let mut x = 0u8;
-        let Some(access) = self.ctl.access else {
-            return;
-        };
+        let Some(access) = self.ctl.access else { return };
         access(&mut x).fn_field();
         let Some(bad) = self.ctl.bad else { return };
         bad(&mut x).fn_ext();
         let Some(alias) = self.ctl.alias else { return };
         alias(&mut x).fn_alias();
-        let Some(generic) = self.ctl.generic else {
-            return;
-        };
+        let Some(generic) = self.ctl.generic else { return };
         generic(1).fn_alias_generic();
         one::Maker::new().maker_path();
         ext::Maker::new().maker_ext();
@@ -198,3 +194,4 @@ impl Host {
         }
     }
 }
+
