@@ -1983,10 +1983,7 @@ fn scan_attribute_tree(
                 if positional
                     && !in_expr
                     && prev_kind == ","
-                    && matches!(
-                        tt.child(i + 1).map(|n| n.kind()),
-                        None | Some("," | ")")
-                    ) =>
+                    && matches!(tt.child(i + 1).map(|n| n.kind()), None | Some("," | ")")) =>
             {
                 push_attribute_ref(tt, i, &child, source, file_id, anchor, edges);
             }
