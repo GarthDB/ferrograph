@@ -56,3 +56,16 @@ fn nested_fn_named_in_attribute() {
         Selected,
     }
 }
+
+pub enum Tok {
+    #[regex(r"a", parse_a, priority = 2, ignore(case))]
+    A,
+    #[token("d", callback = parse_d)]
+    D,
+}
+
+fn parse_a() {}
+fn parse_d() {}
+// Attribute keywords after a literal are not references.
+fn priority() {}
+fn ignore() {}
