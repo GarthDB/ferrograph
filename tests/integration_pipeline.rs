@@ -1382,6 +1382,25 @@ fn pipeline_untyped_receiver_is_not_certain_just_because_a_method_is_in_the_same
 }
 
 #[test]
+fn pipeline_generic_receiver_is_not_certain_but_unevaluated_hint_is() {
+    let store = run_fixture("opaque_hints");
+    // `self.w` is a `W`: any implementor of the bound may be the callee.
+    let generic = call_targets(&store, "generic_field");
+    assert!(
+        generic.len() == 2 && generic.iter().all(|t| t.1),
+        "{generic:?}"
+    );
+    // `built` has a `_` hole in its declared type: the typing gave up, the same-file `go` stays certain.
+    let holes = call_targets(&store, "collected");
+    assert!(
+        holes
+            .iter()
+            .any(|t| t.0.starts_with("./src/main.rs#") && !t.1),
+        "{holes:?}"
+    );
+}
+
+#[test]
 fn pipeline_example_dir_with_main_rs_is_its_own_crate_root() {
     let store = run_fixture("example_crate_root");
     let targets = call_targets(&store, "main");
@@ -1473,9 +1492,9 @@ fn pipeline_underscore_prefixed_fns_are_roots() {
 fn pipeline_generic_iterator_item_names_no_project_type() {
     let store = run_fixture("iterator_items");
     let targets = call_targets(&store, "use_wrapper");
-    // `type Item = I::Item` names no project type: `x` stays untyped and is not taken for `IgnoreRef`.
+    // `type Item = I::Item` names no project type: `x` stays untyped, so no `path` edge is certain (#166).
     assert!(
-        !targets.iter().any(|t| t.0.starts_with("./src/dir.rs")),
+        !targets.is_empty() && targets.iter().all(|t| t.1),
         "{targets:?}"
     );
 }
