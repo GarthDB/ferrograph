@@ -1350,3 +1350,18 @@ fn pipeline_bare_call_of_a_local_closure_is_not_a_call_to_a_same_named_fn() {
     let targets = call_targets(&store, "entry");
     assert_eq!(targets.len(), 1, "only `a::run`: {targets:?}");
 }
+
+#[test]
+fn pipeline_bare_call_of_a_parameter_is_not_a_call_to_a_same_named_fn() {
+    let store = run_fixture("local_closure_calls");
+    let targets = call_targets(&store, "entry_param");
+    assert!(targets.is_empty(), "{targets:?}");
+}
+
+#[test]
+fn pipeline_let_initialiser_still_calls_the_fn_it_shadows() {
+    let store = run_fixture("local_closure_calls");
+    // `let scene = scene(1);`: the binding is not in effect inside its own initialiser.
+    let targets = call_targets(&store, "entry_self_shadow");
+    assert!(!targets.is_empty(), "{targets:?}");
+}
