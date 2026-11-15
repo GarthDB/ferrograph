@@ -8,7 +8,9 @@ use std::fmt::Write as _;
 use clap::ValueEnum;
 use serde_json::{json, Value};
 
-use crate::ops::{BlastRadiusResult, CallersResult, DeadCodeResult, NodeSummary, PrResult};
+use crate::ops::{
+    BlastRadiusResult, CallersResult, DeadCodeResult, ImpactGroup, NodeSummary, PrResult,
+};
 use crate::pr::{bare_name, split_id};
 
 /// Output format selected with `--format` (or `--json`).
@@ -236,12 +238,34 @@ pub fn count_label(count: usize, truncated: bool) -> String {
     format!("{count}{}", if truncated { "+" } else { "" })
 }
 
+const TOP_FILES: usize = 5;
+
+/// `"27 (tests/a.rs 9, tests/b.rs 6, +2 files)"`: group size and its busiest files.
+#[must_use]
+pub fn impact_group_label(g: &ImpactGroup) -> String {
+    if g.count == 0 {
+        return "0".into();
+    }
+    let mut parts: Vec<String> = g
+        .files
+        .iter()
+        .take(TOP_FILES)
+        .map(|f| format!("{} {}", f.file, f.count))
+        .collect();
+    if g.files.len() > TOP_FILES {
+        parts.push(format!("+{} files", g.files.len() - TOP_FILES));
+    }
+    format!("{} ({})", g.count, parts.join(", "))
+}
+
 /// Markdown for `ferrograph pr`.
 #[must_use]
 pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
+    let i = &r.impacted;
     let mut out = format!(
-        "{MARKER}\n### ferrograph: {} newly dead, blast radius {}\n\n",
+        "{MARKER}\n### ferrograph: {} newly dead, {} impacted, depends on {}\n\n",
         r.newly_dead_count,
+        count_label(i.count, i.truncated),
         count_label(r.blast.count, r.blast.truncated)
     );
     out.push_str("**Newly dead functions**\n\n");
@@ -257,19 +281,69 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
         })
         .collect();
     table(&mut out, &["Function", "Location", "Kind"], &rows, limit);
+    let _ = write!(
+        out,
+        "\n**Impacted by this change** (callers up to {} hops; name-based, so common names over-count)\n\n",
+        i.depth
+    );
+    if i.count == 0 {
+        out.push_str("_None._\n");
+    } else {
+        let rows: Vec<Vec<String>> = [
+            ("Tests", &i.tests),
+            ("Examples/benches", &i.examples),
+            ("Library", &i.library),
+        ]
+        .iter()
+        .map(|(n, g)| vec![(*n).to_string(), esc(&impact_group_label(g))])
+        .collect();
+        table(&mut out, &["Group", "Functions (top files)"], &rows, limit);
+    }
     out.push_str("\n**Changed functions**\n\n");
     let rows: Vec<Vec<String>> = r
         .changed_functions
         .iter()
+        .filter(|f| f.kind == "fn")
         .map(|f| {
             vec![
                 esc(&f.name),
                 esc(&format!("{}:{}", f.file, f.start_line)),
+                f.impacted
+                    .as_ref()
+                    .map_or_else(String::new, |x| count_label(x.count, x.truncated)),
                 count_label(f.blast_count, f.blast_truncated),
             ]
         })
         .collect();
-    table(&mut out, &["Function", "Location", "Blast"], &rows, limit);
+    table(
+        &mut out,
+        &["Function", "Location", "Impacted", "Depends on"],
+        &rows,
+        limit,
+    );
+    let tests: Vec<Vec<String>> = r
+        .changed_functions
+        .iter()
+        .filter(|f| f.kind != "fn")
+        .map(|f| {
+            vec![
+                esc(&f.name),
+                esc(&format!("{}:{}", f.file, f.start_line)),
+                f.impacted
+                    .as_ref()
+                    .map_or_else(String::new, |x| count_label(x.count, x.truncated)),
+            ]
+        })
+        .collect();
+    if !tests.is_empty() {
+        out.push_str("\n**Tests changed** (and test helpers, with the callers they impact)\n\n");
+        table(
+            &mut out,
+            &["Function", "Location", "Impacted"],
+            &tests,
+            limit,
+        );
+    }
     finish(out)
 }
 
@@ -310,7 +384,7 @@ pub fn markdown_callers(r: &CallersResult, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::{NewlyDeadFunction, PrBlast};
+    use crate::ops::{ImpactGroup, NewlyDeadFunction, PrBlast, PrImpacted};
 
     fn node(id: &str, payload: &str) -> NodeSummary {
         NodeSummary {
@@ -397,6 +471,16 @@ mod tests {
                 count: 0,
                 shown: 0,
                 truncated: false,
+                nodes: vec![],
+            },
+            impacted: PrImpacted {
+                depth: 3,
+                count: 0,
+                shown: 0,
+                truncated: false,
+                tests: ImpactGroup::default(),
+                examples: ImpactGroup::default(),
+                library: ImpactGroup::default(),
                 nodes: vec![],
             },
             coupling: vec![],

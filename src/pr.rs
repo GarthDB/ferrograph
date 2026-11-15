@@ -20,7 +20,8 @@ use tree_sitter::Parser;
 use crate::graph::query::Query;
 use crate::graph::{unquote_datavalue, Store};
 use crate::ops::{
-    ChangedFunction, ChangedItems, CouplingHint, NewlyDeadFunction, NodeSummary, PrBlast, PrResult,
+    ChangedFunction, ChangedItems, CouplingHint, FnImpact, ImpactFile, ImpactGroup, ImpactedNode,
+    NewlyDeadFunction, NodeSummary, PrBlast, PrImpacted, PrResult,
 };
 use crate::pipeline::{run_pipeline, PipelineConfig};
 
@@ -47,6 +48,8 @@ pub struct PrOptions {
     pub ignore: Vec<String>,
     pub exclude_low_confidence: bool,
     pub blast_limit: usize,
+    /// Caller hops followed for the impacted set.
+    pub impact_depth: u32,
 }
 
 /// One file's changes on the head side.
@@ -509,7 +512,110 @@ fn open_head(
     Ok(s)
 }
 
-type Changes = (Vec<ChangedFunction>, Vec<ChangedItems>, PrBlast);
+type Changes = (Vec<ChangedFunction>, Vec<ChangedItems>, PrBlast, PrImpacted);
+
+/// `tests`, `examples` (examples and benches) or `library`, from the payload prefix and the path.
+fn impact_group(id: &str, payload: &str) -> &'static str {
+    let (path, _, _) = split_id(id);
+    let in_dir = |d: &str| path.split('/').any(|c| c == d);
+    if payload.starts_with("test::") || in_dir("tests") {
+        "tests"
+    } else if payload.starts_with("bench::") || in_dir("examples") || in_dir("benches") {
+        "examples"
+    } else {
+        "library"
+    }
+}
+
+fn fn_kind(store: &Store, id: &str) -> Result<&'static str> {
+    let mut params = BTreeMap::new();
+    params.insert("id".to_string(), cozo::DataValue::from(id));
+    let rows = store.run_query("?[p] := *nodes[$id, _, p]", params)?;
+    let payload = rows.rows.first().map(|r| unquote_datavalue(&r[0]));
+    Ok(match payload.as_deref() {
+        Some(p) if p.starts_with("test::") => "test",
+        Some(p) if p.starts_with("bench::") => "bench",
+        // A helper in tests/ or benches/ is not a leaf (tests call it), but its closure is noise.
+        _ if ["tests", "benches"]
+            .iter()
+            .any(|d| split_id(id).0.split('/').any(|c| c == *d)) =>
+        {
+            "helper"
+        }
+        _ => "fn",
+    })
+}
+
+fn impact_group_of(nodes: &[&ImpactedNode]) -> ImpactGroup {
+    let mut by_file: BTreeMap<String, usize> = BTreeMap::new();
+    for n in nodes {
+        *by_file.entry(split_id(&n.id).0).or_default() += 1;
+    }
+    let mut files: Vec<ImpactFile> = by_file
+        .into_iter()
+        .map(|(file, count)| ImpactFile { file, count })
+        .collect();
+    files.sort_by_key(|f| std::cmp::Reverse(f.count));
+    ImpactGroup {
+        count: nodes.len(),
+        files,
+    }
+}
+
+/// Transitive callers of one changed function (ignored files dropped) and their group counts.
+fn fn_impact(
+    opts: &PrOptions,
+    store: &Store,
+    id: &str,
+    ignored: &dyn Fn(&str) -> bool,
+) -> Result<(FnImpact, Vec<NodeSummary>)> {
+    let c = crate::ops::callers(store, id, opts.impact_depth, opts.exclude_low_confidence)?;
+    let callers: Vec<NodeSummary> = c.callers.into_iter().filter(|n| !ignored(&n.id)).collect();
+    let count_in = |g: &str| {
+        callers
+            .iter()
+            .filter(|n| impact_group(&n.id, n.payload.as_deref().unwrap_or("")) == g)
+            .count()
+    };
+    let impact = FnImpact {
+        count: callers.len(),
+        tests: count_in("tests"),
+        examples: count_in("examples"),
+        library: count_in("library"),
+        truncated: c.truncated,
+    };
+    Ok((impact, callers))
+}
+
+/// Changed functions are listed on their own, so the caller union excludes them.
+fn build_impacted(
+    opts: &PrOptions,
+    callers: BTreeMap<String, NodeSummary>,
+    truncated: bool,
+) -> PrImpacted {
+    let all: Vec<ImpactedNode> = callers
+        .into_values()
+        .map(|n| {
+            let payload = n.payload.unwrap_or_default();
+            ImpactedNode {
+                group: impact_group(&n.id, &payload),
+                name: bare_name(&payload).to_string(),
+                id: n.id,
+            }
+        })
+        .collect();
+    let of = |g: &str| impact_group_of(&all.iter().filter(|n| n.group == g).collect::<Vec<_>>());
+    PrImpacted {
+        depth: opts.impact_depth,
+        count: all.len(),
+        shown: all.len().min(opts.blast_limit),
+        truncated,
+        tests: of("tests"),
+        examples: of("examples"),
+        library: of("library"),
+        nodes: all.into_iter().take(opts.blast_limit).collect(),
+    }
+}
 
 fn map_changes(
     opts: &PrOptions,
@@ -517,13 +623,20 @@ fn map_changes(
     (prefix, head): (&str, &str),
     head_store: &Store,
     diffs: &[FileDiff],
+    ignore: &[String],
     warnings: &mut Vec<String>,
 ) -> Result<Changes> {
+    let pats = ignore
+        .iter()
+        .map(|p| glob::Pattern::new(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let ignored = |id: &str| pats.iter().any(|p| crate::ops::path_matches(p, id));
     let mut changed_functions = Vec::new();
     let mut changed_without_function = Vec::new();
     let mut union: BTreeMap<String, NodeSummary> = BTreeMap::new();
-    let mut truncated = false;
-    for d in diffs {
+    let mut callers_union: BTreeMap<String, NodeSummary> = BTreeMap::new();
+    let (mut truncated, mut callers_truncated) = (false, false);
+    for d in diffs.iter().filter(|d| !ignored(&d.path)) {
         // Read the HEAD blob, not the working tree: hunk lines are relative to it.
         let Some(source) = git_opt(root, &["show", &format!("{head}:{prefix}{}", d.path)]) else {
             warnings.push(format!("could not read {} at HEAD; skipped", d.path));
@@ -540,22 +653,44 @@ fn map_changes(
         for i in fns {
             let r = &ranges[i];
             let id = format!("./{}#{}:{}", d.path, r.start_line, r.start_col);
-            let blast = crate::ops::blast_radius(head_store, &id, opts.exclude_low_confidence)?;
+            // A test or bench is a leaf: its forward closure is noise, and nothing calls it.
+            let kind = fn_kind(head_store, &id)?;
+            let (blast_count, blast_truncated, impacted) = if kind == "test" || kind == "bench" {
+                (0, false, None)
+            } else {
+                let (mut count, mut blast_truncated) = (0, false);
+                if kind == "fn" {
+                    let blast =
+                        crate::ops::blast_radius(head_store, &id, opts.exclude_low_confidence)?;
+                    (count, blast_truncated) = (blast.count, blast.truncated);
+                    truncated |= blast_truncated;
+                    for n in blast.reachable_nodes {
+                        union.entry(n.id.clone()).or_insert(n);
+                    }
+                }
+                let (impact, callers) = fn_impact(opts, head_store, &id, &ignored)?;
+                callers_truncated |= impact.truncated;
+                for n in callers {
+                    callers_union.entry(n.id.clone()).or_insert(n);
+                }
+                (count, blast_truncated, Some(impact))
+            };
             changed_functions.push(ChangedFunction {
                 id,
                 file: d.path.clone(),
                 name: r.name.clone(),
                 start_line: r.start_line,
                 end_line: r.end_line,
-                blast_count: blast.count,
-                blast_truncated: blast.truncated,
+                blast_count,
+                blast_truncated,
+                kind,
+                impacted,
             });
-            truncated |= blast.truncated;
-            for n in blast.reachable_nodes {
-                union.entry(n.id.clone()).or_insert(n);
-            }
         }
     }
+    let changed_ids: HashSet<&str> = changed_functions.iter().map(|f| f.id.as_str()).collect();
+    callers_union.retain(|id, _| !changed_ids.contains(id.as_str()) && !ignored(id));
+    let impacted = build_impacted(opts, callers_union, callers_truncated);
     let count = union.len();
     let nodes: Vec<NodeSummary> = union.into_values().take(opts.blast_limit).collect();
     let blast = PrBlast {
@@ -565,7 +700,7 @@ fn map_changes(
         nodes,
     };
 
-    Ok((changed_functions, changed_without_function, blast))
+    Ok((changed_functions, changed_without_function, blast, impacted))
 }
 
 fn newly_dead(head: &DeadState, base: &DeadState, diffs: &[FileDiff]) -> Vec<NewlyDeadFunction> {
@@ -710,12 +845,13 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
     let base_state = dead_state(&base_store, opts, &entry, &ignore, restricted, bin_pub)?;
 
     let newly_dead = newly_dead(&head_state, &base_state, &diffs);
-    let (changed_functions, changed_without_function, blast) = map_changes(
+    let (changed_functions, changed_without_function, blast, impacted) = map_changes(
         opts,
         &root,
         (&prefix, &head),
         &head_store,
         &diffs,
+        &ignore,
         &mut warnings,
     )?;
 
@@ -729,6 +865,7 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
         changed_functions,
         changed_without_function,
         blast,
+        impacted,
         coupling: coupling_hints(&head_store, &diffs)?,
         warnings,
     })
