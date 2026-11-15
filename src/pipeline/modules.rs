@@ -597,6 +597,19 @@ fn use_leaves(path: &str) -> Vec<(String, Option<String>)> {
     }
 }
 
+/// `use m::f;` where `m` is bound by another `use` of the file (`use crate::ui::m;`): the leaf with
+/// that binding spelled out (`crate::ui::m::f`). `None` when no other leaf binds the first segment.
+fn expand_use_binding(leaf: &str, leaves: &[(String, Option<String>)]) -> Option<String> {
+    let (first, rest) = leaf.trim().split_once("::")?;
+    if matches!(first, "crate" | "self" | "super") || first.contains(' ') {
+        return None;
+    }
+    let bound = leaves.iter().map(|(l, _)| l.trim()).find(|l| {
+        l.contains("::") && !l.contains(" as ") && l.rsplit("::").next() == Some(first)
+    })?;
+    Some(format!("{bound}::{rest}"))
+}
+
 fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> {
     let mut out = Vec::new();
     for (file, name, target) in &maps.path_mods {
@@ -627,9 +640,11 @@ fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> 
             }
             let mut external = false;
             let mut item_node = None;
-            if let Some((target_file_id, target_node_opt, names_module)) =
-                resolve_use_path(leaf, krate, module_path, maps, 0)
-            {
+            let resolved = resolve_use_path(leaf, krate, module_path, maps, 0).or_else(|| {
+                let expanded = expand_use_binding(leaf, leaves)?;
+                resolve_use_path(&expanded, krate, module_path, maps, 0)
+            });
+            if let Some((target_file_id, target_node_opt, names_module)) = resolved {
                 // Importing a module itself brings no function into scope, so it leaves no edge.
                 if !names_module {
                     item_node.clone_from(&target_node_opt);
