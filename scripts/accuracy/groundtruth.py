@@ -118,6 +118,12 @@ def analyse(c, fg, work, args):
     for mode in MODES:
         strict = mode == "strict"
         F = fg.dead(db, strict)
+        # `--strict` turns both root-demoting options off unless asked for, so the model's roots differ per mode.
+        A.prepare_model(
+            g,
+            fg.restricted and (not strict or "--restricted-vis-not-root" in fg.extra),
+            fg.bin_pub and (not strict or "--bin-pub-not-root" in fg.extra),
+        )
         mdead = A.model_dead(g, strict)
         res["selfcheck"][mode] = {
             "cli": len(F),
