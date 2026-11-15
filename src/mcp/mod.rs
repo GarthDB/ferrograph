@@ -47,13 +47,13 @@ fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
             },
             "bin_pub_not_root": {
                 "type": "boolean",
-                "description": "Do not treat bare pub functions in files compiled only by bin/test/example/bench targets as entry points (default true; pass false to keep them as entry points)",
+                "description": "Do not treat bare pub functions in files compiled only by bin/test/example/bench targets as entry points (default true, false with strict; pass false to keep them as entry points)",
                 "default": true
             },
             "restricted_vis_not_root": {
                 "type": "boolean",
-                "description": "Do not treat pub(crate)/pub(super)/pub(in ..) functions as entry points; bare pub still is (default false)",
-                "default": false
+                "description": "Do not treat pub(crate)/pub(super)/pub(in ..) functions as entry points; bare pub still is (default true, false with strict; pass false to keep them as entry points)",
+                "default": true
             }
         }
     })
@@ -570,8 +570,8 @@ impl FerrographMcp {
                 .and_then(|m| m.get(key))
                 .and_then(serde_json::Value::as_bool)
         };
-        let restricted = arg("restricted_vis_not_root").unwrap_or(false);
-        let bin_pub = arg("bin_pub_not_root").unwrap_or(true);
+        let restricted = arg("restricted_vis_not_root").unwrap_or(!strict);
+        let bin_pub = arg("bin_pub_not_root").unwrap_or(!strict);
         let mut ids = if strict || restricted || bin_pub {
             Vec::new()
         } else {
@@ -1217,6 +1217,37 @@ mod tests {
         assert!(json.get("count").unwrap().is_number());
         assert!(json.get("total_filtered").unwrap().is_number());
         assert_eq!(json.get("source").unwrap().as_str().unwrap(), "computed");
+    }
+
+    #[test]
+    fn handle_dead_code_strict_keeps_the_visibility_options_off_unless_asked() {
+        let store = Store::new_memory().unwrap();
+        let f = NodeId("./src/a.rs#1:1".to_string());
+        store
+            .put_node(&f, &NodeType::Function, Some("pub::restricted"))
+            .unwrap();
+        store
+            .put_edge(
+                &f,
+                &NodeId("attr::pub_restricted".to_string()),
+                &EdgeType::HasAttribute,
+            )
+            .unwrap();
+        let dead = |args: serde_json::Value| {
+            let request = tool_request("dead_code", args.as_object().cloned());
+            let json = result_json(FerrographMcp::handle_dead_code(&request, &store).unwrap());
+            json["dead_node_ids"].as_array().unwrap().len()
+        };
+        assert_eq!(dead(serde_json::json!({})), 1, "default demotes pub(..)");
+        assert_eq!(
+            dead(serde_json::json!({"strict": true})),
+            0,
+            "strict keeps it"
+        );
+        let both = serde_json::json!({"strict": true, "restricted_vis_not_root": true});
+        assert_eq!(dead(both), 1, "explicit flag wins");
+        let off = serde_json::json!({"restricted_vis_not_root": false});
+        assert_eq!(dead(off), 0, "explicit false opts out");
     }
 
     #[test]

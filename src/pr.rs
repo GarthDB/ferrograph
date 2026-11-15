@@ -39,9 +39,9 @@ pub struct PrOptions {
     /// Index the head tree into memory instead of reading `head_db`.
     pub index_head: bool,
     pub strict: bool,
-    /// Applied to base and head alike; `None` falls back to `restricted_vis_not_root` in `[dead]` of the HEAD config, then false.
+    /// Applied to base and head alike; `None` falls back to `restricted_vis_not_root` in `[dead]` of the HEAD config, then true (false with `strict`).
     pub restricted_vis_not_root: Option<bool>,
-    /// Applied to base and head alike; `None` falls back to `bin_pub_not_root` in `[dead]` of the HEAD config, then true.
+    /// Applied to base and head alike; `None` falls back to `bin_pub_not_root` in `[dead]` of the HEAD config, then true (false with `strict`).
     pub bin_pub_not_root: Option<bool>,
     pub entry: Vec<String>,
     pub ignore: Vec<String>,
@@ -684,11 +684,11 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
     let restricted = opts
         .restricted_vis_not_root
         .or(cfg.dead.restricted_vis_not_root)
-        .unwrap_or(false);
+        .unwrap_or(!opts.strict);
     let bin_pub = opts
         .bin_pub_not_root
         .or(cfg.dead.bin_pub_not_root)
-        .unwrap_or(true);
+        .unwrap_or(!opts.strict);
 
     let diffs = diff_files(&root, &merge_base, &head)?;
 

@@ -18,9 +18,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ARMS = {
-    "default": "--no-bin-pub-not-root",
+    "default": "--no-restricted-vis-not-root --no-bin-pub-not-root",
     "restricted": "--restricted-vis-not-root --no-bin-pub-not-root",
-    "binpub": "--bin-pub-not-root",
+    "binpub": "--no-restricted-vis-not-root --bin-pub-not-root",
     "both": "--restricted-vis-not-root --bin-pub-not-root",
 }
 
