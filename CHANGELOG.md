@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [6.0.0](https://github.com/GarthDB/ferrograph/compare/v5.0.0...v6.0.0) - 2026-11-15
 
-### Changed
+### ⚠ Breaking changes
 
+- Library API: `PrOptions` (`impact_depth`), `ChangedFunction` (`kind`, `impacted`) and `PrResult` (`impacted`) gained public fields, so exhaustive struct literals of them no longer compile.
 - `pr` Markdown header is now `N impacted (T tests, E examples, L library)`; the "depends on" count is no longer in the header (it stays in the table and the JSON). The header changes once across the 6.0.0 release.
 - `pr`: functions under `examples/` get `kind: "example"`, like `helper`: `blast_count: 0`, no forward closure, `impacted` kept. A gallery story's closure was 245 of 255 nodes on a Rune PR.
 - `pr` labels the blast radius "depends on" (it is the forward closure plus direct callers, not what depends on the change); the Markdown header and changed-functions table now lead with impact. **Semantic change:** `blast_count` is 0 for changed `#[test]`/`#[bench]` functions and for `helper` functions (other functions under `tests/` or `benches/`, which keep their `impacted` set) (they stay in `changed_functions`; `kind` identifies them), which are excluded from the union blast. `--ignore` and `[dead] ignore` now also filter the changed-function, changed-lines and impacted lists of `pr`. `--max-blast` still gates the "depends on" count, not the impacted one. ([#169](https://github.com/GarthDB/ferrograph/issues/169)) ([#170](https://github.com/GarthDB/ferrograph/issues/170)) ([#171](https://github.com/GarthDB/ferrograph/issues/171))
