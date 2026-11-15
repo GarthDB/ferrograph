@@ -7,3 +7,7 @@ pub fn api_glob() {
 pub fn api_glob_twin() {
     twin();
 }
+
+pub fn api_glob_private() {
+    secret();
+}

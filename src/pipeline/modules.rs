@@ -523,8 +523,10 @@ pub(crate) const EXTERNAL_IMPORT_PREFIX: &str = "external::";
 /// with `=>ID` appended when the renamed item resolved to the node `ID`.
 pub(crate) const ALIAS_IMPORT_PREFIX: &str = "alias::";
 /// Prefix of `Imports` targets recording a glob import of a project module: `glob::FILE` for
-/// `use super::*` (the `Imports` edge starts at the importing file).
+/// `use super::*` (the `Imports` edge starts at the importing file). `=>pub` is appended when the
+/// glob reaches only `pub` items, i.e. the importing module is not the globbed module or inside it.
 pub(crate) const GLOB_IMPORT_PREFIX: &str = "glob::";
+pub(crate) const GLOB_PUB_ONLY_SUFFIX: &str = "=>pub";
 /// Prefix of `Imports` targets recording `#[path = ".."] mod name;`: `pathmod::name=>FILE`.
 pub(crate) const PATH_MOD_IMPORT_PREFIX: &str = "pathmod::";
 
@@ -610,6 +612,28 @@ fn expand_use_binding(leaf: &str, leaves: &[(String, Option<String>)]) -> Option
     Some(format!("{bound}::{rest}"))
 }
 
+/// Whether `leaf` (`use ..::*`) is a glob of the importing module or of an ancestor, which also
+/// brings private items (`use super::*`); a glob of any other module sees only what it exports.
+fn glob_sees_private(leaf: &str, current_module: &str) -> bool {
+    let path = leaf.trim().strip_prefix("::").unwrap_or(leaf.trim());
+    let path = path.strip_suffix("::*").unwrap_or(path);
+    let segments: Vec<&str> = path.split("::").filter(|s| !s.is_empty()).collect();
+    let target = match segments.first() {
+        Some(&"crate") => join_mod("crate", &segments[1..]),
+        Some(&"self") => join_mod(current_module, &segments[1..]),
+        Some(&"super") => {
+            let n = segments.iter().take_while(|s| **s == "super").count();
+            let base = (0..n).fold(current_module.to_string(), |m, _| {
+                m.rsplit_once("::")
+                    .map_or_else(|| "crate".to_string(), |(p, _)| p.to_string())
+            });
+            join_mod(&base, &segments[n..])
+        }
+        _ => join_mod(current_module, &segments),
+    };
+    current_module == target || current_module.starts_with(&format!("{target}::"))
+}
+
 fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> {
     let mut out = Vec::new();
     for (file, name, target) in &maps.path_mods {
@@ -630,9 +654,14 @@ fn collect_imports_to_add(maps: &ModuleMaps) -> Vec<(NodeId, NodeId, EdgeType)> 
                 if let Some((target, None, true)) =
                     resolve_use_path(leaf, krate, module_path, maps, 0)
                 {
+                    let suffix = if glob_sees_private(leaf, module_path) {
+                        ""
+                    } else {
+                        GLOB_PUB_ONLY_SUFFIX
+                    };
                     out.push((
                         from.clone(),
-                        NodeId::new(format!("{GLOB_IMPORT_PREFIX}{target}")),
+                        NodeId::new(format!("{GLOB_IMPORT_PREFIX}{target}{suffix}")),
                         EdgeType::Imports,
                     ));
                 }

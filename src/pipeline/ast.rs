@@ -952,6 +952,7 @@ fn callee_placeholder(
 ) -> Option<NodeId> {
     let text = |n: &tree_sitter::Node| source.get(n.byte_range());
     let name = match callee.kind() {
+        "identifier" if is_local_binding(callee, source) => return None,
         "identifier" | "scoped_identifier" => text(callee)?.to_string(),
         "field_expression" => {
             let field = callee.child_by_field_name("field")?;
@@ -1672,6 +1673,29 @@ fn binder_hint(b: &Binder, id: &tree_sitter::Node, source: &str) -> Option<Strin
         ),
         BinderKind::Closure(closure, param) => closure_param_hint(closure, param, id, source),
     }
+}
+
+/// Whether the identifier `x` names a local (a `let`, parameter, closure parameter, `for`, `if let`
+/// or `match` binding in the enclosing function) rather than an item: `scene(1)` after
+/// `let scene = |x| ..` calls the closure, never a function named `scene` (#125).
+/// shortcut: bindings of kinds `binder_of` does not model (tuple parameters, ..) are not seen.
+fn is_local_binding(x: &tree_sitter::Node, source: &str) -> bool {
+    let (Some(name), Some(mut func)) = (source.get(x.byte_range()), x.parent()) else {
+        return false;
+    };
+    while func.kind() != "function_item" {
+        let Some(p) = func.parent() else {
+            return false;
+        };
+        func = p;
+    }
+    let mut ids = Vec::new();
+    named_identifiers(&func, source, name, &mut ids);
+    ids.iter().filter(|n| is_binder(n)).any(|id| {
+        binder_of(id).is_some_and(|b| {
+            b.start <= x.start_byte() && x.end_byte() <= b.end && b.after <= x.start_byte()
+        })
+    })
 }
 
 /// Type of the local `x` (an identifier at the call site) from its nearest binding in the enclosing

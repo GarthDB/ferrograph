@@ -22,7 +22,8 @@ use anyhow::Result;
 use crate::graph::schema::{EdgeType, NodeId, NodeType};
 
 use super::modules::{
-    ALIAS_IMPORT_PREFIX, EXTERNAL_IMPORT_PREFIX, GLOB_IMPORT_PREFIX, PATH_MOD_IMPORT_PREFIX,
+    ALIAS_IMPORT_PREFIX, EXTERNAL_IMPORT_PREFIX, GLOB_IMPORT_PREFIX, GLOB_PUB_ONLY_SUFFIX,
+    PATH_MOD_IMPORT_PREFIX,
 };
 
 /// Suffix the AST phase puts on call placeholders for paths used as values (see `ast.rs`).
@@ -88,8 +89,8 @@ struct Index {
     local_conflicts: HashSet<(String, String)>,
     /// alias -> (file, original name, resolved item) of the same renames, for qualified calls.
     aliases_by_name: HashMap<String, Vec<AliasTarget>>,
-    /// File -> files of the project modules it glob-imports (`use super::*`).
-    globs: HashMap<String, Vec<String>>,
+    /// File -> (file, sees private items) of the project modules it glob-imports (`use super::*`).
+    globs: HashMap<String, Vec<(String, bool)>>,
     /// Module name -> files declared with `#[path = ".."] mod name;`.
     path_mods: HashMap<String, Vec<String>>,
     node_id_to_payload: HashMap<String, String>,
@@ -844,7 +845,14 @@ fn resolve_via_globs(
         .filter(|n| !idx.methods.contains(n.as_str()))
         .filter(|n| {
             let file = n.as_str().split('#').next().unwrap_or("");
-            files.iter().any(|f| f == file) && idx.parent_of(n) == Some(file)
+            let public = idx
+                .node_id_to_payload
+                .get(n.as_str())
+                .is_some_and(|p| p.starts_with("pub::"));
+            files
+                .iter()
+                .any(|(f, private)| f == file && (*private || public))
+                && idx.parent_of(n) == Some(file)
         })
         .collect();
     found.dedup();
@@ -1181,7 +1189,7 @@ struct ImportMaps {
     local_aliases: HashMap<(String, String), String>,
     local_conflicts: HashSet<(String, String)>,
     aliases_by_name: HashMap<String, Vec<AliasTarget>>,
-    globs: HashMap<String, Vec<String>>,
+    globs: HashMap<String, Vec<(String, bool)>>,
     path_mods: HashMap<String, Vec<String>>,
 }
 
@@ -1212,7 +1220,13 @@ fn imports_by_file(edges: &cozo::NamedRows) -> ImportMaps {
         if let Some(name) = to.strip_prefix(EXTERNAL_IMPORT_PREFIX) {
             maps.external.insert((file, name.to_string()));
         } else if let Some(target) = to.strip_prefix(GLOB_IMPORT_PREFIX) {
-            maps.globs.entry(file).or_default().push(target.to_string());
+            let (target, private) = target
+                .strip_suffix(GLOB_PUB_ONLY_SUFFIX)
+                .map_or((target, true), |t| (t, false));
+            maps.globs
+                .entry(file)
+                .or_default()
+                .push((target.to_string(), private));
         } else if let Some((name, target)) = to
             .strip_prefix(PATH_MOD_IMPORT_PREFIX)
             .and_then(|r| r.split_once("=>"))

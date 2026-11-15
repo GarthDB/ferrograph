@@ -1157,6 +1157,18 @@ fn pipeline_bare_call_resolves_through_glob_import() {
 }
 
 #[test]
+fn pipeline_glob_of_parent_sees_private_fn_but_glob_of_other_module_does_not() {
+    let store = run_fixture("glob_calls");
+    assert_one_certain_call(&store, "api_glob_private", "./src/lib.rs#");
+    // `use crate::other::*` from `viewer` brings only pub items, so private `other::hidden` is no callee.
+    let targets = call_targets(&store, "api_glob_hidden");
+    assert!(
+        !targets.is_empty() && targets.iter().all(|t| t.1),
+        "{targets:?}"
+    );
+}
+
+#[test]
 fn pipeline_bare_call_resolves_when_the_module_file_is_imported_too() {
     let store = run_fixture("import_module_twice");
     assert_one_certain_call(&store, "api_twice_imported", "./src/q/mod.rs#");
@@ -1330,4 +1342,26 @@ fn pipeline_lock_await_and_try_lock_receivers() {
     for neg in ["neg_a_ext", "neg_b_ext", "neg_a_own", "neg_b_own"] {
         assert!(dead.contains(&tags[neg]), "{neg}");
     }
+}
+
+#[test]
+fn pipeline_bare_call_of_a_local_closure_is_not_a_call_to_a_same_named_fn() {
+    let store = run_fixture("local_closure_calls");
+    let targets = call_targets(&store, "entry");
+    assert_eq!(targets.len(), 1, "only `a::run`: {targets:?}");
+}
+
+#[test]
+fn pipeline_bare_call_of_a_parameter_is_not_a_call_to_a_same_named_fn() {
+    let store = run_fixture("local_closure_calls");
+    let targets = call_targets(&store, "entry_param");
+    assert!(targets.is_empty(), "{targets:?}");
+}
+
+#[test]
+fn pipeline_let_initialiser_still_calls_the_fn_it_shadows() {
+    let store = run_fixture("local_closure_calls");
+    // `let scene = scene(1);`: the binding is not in effect inside its own initialiser.
+    let targets = call_targets(&store, "entry_self_shadow");
+    assert!(!targets.is_empty(), "{targets:?}");
 }
