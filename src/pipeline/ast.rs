@@ -124,6 +124,7 @@ fn classify_node(
         }
         "macro_invocation" => {
             scan_macro_for_calls(node, source, file_id, parent, edges);
+            push_write_fmt_call(node, source, file_id, parent, edges);
             if let (Some(from), Some(macro_name)) = (parent, macro_invocation_name(node, source)) {
                 edges.push((
                     from.clone(),
@@ -224,7 +225,7 @@ fn traverse(
                     EdgeType::HasAttribute,
                 ));
             }
-            if is_trait_impl_method(&node) {
+            if is_trait_impl_method(&node) || is_attribute_macro_impl_method(&node, source) {
                 edges.push((
                     id.clone(),
                     NodeId::new(format!("attr::{TRAIT_IMPL_ATTR}")),
@@ -362,6 +363,34 @@ fn is_trait_impl_method(node: &tree_sitter::Node) -> bool {
         .filter(|p| p.kind() == "declaration_list")
         .and_then(|p| p.parent())
         .is_some_and(|i| i.kind() == "impl_item" && i.child_by_field_name("trait").is_some())
+}
+
+/// Attributes that leave an `impl` as written; any other outer attribute is a proc macro (`#[zbus::interface]`)
+/// whose generated code may call the methods (#102).
+const PLAIN_IMPL_ATTRS: [&str; 10] = [
+    "cfg",
+    "cfg_attr",
+    "allow",
+    "warn",
+    "deny",
+    "expect",
+    "inline",
+    "doc",
+    "deprecated",
+    "must_use",
+];
+
+/// True for a function directly inside an inherent `impl` that carries an attribute macro.
+fn is_attribute_macro_impl_method(node: &tree_sitter::Node, source: &str) -> bool {
+    node.parent()
+        .filter(|p| p.kind() == "declaration_list")
+        .and_then(|p| p.parent())
+        .filter(|i| i.kind() == "impl_item" && i.child_by_field_name("trait").is_none())
+        .is_some_and(|i| {
+            attribute_names(&i, source)
+                .iter()
+                .any(|n| !PLAIN_IMPL_ATTRS.contains(&n.as_str()) && n != "rustfmt::skip")
+        })
 }
 
 /// Outer attribute names on a function (`no_mangle`, `export_name`, ...), plus `extern` for
@@ -932,6 +961,29 @@ fn push_const_roots(
             id.clone(),
             NodeId::new(format!("attr::{name}")),
             EdgeType::HasAttribute,
+        ));
+    }
+}
+
+/// `write!(x, ..)` / `writeln!(x, ..)` expand to `x.write_fmt(..)` (#101).
+fn push_write_fmt_call(
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    parent: Option<&NodeId>,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    if let (Some(from), Some("write" | "writeln")) =
+        (parent, macro_invocation_name(node, source).as_deref())
+    {
+        edges.push((
+            from.clone(),
+            NodeId::new(format!(
+                "{}::write_fmt{}",
+                file_id.as_str(),
+                super::calls::METHOD_SUFFIX
+            )),
+            EdgeType::Calls,
         ));
     }
 }

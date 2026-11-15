@@ -1393,3 +1393,16 @@ fn pipeline_example_dir_with_main_rs_is_its_own_crate_root() {
         );
     }
 }
+
+#[test]
+fn pipeline_write_macro_calls_write_fmt_and_attribute_macro_impls_are_roots() {
+    let store = run_fixture("implicit_calls");
+    let tags = tagged_lines("implicit_calls", "src/lib.rs");
+    let dead = [tags["dead_plain"], tags["dead_unused"]];
+    for strict in [false, true] {
+        let got = dead_lines(&store, strict, "src/lib.rs");
+        assert!(!got.contains(&tags["live_write_fmt"]), "write_fmt: {got:?}");
+        assert!(!got.contains(&tags["live_category"]), "category: {got:?}");
+        assert!(dead.iter().all(|l| got.contains(l)), "{got:?}");
+    }
+}
