@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `pr`: functions under `examples/` get `kind: "example"`, like `helper`: `blast_count: 0`, no forward closure, `impacted` kept. A gallery story's closure was 245 of 255 nodes on a Rune PR.
+
+### Added
+
+- `pr --max-impacted N`: exit 1 if more than N functions are impacted. `--max-blast` still gates the "depends on" count.
+
+### Changed
+
 - `pr` labels the blast radius "depends on" (it is the forward closure plus direct callers, not what depends on the change); the Markdown header and changed-functions table now lead with impact. **Semantic change:** `blast_count` is 0 for changed `#[test]`/`#[bench]` functions and for `helper` functions (other functions under `tests/` or `benches/`, which keep their `impacted` set) (they stay in `changed_functions`; `kind` identifies them), which are excluded from the union blast. `--ignore` and `[dead] ignore` now also filter the changed-function, changed-lines and impacted lists of `pr`. `--max-blast` still gates the "depends on" count, not the impacted one. ([#169](https://github.com/GarthDB/ferrograph/issues/169)) ([#170](https://github.com/GarthDB/ferrograph/issues/170)) ([#171](https://github.com/GarthDB/ferrograph/issues/171))
 
 ### Added

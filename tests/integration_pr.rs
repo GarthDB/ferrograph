@@ -646,7 +646,8 @@ fn reports_transitive_callers_and_tests_changed() {
     assert_eq!(depth1["impacted"]["library"]["count"], 1);
     let md = String::from_utf8_lossy(&pr(d.path(), &["--format", "markdown"]).stdout).into_owned();
     assert!(
-        md.contains("Impacted by this change") && md.contains("Tests changed"),
+        md.contains("Impacted by this change")
+            && md.contains("Tests, benches and examples changed"),
         "{md}"
     );
 }
@@ -701,5 +702,41 @@ fn test_helper_keeps_impacted_but_has_no_blast() {
     assert_eq!(
         pr(d.path(), &["--impact-depth", "0"]).status.code(),
         Some(2)
+    );
+}
+
+#[test]
+fn example_fn_has_no_blast_and_max_impacted_gates() {
+    let Some(d) = repo() else { return };
+    let base = "fn story() {\n    inner();\n}\nfn inner() {}\n";
+    write(
+        d.path(),
+        "examples/g.rs",
+        &format!("{base}fn main() {{\n    story();\n}}\n"),
+    );
+    commit(d.path(), "add example");
+    git(d.path(), &["checkout", "-q", "-B", "main"]);
+    git(d.path(), &["checkout", "-q", "-b", "f4"]);
+    write(
+        d.path(),
+        "examples/g.rs",
+        &format!("{base}fn main() {{\n    story();\n}}\n")
+            .replace("    inner();", "    inner();\n    inner();"),
+    );
+    commit(d.path(), "edit story");
+    let v = json(&pr(d.path(), &["--json"]));
+    let f = &v["changed_functions"][0];
+    assert_eq!(
+        (f["kind"].as_str(), f["blast_count"].as_u64()),
+        (Some("example"), Some(0))
+    );
+    assert_eq!(f["impacted"]["count"], 1, "{f}");
+    assert_eq!(
+        pr(d.path(), &["--max-impacted", "1"]).status.code(),
+        Some(0)
+    );
+    assert_eq!(
+        pr(d.path(), &["--max-impacted", "0"]).status.code(),
+        Some(1)
     );
 }
