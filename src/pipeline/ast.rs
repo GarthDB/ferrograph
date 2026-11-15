@@ -367,7 +367,7 @@ fn is_trait_impl_method(node: &tree_sitter::Node) -> bool {
 
 /// Attributes that leave an `impl` as written; any other outer attribute is a proc macro (`#[zbus::interface]`)
 /// whose generated code may call the methods (#102).
-const PLAIN_IMPL_ATTRS: [&str; 10] = [
+const PLAIN_IMPL_ATTRS: [&str; 11] = [
     "cfg",
     "cfg_attr",
     "allow",
@@ -378,6 +378,7 @@ const PLAIN_IMPL_ATTRS: [&str; 10] = [
     "doc",
     "deprecated",
     "must_use",
+    "rustfmt::skip",
 ];
 
 /// True for a function directly inside an inherent `impl` that carries an attribute macro.
@@ -389,7 +390,7 @@ fn is_attribute_macro_impl_method(node: &tree_sitter::Node, source: &str) -> boo
         .is_some_and(|i| {
             attribute_names(&i, source)
                 .iter()
-                .any(|n| !PLAIN_IMPL_ATTRS.contains(&n.as_str()) && n != "rustfmt::skip")
+                .any(|n| !PLAIN_IMPL_ATTRS.contains(&n.as_str()))
         })
 }
 
