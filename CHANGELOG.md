@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP `trait_implementors` no longer returns a `note` field, and a failed query is now an error instead of an empty list with a "not yet implemented" note ([#64](https://github.com/GarthDB/ferrograph/issues/64)).
 - **Breaking (library):** `bin_pub_not_root` and `restricted_vis_not_root` are `Option<bool>` in `DeadOptions`, `PrOptions` and `DeadConfig` (`None` = default / config file).
 
+### Fixed
+
+- `Type::<A, B>::f()` paths keep their call edge (the type arguments are dropped before resolving); `for x in it` / `it.next()` on a project `impl Iterator` type use its `type Item`, so `x.method()` resolves ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
+
+### Changed (dead)
+
+- Functions whose name starts with `_` are roots, like rustc, which never reports them.
+
 ### Added
 
 - `pr --out FORMAT=PATH` (repeatable) writes json, markdown, sarif or text reports from one run, so one index pass of each tree serves every format ([#80](https://github.com/GarthDB/ferrograph/issues/80)).

@@ -1406,3 +1406,64 @@ fn pipeline_write_macro_calls_write_fmt_and_attribute_macro_impls_are_roots() {
         assert!(dead.iter().all(|l| got.contains(l)), "{got:?}");
     }
 }
+
+#[test]
+fn pipeline_turbofish_on_a_type_path_still_resolves_the_associated_fn() {
+    let store = run_fixture("turbofish_paths");
+    let targets = call_targets(&store, "build");
+    let grid: Vec<_> = targets
+        .iter()
+        .filter(|t| t.0.starts_with("./src/grid.rs#"))
+        .collect();
+    assert_eq!(grid.len(), 2, "{targets:?}");
+}
+
+#[test]
+fn pipeline_iterating_a_project_iterator_types_its_items() {
+    let store = run_fixture("iterator_items");
+    for caller in ["check_loop", "check_next"] {
+        let targets = call_targets(&store, caller);
+        let path: Vec<_> = targets
+            .iter()
+            .filter(|t| t.0.starts_with("./src/dir.rs#12") || t.0.starts_with("./src/walk.rs#6"))
+            .collect();
+        assert_eq!(path.len(), 1, "{caller}: {targets:?}");
+        assert!(
+            path[0].0.starts_with("./src/dir.rs") && !path[0].1,
+            "{caller}: {targets:?}"
+        );
+    }
+}
+
+#[test]
+fn pipeline_underscore_prefixed_fns_are_roots() {
+    let store = run_fixture("underscore_fns");
+    let tags = tagged_lines("underscore_fns", "src/main.rs");
+    for strict in [false, true] {
+        for (restricted, bin_pub) in [(false, false), (true, true)] {
+            let ids = ferrograph::graph::Query::compute_dead_functions_with(
+                &store,
+                strict,
+                &[],
+                restricted,
+                bin_pub,
+            )
+            .unwrap();
+            let lines: Vec<usize> = ids
+                .iter()
+                .filter_map(|id| {
+                    id.strip_prefix("./src/main.rs#")?
+                        .split(':')
+                        .next()?
+                        .parse()
+                        .ok()
+                })
+                .collect();
+            assert_eq!(
+                lines,
+                [tags["dead"]],
+                "strict={strict} restricted={restricted}"
+            );
+        }
+    }
+}
