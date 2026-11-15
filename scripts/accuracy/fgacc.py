@@ -225,6 +225,8 @@ def root_kind(g, nid, implemented_trait_fns, restricted=False, bin_pub=False):
         return next((a[6:] for a in sorted(ENTRY_ATTRS) if a in attrs), None)
     if payload == "main":
         return "main"
+    if canon(payload).startswith("_"):
+        return "underscore"  # rustc never reports `_name` fns; they are roots since 5.0
     attrs = g["attrs"].get(nid, set())
     demoted = (
         (restricted and "attr::pub_restricted" in attrs)

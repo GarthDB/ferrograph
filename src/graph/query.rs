@@ -285,7 +285,12 @@ impl Query {
                     || payload.starts_with("pub::")
                     || payload.starts_with("test::")
                     || payload.starts_with("bench::");
-                (is_entry && !demoted).then(|| DataValue::from(id))
+                // rustc never reports `_name` fns, and what they call stays live.
+                let underscore = payload
+                    .rsplit("::")
+                    .next()
+                    .is_some_and(|n| n.starts_with('_'));
+                ((is_entry && !demoted) || underscore).then(|| DataValue::from(id))
             })
             .chain(extra_entries.iter().map(|id| DataValue::from(id.as_str())))
             .collect();

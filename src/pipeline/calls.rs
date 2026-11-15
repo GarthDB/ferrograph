@@ -112,6 +112,8 @@ struct Index {
     fields: HashMap<(String, String), HashSet<String>>,
     /// Function id -> its plain return type (`Self` for `-> Self`).
     rets: HashMap<String, String>,
+    /// Project type -> `Item` of its `impl Iterator`, for `for x in it` and `it.next()` (#91).
+    iter_items: HashMap<String, String>,
 }
 
 impl Index {
@@ -394,6 +396,7 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
     }
     match part {
         // Iterating a map yields `(K, V)` pairs; the key type is not kept.
+        "[]" if idx.iter_items.contains_key(ty) => idx.iter_items.get(ty).cloned(),
         "[]" => split_generic(ty).map(|(name, inner)| {
             if name.ends_with("Map") {
                 format!("(_,{inner})")
@@ -414,6 +417,17 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
             match part.strip_suffix("()") {
                 Some(m) if is_project_type => {
                     let fns = methods_of_type(m, ty, idx);
+                    // An inherent method wins over the `Iterator` adapter of the same name.
+                    if let Some(item) = idx.iter_items.get(ty).filter(|_| fns.is_empty()) {
+                        match m {
+                            "next" => return Some(format!("Option<{item}>")),
+                            "take_while" | "skip_while" | "filter" | "skip" | "take"
+                            | "step_by" | "peekable" | "by_ref" | "chain" | "fuse" => {
+                                return Some(ty.to_string())
+                            }
+                            _ => {}
+                        }
+                    }
                     if fns.is_empty() && m == "clone" {
                         return Some(ty.to_string());
                     }
@@ -1365,7 +1379,15 @@ fn fill_fields(
         let from = row.first().map(unquote_datavalue).unwrap_or_default();
         let to = row.get(1).map(unquote_datavalue).unwrap_or_default();
         if let Some((_, ty)) = to.rsplit_once(RET_MARK) {
-            idx.rets.insert(from.clone(), ty.to_string());
+            match idx.scopes.get(&from).filter(|s| s.0) {
+                Some((_, owner)) => {
+                    // shortcut: keyed by type name only, so same-named types with different `Item`s collide (last wins); key by node id to fix.
+                    idx.iter_items.insert(owner.clone(), ty.to_string());
+                }
+                None => {
+                    idx.rets.insert(from.clone(), ty.to_string());
+                }
+            }
             store.remove_edge(&NodeId(from), &NodeId(to), &calls)?;
             continue;
         }

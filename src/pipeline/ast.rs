@@ -241,6 +241,9 @@ fn traverse(
         if kind == "macro_definition" {
             scan_macro_rules_body(&node, source, file_id, &id, edges);
         }
+        if kind == "type_item" {
+            push_iterator_item_edge(parent.as_ref(), &node, source, file_id, edges);
+        }
         if let Some((to_id, edge_type)) = extra {
             edges.push((id.clone(), to_id, edge_type));
         }
@@ -998,6 +1001,29 @@ fn resolve_call_target(node: &tree_sitter::Node, source: &str, file_id: &NodeId)
     callee_placeholder(&node.child(0)?, source, file_id)
 }
 
+/// `PatternGrid::<2, 4>::new` -> `PatternGrid::new`: type arguments on a path segment do not name the item (#91).
+fn strip_turbofish(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut depth = 0usize;
+    let mut rest = path;
+    while let Some(c) = rest.chars().next() {
+        if depth == 0 && rest.starts_with("::<") {
+            depth = 1;
+            rest = &rest[3..];
+            continue;
+        }
+        match c {
+            '<' if depth > 0 => depth += 1,
+            // `->` in an `Fn() -> T` argument is not a closing bracket.
+            '>' if depth > 0 && !path[..path.len() - rest.len()].ends_with('-') => depth -= 1,
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
 fn callee_placeholder(
     callee: &tree_sitter::Node,
     source: &str,
@@ -1006,7 +1032,8 @@ fn callee_placeholder(
     let text = |n: &tree_sitter::Node| source.get(n.byte_range());
     let name = match callee.kind() {
         "identifier" if is_local_binding(callee, source) => return None,
-        "identifier" | "scoped_identifier" => text(callee)?.to_string(),
+        "identifier" => text(callee)?.to_string(),
+        "scoped_identifier" => strip_turbofish(text(callee)?),
         "field_expression" => {
             let field = callee.child_by_field_name("field")?;
             if field.kind() != "field_identifier" {
@@ -1283,6 +1310,43 @@ fn push_return_hint_edge(
     {
         edges.push((
             function_id.clone(),
+            NodeId::new(format!(
+                "{}::{}{ty}",
+                file_id.as_str(),
+                super::calls::RET_MARK
+            )),
+            EdgeType::Calls,
+        ));
+    }
+}
+
+/// `type Item = T;` inside `impl Iterator for X`: a temporary `@ret:T` edge from the impl, read by the
+/// calls phase as "iterating an `X` yields `T`" (#91).
+fn push_iterator_item_edge(
+    parent: Option<&NodeId>,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let is_item = name_of_node(node, source).as_deref() == Some("Item");
+    let impl_node = node
+        .parent()
+        .filter(|p| p.kind() == "declaration_list")
+        .and_then(|p| p.parent())
+        .filter(|i| i.kind() == "impl_item");
+    let (true, Some(from), Some(imp)) = (is_item, parent, impl_node) else {
+        return;
+    };
+    if impl_trait_name(&imp, source).as_deref() != Some("Iterator") {
+        return;
+    }
+    if let Some(ty) = node
+        .child_by_field_name("type")
+        .and_then(|t| type_repr(&t, source))
+    {
+        edges.push((
+            from.clone(),
             NodeId::new(format!(
                 "{}::{}{ty}",
                 file_id.as_str(),
