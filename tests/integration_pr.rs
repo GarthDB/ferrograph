@@ -529,3 +529,42 @@ fn pr_out_rejects_a_bad_spec() {
         assert_eq!(out.status.code(), Some(2), "{bad}");
     }
 }
+
+#[test]
+fn pr_out_keeps_stdout_with_an_explicit_format_and_creates_directories() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "src/main.rs",
+        &BASE.replace("fn used", "fn used2"),
+    );
+    commit(d.path(), "rename");
+    let out = pr(
+        d.path(),
+        &[
+            "--format",
+            "markdown",
+            "--out",
+            "json=reports/nested/r.json",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("<!-- ferrograph -->"));
+    assert!(d.path().join("reports/nested/r.json").is_file());
+}
+
+#[test]
+fn pr_out_write_failure_is_an_error_but_stdout_is_kept() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "src/main.rs",
+        &BASE.replace("fn used", "fn used2"),
+    );
+    commit(d.path(), "rename");
+    // The target path is an existing directory, so the write fails.
+    let out = pr(d.path(), &["--json", "--out", "json=src"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Failed to write src"));
+    serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap();
+}

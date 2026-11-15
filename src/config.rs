@@ -684,12 +684,21 @@ fn run_pr(
     for w in &r.warnings {
         eprintln!("warning: {w}");
     }
-    for (f, path) in out {
-        std::fs::write(path, render_pr(&r, *f, md_limit)?)
-            .with_context(|| format!("Failed to write {}", path.display()))?;
-    }
     if to_stdout {
         print!("{}", render_pr(&r, format, md_limit)?);
+    }
+    // A failed report write is reported after stdout and the threshold messages, so neither is lost.
+    let mut write_err = None;
+    for (f, path) in out {
+        let written = render_pr(&r, *f, md_limit).and_then(|text| {
+            if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir)?;
+            }
+            Ok(std::fs::write(path, text)?)
+        });
+        if let Err(e) = written {
+            write_err.get_or_insert(e.context(format!("Failed to write {}", path.display())));
+        }
     }
     let mut outcome = Outcome::Ok;
     for (label, count, max) in [
@@ -701,7 +710,7 @@ fn run_pr(
             outcome = Outcome::FindingsOverThreshold;
         }
     }
-    Ok(outcome)
+    write_err.map_or(Ok(outcome), Err)
 }
 
 fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
@@ -709,61 +718,59 @@ fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
     macro_rules! emit {
         ($($t:tt)*) => {{ let _ = writeln!(out, $($t)*); }};
     }
-    {
+    emit!(
+        "base {} (merge base {:.8}) .. head {:.8}: {} changed .rs file(s)",
+        r.base,
+        r.merge_base,
+        r.head,
+        r.changed_files.len()
+    );
+    emit!("\nNewly dead functions: {}", r.newly_dead_count);
+    for f in &r.newly_dead {
+        emit!("  {}\t{}\t{}", f.id, f.name, f.status);
+    }
+    emit!("\nChanged functions: {}", r.changed_functions.len());
+    for f in &r.changed_functions {
         emit!(
-            "base {} (merge base {:.8}) .. head {:.8}: {} changed .rs file(s)",
-            r.base,
-            r.merge_base,
-            r.head,
-            r.changed_files.len()
+            "  {}\t{}\tblast {}",
+            f.id,
+            f.name,
+            format::count_label(f.blast_count, f.blast_truncated)
         );
-        emit!("\nNewly dead functions: {}", r.newly_dead_count);
-        for f in &r.newly_dead {
-            emit!("  {}\t{}\t{}", f.id, f.name, f.status);
-        }
-        emit!("\nChanged functions: {}", r.changed_functions.len());
-        for f in &r.changed_functions {
-            emit!(
-                "  {}\t{}\tblast {}",
-                f.id,
-                f.name,
-                format::count_label(f.blast_count, f.blast_truncated)
-            );
-        }
-        for c in &r.changed_without_function {
-            let ranges: Vec<String> = c
-                .lines
-                .iter()
-                .map(|[a, b]| {
-                    if a == b {
-                        a.to_string()
-                    } else {
-                        format!("{a}-{b}")
-                    }
-                })
-                .collect();
-            emit!("  (no function) {}: lines {}", c.file, ranges.join(", "));
-        }
+    }
+    for c in &r.changed_without_function {
+        let ranges: Vec<String> = c
+            .lines
+            .iter()
+            .map(|[a, b]| {
+                if a == b {
+                    a.to_string()
+                } else {
+                    format!("{a}-{b}")
+                }
+            })
+            .collect();
+        emit!("  (no function) {}: lines {}", c.file, ranges.join(", "));
+    }
+    emit!(
+        "\nBlast radius: {} node(s), showing {}",
+        format::count_label(r.blast.count, r.blast.truncated),
+        r.blast.shown
+    );
+    for n in &r.blast.nodes {
         emit!(
-            "\nBlast radius: {} node(s), showing {}",
-            format::count_label(r.blast.count, r.blast.truncated),
-            r.blast.shown
+            "  {}\t{}\t{}",
+            n.id,
+            n.node_type,
+            n.payload.as_deref().unwrap_or("—")
         );
-        for n in &r.blast.nodes {
-            emit!(
-                "  {}\t{}\t{}",
-                n.id,
-                n.node_type,
-                n.payload.as_deref().unwrap_or("—")
-            );
-        }
-        for h in &r.coupling {
-            emit!(
-                "\nOften changes with {}: {}",
-                h.file,
-                h.coupled_with.join(", ")
-            );
-        }
+    }
+    for h in &r.coupling {
+        emit!(
+            "\nOften changes with {}: {}",
+            h.file,
+            h.coupled_with.join(", ")
+        );
     }
 }
 
