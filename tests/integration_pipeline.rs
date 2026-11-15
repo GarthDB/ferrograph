@@ -1411,6 +1411,18 @@ fn pipeline_calls_do_not_cross_packages_that_cannot_call_each_other() {
         go.len() == 1 && go[0].0.starts_with("./a/src/lib.rs#") && !go[0].1,
         "{go:?}"
     );
+    // A dev-dependency is visible to `#[cfg(test)]` code in `src/`.
+    let unit = call_targets(&store, "from_unit_test");
+    assert!(
+        unit.len() == 1 && unit[0].0.starts_with("./a/src/lib.rs#"),
+        "{unit:?}"
+    );
+    // A rename inherited through `[workspace.dependencies]` still names the package.
+    let renamed = call_targets(&store, "through_rename");
+    assert!(
+        renamed.len() == 1 && renamed[0].0.starts_with("./a/src/lib.rs#"),
+        "{renamed:?}"
+    );
     // The same package calls its own private method.
     assert_eq!(call_targets(&store, "api").len(), 1);
 }

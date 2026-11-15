@@ -1,3 +1,7 @@
 [workspace]
-members = ["a", "b", "c"]
+members = ["a", "b", "c", "d", "e"]
 resolver = "2"
+
+[workspace.dependencies]
+a = { path = "a" }
+renamed = { path = "a", package = "a" }

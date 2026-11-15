@@ -44,7 +44,11 @@ fn norm(name: &str) -> String {
 
 /// Dependency names declared in `table` and its `[target.*]` variants, keyed by the package they
 /// resolve to (`package = ".."` renames).
-fn dep_names(manifest: &toml::Value, section: &str) -> Vec<String> {
+fn dep_names(
+    manifest: &toml::Value,
+    section: &str,
+    ws_renames: &HashMap<String, String>,
+) -> Vec<String> {
     let tables = std::iter::once(manifest.get(section)).chain(
         manifest
             .get("target")
@@ -56,16 +60,22 @@ fn dep_names(manifest: &toml::Value, section: &str) -> Vec<String> {
         .flatten()
         .filter_map(toml::Value::as_table)
         .flat_map(|t| {
-            t.iter()
-                .map(|(k, v)| norm(v.get("package").and_then(toml::Value::as_str).unwrap_or(k)))
+            t.iter().map(|(k, v)| {
+                // `foo.workspace = true` inherits the rename from the root's `[workspace.dependencies]`.
+                let renamed = v
+                    .get("package")
+                    .and_then(toml::Value::as_str)
+                    .or_else(|| ws_renames.get(k).map(String::as_str));
+                norm(renamed.unwrap_or(k))
+            })
         })
         .collect()
 }
 
 impl Units {
     pub(crate) fn load(root: &Path) -> Self {
-        let mut pkgs = HashMap::new();
-        let mut by_name = HashMap::new();
+        let mut manifests = Vec::new();
+        let mut ws_renames = HashMap::new();
         for entry in WalkBuilder::new(root).build().flatten() {
             let path = entry.path();
             if path.file_name().is_none_or(|n| n != "Cargo.toml") {
@@ -78,6 +88,20 @@ impl Units {
             else {
                 continue;
             };
+            let shared = manifest
+                .get("workspace")
+                .and_then(|w| w.get("dependencies"))
+                .and_then(toml::Value::as_table);
+            for (k, v) in shared.into_iter().flatten() {
+                if let Some(real) = v.get("package").and_then(toml::Value::as_str) {
+                    ws_renames.insert(k.clone(), real.to_string());
+                }
+            }
+            manifests.push((dir.to_path_buf(), manifest));
+        }
+        let mut pkgs = HashMap::new();
+        let mut by_name = HashMap::new();
+        for (dir, manifest) in manifests {
             // A workspace-only manifest has no `[package]`.
             let Some(name) = manifest
                 .get("package")
@@ -87,13 +111,13 @@ impl Units {
                 continue;
             };
             let has_lib = dir.join("src/lib.rs").is_file() || manifest.get("lib").is_some();
-            by_name.insert(norm(name), dir.to_path_buf());
+            by_name.insert(norm(name), dir.clone());
             pkgs.insert(
-                dir.to_path_buf(),
+                dir,
                 Package {
-                    deps: dep_names(&manifest, "dependencies"),
-                    dev: dep_names(&manifest, "dev-dependencies"),
-                    build: dep_names(&manifest, "build-dependencies"),
+                    deps: dep_names(&manifest, "dependencies", &ws_renames),
+                    dev: dep_names(&manifest, "dev-dependencies", &ws_renames),
+                    build: dep_names(&manifest, "build-dependencies", &ws_renames),
                     has_lib,
                 },
             );
@@ -140,7 +164,7 @@ impl Units {
     }
 
     /// Packages whose library code a unit of `target` in `pkg` can call: its direct dependencies
-    /// (plus dev-dependencies for tests/examples/benches, build-dependencies for `build.rs`) and,
+    /// (plus dev-dependencies, or build-dependencies for `build.rs`) and,
     /// through re-exports, their normal dependencies.
     fn reachable(&self, pkg: &Path, target: Target) -> HashSet<PathBuf> {
         let key = (pkg.to_path_buf(), target);
@@ -155,7 +179,9 @@ impl Units {
                 _ => &p.deps[..],
             };
             queue.extend(direct.iter().map(String::as_str));
-            if matches!(target, Target::Test | Target::Example | Target::Bench) {
+            // `#[cfg(test)]` modules in `src/` may use dev-dependencies too, and files are not told
+            // apart from them, so lib/bin code is allowed them (over-allows, never drops).
+            if target != Target::Build {
                 queue.extend(p.dev.iter().map(String::as_str));
             }
         }
