@@ -533,19 +533,24 @@ fn pipeline_typed_receivers_resolve_to_their_type() {
             "library_push_b",
             "args_a",
             "args_b",
+            // `e.describe()` on a `std::io::Error` is no certain call to either project `describe` (#128).
+            "describe_b",
         ]
         .map(|t| tags[t]),
     );
     strict.sort_unstable();
     assert_eq!(dead_lines(&store, true, "src/lib.rs"), strict);
     let other = tagged_lines("receiver_types", "src/other.rs");
-    // `e.describe()` on a `std::io::Error` binds to the same-file `B::describe`, not `other::Error`.
-    for strict in [false, true] {
-        assert_eq!(
-            dead_lines(&store, strict, "src/other.rs"),
-            [other["describe_error"]]
-        );
-    }
+    // `e.describe()` on a `std::io::Error` does not make `other::Error::describe` live.
+    // Both `describe`s only get low-confidence edges: live by default, dead in strict mode.
+    assert_eq!(
+        dead_lines(&store, false, "src/other.rs"),
+        Vec::<usize>::new()
+    );
+    assert_eq!(
+        dead_lines(&store, true, "src/other.rs"),
+        [other["describe_error"]]
+    );
 }
 
 #[test]
@@ -1364,4 +1369,14 @@ fn pipeline_let_initialiser_still_calls_the_fn_it_shadows() {
     // `let scene = scene(1);`: the binding is not in effect inside its own initialiser.
     let targets = call_targets(&store, "entry_self_shadow");
     assert!(!targets.is_empty(), "{targets:?}");
+}
+
+#[test]
+fn pipeline_untyped_receiver_is_not_certain_just_because_a_method_is_in_the_same_file() {
+    let store = run_fixture("untyped_same_file");
+    let targets = call_targets(&store, "run");
+    assert!(
+        targets.len() == 2 && targets.iter().all(|t| t.1),
+        "{targets:?}"
+    );
 }

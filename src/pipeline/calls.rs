@@ -620,8 +620,8 @@ fn resolve_typed_method(
     resolution_of(cands)
 }
 
-/// Resolve `x.name()` by name only: same-file methods first, else all methods project-wide.
-fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
+/// Resolve `x.name()` by name only: a lone same-file method wins unless the receiver is untyped and another file has one too (#128), else all methods project-wide.
+fn resolve_method(name: &str, from_file: &str, untyped: bool, idx: &Index) -> Resolution {
     let all = idx.global_by_name.get(name).map_or(&[][..], Vec::as_slice);
     let prefix = format!("{from_file}#");
     let is_method = |n: &&NodeId| idx.methods.contains(n.as_str());
@@ -631,6 +631,12 @@ fn resolve_method(name: &str, from_file: &str, idx: &Index) -> Resolution {
         .filter(|n| n.as_str().starts_with(&prefix))
         .cloned()
         .collect();
+    // A lone same-file method is only a guess when another file declares a method of that name too:
+    // the untyped receiver may be that other type (#128). A receiver typed as an external type
+    // keeps the same-file preference.
+    if untyped && cands.len() == 1 && all.iter().filter(is_method).count() > 1 {
+        cands.clear();
+    }
     if cands.is_empty() {
         // Cheap cutoff before cloning: a hugely shared name is dropped anyway.
         if all.len() > MAX_METHOD_CANDIDATES
@@ -1486,7 +1492,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
             } else {
                 hint.and_then(|h| resolve_typed_method(fn_name, h, &from_str, from_file, &idx))
             };
-            own.unwrap_or_else(|| resolve_method(fn_name, from_file, &idx))
+            own.unwrap_or_else(|| resolve_method(fn_name, from_file, hint.is_none(), &idx))
         } else {
             resolve_placeholder(
                 path_part.as_ref(),
@@ -1750,8 +1756,24 @@ mod tests {
     }
 
     #[test]
-    fn method_call_prefers_same_file_method() {
+    fn method_call_does_not_prefer_a_same_file_method_when_other_files_have_one() {
         let (store, _) = method_store(2, false);
+        let imp = NodeId::new("./a.rs#20:1");
+        let f = NodeId::new("./a.rs#21:1");
+        store.put_node(&imp, &NodeType::Impl, Some("T")).unwrap();
+        store
+            .put_node(&f, &NodeType::Function, Some("len"))
+            .unwrap();
+        store.put_edge(&imp, &f, &EdgeType::Contains).unwrap();
+        build_call_graph(&store).unwrap();
+        let tos = call_targets_of(&store);
+        assert_eq!(tos.len(), 3, "{tos:?}");
+        assert!(tos.contains(&"./a.rs#21:1".to_string()), "{tos:?}");
+    }
+
+    #[test]
+    fn method_call_with_only_a_same_file_method_stays_certain() {
+        let (store, _) = method_store(0, false);
         let imp = NodeId::new("./a.rs#20:1");
         let f = NodeId::new("./a.rs#21:1");
         store.put_node(&imp, &NodeType::Impl, Some("T")).unwrap();
