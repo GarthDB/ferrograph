@@ -311,6 +311,28 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
     Some(ty)
 }
 
+/// A hint whose type is a generic parameter (`W`, `I::Item`) or the unmodelled `Item` of a project
+/// iterator: the callee may be any implementor, so it tells no more than a missing hint (#166).
+/// A hint that merely failed to evaluate (`_` holes, closures) or names a concrete external type is not.
+fn is_opaque_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> bool {
+    if let Some(ty) = eval_hint(hint, from, from_file, idx) {
+        let head = auto_deref(&ty, idx).split("::").next().unwrap_or("");
+        // shortcut: generics are recognised by the `T`/`W2` naming convention; carry the declared generics from the AST to fix.
+        return head.len() <= 2
+            && head.starts_with(|c: char| c.is_ascii_uppercase())
+            && head
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+            && !idx.type_names.contains(head);
+    }
+    hint.strip_suffix(".[]")
+        .and_then(|prefix| eval_hint(prefix, from, from_file, idx))
+        .is_some_and(|t| {
+            let t = auto_deref(&t, idx);
+            idx.type_names.contains(t) && !idx.iter_items.contains_key(t)
+        })
+}
+
 /// Split a hint on `sep` outside parentheses.
 fn split_top(s: &str, sep: char) -> impl Iterator<Item = &str> {
     let mut depth = 0usize;
@@ -1519,7 +1541,9 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
                 hint.and_then(|h| resolve_typed_method(fn_name, h, &from_str, from_file, &idx))
             };
             own.unwrap_or_else(|| {
-                resolve_method(fn_name, from_file, hint.is_none() && !self_method, &idx)
+                let untyped = !self_method
+                    && hint.is_none_or(|h| is_opaque_hint(h, &from_str, from_file, &idx));
+                resolve_method(fn_name, from_file, untyped, &idx)
             })
         } else {
             resolve_placeholder(
