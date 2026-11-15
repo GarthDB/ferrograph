@@ -150,4 +150,4 @@ the first `--n` hits are measured); the default `--select last` keeps the last-N
   graph, so it overselects (deleted comments aside, renamed callees and moved lines count); it only raises the share of commits that
   can orphan something. Read the `commits with rustc newly dead` column for the real denominator.
 
-Note: since 5.0 `--bin-pub-not-root` is on by default. The harness arms and `fgacc.py` still assume the 4.x default (off); pass `--no-bin-pub-not-root` in `--extra-args` for the old baseline, and the `bin_pub` detection in `fgacc.py` does not know about the new default yet.
+Note: since 5.0 `--bin-pub-not-root` is on by default. The python model (`fgacc.py`) follows it, and the `default` and `restricted` arms of `run_matrix.py` pass `--no-bin-pub-not-root` to keep measuring the old baseline; with a pre-5.0 binary that flag is unknown, so drop it there.

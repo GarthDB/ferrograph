@@ -30,7 +30,7 @@ class SyntheticCorpus(unittest.TestCase):
         (tmp / "c.toml").write_text(f'[[corpus]]\nname = "synthetic"\npath = "{HERE / "synthetic"}"\n')
         subprocess.run(
             [sys.executable, str(HERE / "groundtruth.py"), "--config", str(tmp / "c.toml"), "--ferrograph", find_binary(),
-             "--work", str(tmp / "w"), "--out-md", str(tmp / "r.md"), "--out-json", str(tmp / "r.json")],
+             "--work", str(tmp / "w"), "--extra-args=--no-bin-pub-not-root", "--out-md", str(tmp / "r.md"), "--out-json", str(tmp / "r.json")],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
         )
         cls.res = json.loads((tmp / "r.json").read_text())["results"][0]
@@ -67,7 +67,7 @@ class SyntheticCorpus(unittest.TestCase):
         tmp = Path(self.tmp.name)
         subprocess.run(
             [sys.executable, str(HERE / "groundtruth.py"), "--config", str(tmp / "c.toml"), "--ferrograph", find_binary(),
-             "--work", str(tmp / "w"), "--extra-args=--restricted-vis-not-root",
+             "--work", str(tmp / "w"), "--extra-args=--restricted-vis-not-root --no-bin-pub-not-root",
              "--out-md", str(tmp / "r2.md"), "--out-json", str(tmp / "r2.json")],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
         )
