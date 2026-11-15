@@ -634,7 +634,11 @@ fn resolve_method(name: &str, from_file: &str, untyped: bool, idx: &Index) -> Re
     // A lone same-file method is only a guess when another file declares a method of that name too:
     // the untyped receiver may be that other type (#128). A receiver typed as an external type
     // keeps the same-file preference.
-    if untyped && cands.len() == 1 && all.iter().filter(is_method).count() > 1 {
+    // Past the fan-out cap the global lookup would drop the call, so the same-file method stays.
+    if untyped
+        && cands.len() == 1
+        && (2..=MAX_METHOD_CANDIDATES).contains(&all.iter().filter(is_method).count())
+    {
         cands.clear();
     }
     if cands.is_empty() {
@@ -1492,7 +1496,9 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
             } else {
                 hint.and_then(|h| resolve_typed_method(fn_name, h, &from_str, from_file, &idx))
             };
-            own.unwrap_or_else(|| resolve_method(fn_name, from_file, hint.is_none(), &idx))
+            own.unwrap_or_else(|| {
+                resolve_method(fn_name, from_file, hint.is_none() && !self_method, &idx)
+            })
         } else {
             resolve_placeholder(
                 path_part.as_ref(),
@@ -1769,6 +1775,20 @@ mod tests {
         let tos = call_targets_of(&store);
         assert_eq!(tos.len(), 3, "{tos:?}");
         assert!(tos.contains(&"./a.rs#21:1".to_string()), "{tos:?}");
+    }
+
+    #[test]
+    fn method_call_keeps_the_same_file_method_when_the_name_is_past_the_fan_out_cap() {
+        let (store, _) = method_store(super::MAX_METHOD_CANDIDATES, false);
+        let imp = NodeId::new("./a.rs#20:1");
+        let f = NodeId::new("./a.rs#21:1");
+        store.put_node(&imp, &NodeType::Impl, Some("T")).unwrap();
+        store
+            .put_node(&f, &NodeType::Function, Some("len"))
+            .unwrap();
+        store.put_edge(&imp, &f, &EdgeType::Contains).unwrap();
+        build_call_graph(&store).unwrap();
+        assert_eq!(call_targets_of(&store), vec!["./a.rs#21:1".to_string()]);
     }
 
     #[test]
