@@ -383,18 +383,18 @@ fn cli_traits_lists_real_implementors() {
             .status
             .success()
     );
-    let count = |name: &str| -> serde_json::Value {
+    let traits = |name: &str| -> serde_json::Value {
         let out = run(&["--json", "traits", "--db", s(&db), name]);
         assert!(out.status.success(), "{name}");
         serde_json::from_slice(&out.stdout).unwrap()
     };
-    let shape = count("Shape");
+    let shape = traits("Shape");
     assert_eq!(shape["count"], 1, "{shape}");
     assert_eq!(shape["implementors"][0]["type"], "impl");
     assert_eq!(shape["implementors"][0]["payload"], "Sq");
-    assert_eq!(count("Generic")["count"], 1, "generic trait");
-    assert_eq!(count("NoImpl")["count"], 0, "trait without impls");
-    assert_eq!(count("Display")["count"], 0, "std trait has no node");
+    assert_eq!(traits("Generic")["count"], 1, "generic trait");
+    assert_eq!(traits("NoImpl")["count"], 0, "trait without impls");
+    assert_eq!(traits("Display")["count"], 0, "std trait has no node");
 }
 
 #[test]
