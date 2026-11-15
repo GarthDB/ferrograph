@@ -9,82 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [5.0.0](https://github.com/GarthDB/ferrograph/compare/v4.1.0...v5.0.0) - 2026-11-15
 
-### Added
+### ⚠ Breaking changes
 
-- *(dead)* [**breaking**] restricted_vis_not_root on by default; both options default off with --strict ([#91](https://github.com/GarthDB/ferrograph/pull/91))
-- *(pr)* --out FORMAT=PATH writes several report formats from one run ([#80](https://github.com/GarthDB/ferrograph/pull/80))
-- *(traits)* drop the trait_implementors stub note, surface query errors, add tests ([#64](https://github.com/GarthDB/ferrograph/pull/64))
-- *(dead)* [**breaking**] bin_pub_not_root on by default; add --no-* opt-outs ([#92](https://github.com/GarthDB/ferrograph/pull/92))
-- *(dead)* opt-in --bin-pub-not-root for bare pub fns in bin/test-only files
-- *(dead)* opt-in --restricted-vis-not-root for pub(crate)/pub(super) functions
-
-### Fixed
-
-- strict-default tests (cli, pr, mcp), docs and changelog wording, harness model follows --strict
-- *(calls)* inherent methods beat iterator adapters, '->' in turbofish args, iterator tests; changelog order
-- *(calls,dead)* turbofish type paths, project Iterator items, _-prefixed fns are roots ([#91](https://github.com/GarthDB/ferrograph/pull/91))
-- *(pr)* --out creates parent dirs and a failed write no longer skips stdout or thresholds
-- *(dead)* write!/writeln! call write_fmt; attribute-macro impl methods are roots (#101, #102)
-- *(modules)* crate-dir-without-src fallback only next to a main.rs; test target roots ([#119](https://github.com/GarthDB/ferrograph/pull/119))
-- *(modules)* examples/tests/benches/src/bin dirs with main.rs are their own crate roots ([#119](https://github.com/GarthDB/ferrograph/pull/119))
-- *(calls)* keep the same-file method past the fan-out cap and for self calls ([#128](https://github.com/GarthDB/ferrograph/pull/128))
-- *(calls)* untyped receiver does not get a certain edge to the only same-file method ([#128](https://github.com/GarthDB/ferrograph/pull/128))
-- *(calls)* a bare call of a local binding is not a call to a same-named fn ([#125](https://github.com/GarthDB/ferrograph/pull/125))
-- *(calls)* glob import resolves private fns only for self/ancestor globs ([#127](https://github.com/GarthDB/ferrograph/pull/127))
-- *(modules)* resolve `use m::f;` when `m` is bound by another use ([#154](https://github.com/GarthDB/ferrograph/pull/154))
-- *(calls)* one item imported twice is not an ambiguous import ([#153](https://github.com/GarthDB/ferrograph/pull/153))
-- *(calls)* prefer own-file impl for self.method() on same-named types ([#151](https://github.com/GarthDB/ferrograph/pull/151))
-- *(calls)* type .map(Type::new) results and same-named bare variants in dead --strict ([#115](https://github.com/GarthDB/ferrograph/pull/115))
-- *(clippy)* nest or-pattern; note positional limit
-- *(clippy)* nest or-pattern; note positional limit
-- *(dead)* positional callback may be last attribute arg
-- *(dead)* treat positional attribute args as fn references ([#147](https://github.com/GarthDB/ferrograph/pull/147))
-- *(calls)* type closure receivers over `let v: Vec<_> = it.map(|x| S{..}).collect()` ([#115](https://github.com/GarthDB/ferrograph/pull/115))
-- *(dead)* #[serde(default = "f")] names a fn (default is a keyword token)
-- *(status)* exit 2 with stderr error when the graph is missing
-- *(pr)* warn when only one side has the visibility marker an option needs
-- *(calls)* type tokio lock().await and try_lock/try_read/try_write receivers
-- *(calls)* conflicting local aliases hide file-level renames; cover RwLock/RefMut
-- *(calls)* synthesized guards never collide with project type names
-- *(calls)* keep project types named like std wrappers, type get_mut, conflict local aliases
-
-### Other
-
-- *(readme)* replace stale v4.0.4 accuracy claims with the 5.0 measurements
-- recall numbers for the 5.0 defaults ([#91](https://github.com/GarthDB/ferrograph/pull/91))
-- *(changelog)* trait_implementors response change ([#64](https://github.com/GarthDB/ferrograph/pull/64))
-- *(traits)* pin substring match, name the CLI helper, mention the cap in the tool description
-- *(traits)* pin substring match, name the CLI helper, mention the cap in the tool description
-- drop fixed #101/#102 from known false positives; rustfmt::skip in PLAIN_IMPL_ATTRS
-- *(calls)* parameter and self-shadowing let cases for #125
-- *(changelog)* qualify when stored dead result is used
-- fix default-on/off wording, note dead recompute
-- Merge branch 'main' into fix/153-duplicate-named-import
-- satisfy clippy assert_is_empty, fmt
-- *(calls)* fix misplaced doc line, note name-only type match
-- *(calls)* note the enclosing-impl variant fallback limit
-- drop fmt churn from the fixture, wrap doc line
-- note that neg_b_own is live but deliberately unresolved
-- drop single-element loop
-
-### Changed
-
-- **Breaking:** `dead` and `pr` now treat bare `pub` functions in bin/test/example/bench-only files as non-roots by default (`bin_pub_not_root`), so they report more functions and `--max`/`--fail-on-new-dead` thresholds can trip on unchanged code. Opt out with `--no-bin-pub-not-root`, `bin_pub_not_root = false` under `[dead]`, or `"bin_pub_not_root": false` in the MCP `dead_code` tool. See [#92](https://github.com/GarthDB/ferrograph/issues/92).
-- `dead` recomputes liveness on every call (the stored index-time result is only used with both `--no-restricted-vis-not-root` and `--no-bin-pub-not-root` and none of `--strict` or `--entry`), which costs time on large graphs. `pr` warns when a `--base-db` from an older version lacks the `pub_bin_only` marker.
-- MCP `trait_implementors` no longer returns a `note` field, and a failed query is now an error instead of an empty list with a "not yet implemented" note ([#64](https://github.com/GarthDB/ferrograph/issues/64)).
-- `dead` and `pr`: functions whose name starts with `_` are roots, like in rustc, which never reports them.
-- **Breaking:** `dead` and `pr` now also treat `pub(crate)`, `pub(super)` and `pub(in ..)` functions as non-roots by default (`restricted_vis_not_root`). Opt out with `--no-restricted-vis-not-root`, `restricted_vis_not_root = false` under `[dead]`, or `"restricted_vis_not_root": false` in the MCP `dead_code` tool ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
-- With `--strict`, `restricted_vis_not_root` and `bin_pub_not_root` default to off (their extras were 68-78% false positives there); pass the flag or set the config key to turn them on. This reverses the `--strict` behaviour of the `bin_pub_not_root` default above: `dead --strict` and `pr --strict` report fewer functions than in the 5.0 development builds, the same as in 4.x.
-- **Breaking (library):** `bin_pub_not_root` and `restricted_vis_not_root` are `Option<bool>` in `DeadOptions`, `PrOptions` and `DeadConfig` (`None` = default / config file).
+- `dead` and `pr` treat bare `pub` functions in bin/test/example/bench-only files as non-roots by default (`bin_pub_not_root`), and `pub(crate)`, `pub(super)` and `pub(in ..)` functions as non-roots by default (`restricted_vis_not_root`). They report more functions (on 22 pinned corpora recall of rustc-dead functions went from 15.7% to 45.0%, with 4 of 45 judgeable extras unconfirmed), so `--max`/`--fail-on-new-dead` thresholds can trip on unchanged code. Opt out with `--no-bin-pub-not-root` / `--no-restricted-vis-not-root`, `bin_pub_not_root = false` / `restricted_vis_not_root = false` under `[dead]`, or `"bin_pub_not_root": false` / `"restricted_vis_not_root": false` in the MCP `dead_code` tool. The CLI flag wins over the config file, which wins over the default. Graphs indexed by an older ferrograph have no visibility marker: re-index after upgrading. ([#157](https://github.com/GarthDB/ferrograph/pull/157)) ([#167](https://github.com/GarthDB/ferrograph/pull/167)) ([#91](https://github.com/GarthDB/ferrograph/issues/91)) ([#92](https://github.com/GarthDB/ferrograph/issues/92))
+- With `--strict`, both options default to off (their extras were 68-78% false positives there). Pass the flag or set the config key to turn them on. `dead --strict` and `pr --strict` therefore behave as in 4.x unless asked.
+- `dead` recomputes liveness on every call: the stored index-time result is only used with both `--no-*` options and none of `--strict` or `--entry`. This costs time on large graphs. `pr` warns when a `--base-db` from an older version lacks a visibility marker an option needs.
+- MCP `trait_implementors` no longer returns a `note` field, and a failed query is an error instead of an empty list with a "not yet implemented" note ([#163](https://github.com/GarthDB/ferrograph/pull/163)) ([#64](https://github.com/GarthDB/ferrograph/issues/64))
+- Library API: `bin_pub_not_root` and `restricted_vis_not_root` are `Option<bool>` in `DeadOptions`, `PrOptions` and `DeadConfig` (`None` = config file, then default).
 
 ### Added
 
-- `pr --out FORMAT=PATH` (repeatable) writes json, markdown, sarif or text reports from one run, so one index pass of each tree serves every format ([#80](https://github.com/GarthDB/ferrograph/issues/80)).
-- `--no-bin-pub-not-root` and `--no-restricted-vis-not-root`.
+- `pr --out FORMAT=PATH` (repeatable; `json`, `markdown`, `sarif`, `text`) writes several reports from one run, so one index pass of each tree serves every format. With `--out` and no `--format`/`--json`, nothing is printed to stdout. ([#164](https://github.com/GarthDB/ferrograph/pull/164)) ([#80](https://github.com/GarthDB/ferrograph/issues/80))
+- `--no-bin-pub-not-root` and `--no-restricted-vis-not-root`. ([#157](https://github.com/GarthDB/ferrograph/pull/157))
+- `dead` and `pr`: functions named `_something` are roots (rustc never reports them and treats what they call as live). ([#165](https://github.com/GarthDB/ferrograph/pull/165))
+- `dead` and `pr`: methods of an inherent `impl` carrying an attribute macro (`#[zbus::interface]`) are roots, and `write!`/`writeln!` count as calls to `write_fmt`. ([#162](https://github.com/GarthDB/ferrograph/pull/162))
+- The accuracy harness (`scripts/accuracy/`) and its `run_matrix.py` arms. ([#139](https://github.com/GarthDB/ferrograph/pull/139))
 
 ### Fixed
 
-- `Type::<A, B>::f()` paths keep their call edge (the type arguments are dropped before resolving); `for x in it` / `it.next()` on a project `impl Iterator` type use its `type Item`, so `x.method()` resolves ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
+- Call resolution: `use` resolution (`crate::`, `self::`, `super::`, `pub use`, aliases, child modules) ([#118](https://github.com/GarthDB/ferrograph/pull/118)) ([#121](https://github.com/GarthDB/ferrograph/pull/121)) ([#132](https://github.com/GarthDB/ferrograph/pull/132)); glob imports resolve private functions only for `self`/ancestor globs ([#158](https://github.com/GarthDB/ferrograph/pull/158)); a bare call of a local closure or parameter is not a call to a same-named function ([#158](https://github.com/GarthDB/ferrograph/pull/158)); one item imported twice, or a module bound by another `use`, is no longer unresolved or ambiguous ([#155](https://github.com/GarthDB/ferrograph/pull/155)) ([#156](https://github.com/GarthDB/ferrograph/pull/156)); `examples/<name>/`, `tests/<name>/`, `benches/<name>/` and `src/bin/<name>/` directories with a `main.rs` are their own crate roots ([#160](https://github.com/GarthDB/ferrograph/pull/160)) ([#161](https://github.com/GarthDB/ferrograph/pull/161)).
+- Receiver typing: patterns, `for` loops, closures, tuples, call return types, method chains, `.map(Type::new)`, lock guards (`lock()`, `borrow()`, tokio `lock().await`, `try_lock`), project `impl Iterator` items, and `Type::<A, B>::f()` paths. Untyped receivers no longer get a certain edge to the only same-file method, and `self.method()` prefers the own-file impl ([#123](https://github.com/GarthDB/ferrograph/pull/123)) ([#129](https://github.com/GarthDB/ferrograph/pull/129)) ([#130](https://github.com/GarthDB/ferrograph/pull/130)) ([#134](https://github.com/GarthDB/ferrograph/pull/134)) ([#137](https://github.com/GarthDB/ferrograph/pull/137)) ([#148](https://github.com/GarthDB/ferrograph/pull/148)) ([#150](https://github.com/GarthDB/ferrograph/pull/150)) ([#152](https://github.com/GarthDB/ferrograph/pull/152)) ([#159](https://github.com/GarthDB/ferrograph/pull/159)) ([#165](https://github.com/GarthDB/ferrograph/pull/165)).
+- `dead`: functions named by a string in `#[serde(default = "f")]` and as positional attribute arguments are no longer reported ([#146](https://github.com/GarthDB/ferrograph/pull/146)) ([#149](https://github.com/GarthDB/ferrograph/pull/149)); `status` exits 2 with an error when the graph is missing ([#145](https://github.com/GarthDB/ferrograph/pull/145)).
 
 ## [4.1.0](https://github.com/GarthDB/ferrograph/compare/v4.0.4...v4.1.0) - 2026-11-12
 
