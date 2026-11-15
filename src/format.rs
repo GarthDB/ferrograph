@@ -325,11 +325,24 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
         .changed_functions
         .iter()
         .filter(|f| f.kind != "fn")
-        .map(|f| vec![esc(&f.name), esc(&format!("{}:{}", f.file, f.start_line))])
+        .map(|f| {
+            vec![
+                esc(&f.name),
+                esc(&format!("{}:{}", f.file, f.start_line)),
+                f.impacted
+                    .as_ref()
+                    .map_or_else(String::new, |x| count_label(x.count, x.truncated)),
+            ]
+        })
         .collect();
     if !tests.is_empty() {
-        out.push_str("\n**Tests changed**\n\n");
-        table(&mut out, &["Test", "Location"], &tests, limit);
+        out.push_str("\n**Tests changed** (and test helpers, with the callers they impact)\n\n");
+        table(
+            &mut out,
+            &["Function", "Location", "Impacted"],
+            &tests,
+            limit,
+        );
     }
     finish(out)
 }

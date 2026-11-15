@@ -151,12 +151,12 @@ pub struct ChangedFunction {
     pub name: String,
     pub start_line: u32,
     pub end_line: u32,
-    /// Size of the forward ("depends on") closure; always 0 for `test`/`bench` functions.
+    /// Size of the forward ("depends on") closure; 0 (not computed) for `test`, `bench` and `helper` functions.
     pub blast_count: usize,
     /// `blast_count` is a lower bound (the blast query hit its internal cap).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub blast_truncated: bool,
-    /// `fn`, `test` or `bench` (from the payload prefix).
+    /// `test`/`bench` (payload prefix), `helper` (any other function under `tests/` or `benches/`) or `fn`.
     pub kind: &'static str,
     /// Transitive callers within `--impact-depth`; absent for `test`/`bench` functions.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -535,6 +535,13 @@ fn fn_kind(store: &Store, id: &str) -> Result<&'static str> {
     Ok(match payload.as_deref() {
         Some(p) if p.starts_with("test::") => "test",
         Some(p) if p.starts_with("bench::") => "bench",
+        // A helper in tests/ or benches/ is not a leaf (tests call it), but its closure is noise.
+        _ if ["tests", "benches"]
+            .iter()
+            .any(|d| split_id(id).0.split('/').any(|c| c == *d)) =>
+        {
+            "helper"
+        }
         _ => "fn",
     })
 }
@@ -648,20 +655,25 @@ fn map_changes(
             let id = format!("./{}#{}:{}", d.path, r.start_line, r.start_col);
             // A test or bench is a leaf: its forward closure is noise, and nothing calls it.
             let kind = fn_kind(head_store, &id)?;
-            let (blast_count, blast_truncated, impacted) = if kind == "fn" {
-                let blast = crate::ops::blast_radius(head_store, &id, opts.exclude_low_confidence)?;
-                truncated |= blast.truncated;
+            let (blast_count, blast_truncated, impacted) = if kind == "test" || kind == "bench" {
+                (0, false, None)
+            } else {
+                let (mut count, mut blast_truncated) = (0, false);
+                if kind == "fn" {
+                    let blast =
+                        crate::ops::blast_radius(head_store, &id, opts.exclude_low_confidence)?;
+                    (count, blast_truncated) = (blast.count, blast.truncated);
+                    truncated |= blast_truncated;
+                    for n in blast.reachable_nodes {
+                        union.entry(n.id.clone()).or_insert(n);
+                    }
+                }
                 let (impact, callers) = fn_impact(opts, head_store, &id, &ignored)?;
                 callers_truncated |= impact.truncated;
-                for n in blast.reachable_nodes {
-                    union.entry(n.id.clone()).or_insert(n);
-                }
                 for n in callers {
                     callers_union.entry(n.id.clone()).or_insert(n);
                 }
-                (blast.count, blast.truncated, Some(impact))
-            } else {
-                (0, false, None)
+                (count, blast_truncated, Some(impact))
             };
             changed_functions.push(ChangedFunction {
                 id,

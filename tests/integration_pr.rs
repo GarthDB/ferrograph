@@ -673,3 +673,33 @@ fn ignore_filters_changed_lists() {
     assert_eq!(v["changed_without_function"].as_array().unwrap().len(), 0);
     assert_eq!(names(&v["changed_functions"]).len(), 0);
 }
+
+#[test]
+fn test_helper_keeps_impacted_but_has_no_blast() {
+    let Some(d) = repo() else { return };
+    let base =
+        "fn view() {\n    inner();\n}\nfn inner() {}\n#[test]\nfn uses_view() {\n    view();\n}\n";
+    write(d.path(), "tests/t.rs", base);
+    commit(d.path(), "add tests/t.rs");
+    git(d.path(), &["checkout", "-q", "-B", "main"]);
+    git(d.path(), &["checkout", "-q", "-b", "f3"]);
+    write(
+        d.path(),
+        "tests/t.rs",
+        &base.replace("    inner();", "    inner();\n    inner();"),
+    );
+    commit(d.path(), "edit helper");
+    let v = json(&pr(d.path(), &["--json"]));
+    let f = &v["changed_functions"][0];
+    assert_eq!(
+        (f["name"].as_str(), f["kind"].as_str()),
+        (Some("view"), Some("helper"))
+    );
+    assert_eq!(f["blast_count"], 0);
+    assert_eq!(f["impacted"]["tests"], 1, "{f}");
+    assert_eq!(v["impacted"]["tests"]["count"], 1);
+    assert_eq!(
+        pr(d.path(), &["--impact-depth", "0"]).status.code(),
+        Some(2)
+    );
+}

@@ -184,8 +184,8 @@ pub enum Command {
         /// Maximum impacted and blast radius nodes listed (the full counts are always reported).
         #[arg(long, default_value = "200")]
         blast_limit: usize,
-        /// Caller hops followed to find what a change impacts.
-        #[arg(long, default_value = "3")]
+        /// Caller hops followed to find what a change impacts (1-100). A changed function's count includes other changed functions; the union does not.
+        #[arg(long, default_value = "3", value_parser = clap::value_parser!(u32).range(1..=100))]
         impact_depth: u32,
         /// Exit with code 1 if any function is newly dead.
         #[arg(long, conflicts_with = "max_new_dead")]
@@ -761,9 +761,16 @@ fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
         );
     }
     if !tests.is_empty() {
-        emit!("\nTests changed: {}", tests.len());
+        emit!("\nTests changed (and test helpers): {}", tests.len());
         for f in tests {
-            emit!("  {}\t{}", f.id, f.name);
+            emit!(
+                "  {}\t{}\timpacted {}",
+                f.id,
+                f.name,
+                f.impacted
+                    .as_ref()
+                    .map_or_else(String::new, |x| format::count_label(x.count, x.truncated))
+            );
         }
     }
     for c in &r.changed_without_function {
