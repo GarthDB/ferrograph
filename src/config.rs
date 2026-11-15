@@ -114,7 +114,7 @@ pub enum Command {
         /// Do not treat ambiguous (low-confidence) call edges as keeping a function alive.
         #[arg(long)]
         strict: bool,
-        /// Do not treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (bare `pub` still is). Off by default.
+        /// Do not treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (bare `pub` still is). On by default.
         #[arg(long, conflicts_with = "no_restricted_vis_not_root")]
         restricted_vis_not_root: bool,
         /// Keep `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (overrides the config file).
@@ -160,7 +160,7 @@ pub enum Command {
         /// Do not treat ambiguous (low-confidence) call edges as keeping a function alive.
         #[arg(long)]
         strict: bool,
-        /// Do not treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (bare `pub` still is). Off by default.
+        /// Do not treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (bare `pub` still is). On by default.
         #[arg(long, conflicts_with = "no_restricted_vis_not_root")]
         restricted_vis_not_root: bool,
         /// Keep `pub(crate)`/`pub(super)`/`pub(in ..)` functions as entry points (overrides the config file).
@@ -558,7 +558,7 @@ pub struct DeadConfig {
     /// File globs whose functions are never reported.
     #[serde(default)]
     pub ignore: Vec<String>,
-    /// Treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as non-roots (default false).
+    /// Treat `pub(crate)`/`pub(super)`/`pub(in ..)` functions as non-roots (default true).
     #[serde(default)]
     pub restricted_vis_not_root: Option<bool>,
     /// Treat bare `pub` functions in bin/test/example/bench-only files as non-roots (default true).

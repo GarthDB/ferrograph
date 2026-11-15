@@ -372,24 +372,24 @@ fn restricted_vis_not_root_applies_to_base_and_head() {
     );
     commit(d.path(), "drop call");
     let v = json(&pr(d.path(), &["--json"]));
-    assert!(
-        names(&v["newly_dead"]).is_empty(),
-        "default keeps them roots"
-    );
-    let v = json(&pr(d.path(), &["--json", "--restricted-vis-not-root"]));
     assert_eq!(
         names(&v["newly_dead"]),
         ["helper"],
         "already_dead is pre-existing"
     );
+    let v = json(&pr(d.path(), &["--json", "--no-restricted-vis-not-root"]));
+    assert!(
+        names(&v["newly_dead"]).is_empty(),
+        "opt-out keeps them roots"
+    );
     write(
         d.path(),
         ".ferrograph.toml",
-        "[dead]\nrestricted_vis_not_root = true\n",
+        "[dead]\nrestricted_vis_not_root = false\n",
     );
     commit(d.path(), "config");
     let v = json(&pr(d.path(), &["--json"]));
-    assert_eq!(names(&v["newly_dead"]), ["helper"]);
+    assert!(names(&v["newly_dead"]).is_empty(), "config opt-out");
 }
 
 #[test]

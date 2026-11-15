@@ -141,7 +141,7 @@ class Fg:
         self.bin = str(binary)
         # Passed to `dead` and `pr` only (never to `index`/`query`).
         self.extra = list(extra_args)
-        self.restricted = "--restricted-vis-not-root" in self.extra
+        self.restricted = "--no-restricted-vis-not-root" not in self.extra  # on by default since 5.0
         self.bin_pub = "--no-bin-pub-not-root" not in self.extra  # on by default since 5.0
 
     def version(self):
