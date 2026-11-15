@@ -1188,6 +1188,17 @@ fn cli_dead_strict_keeps_the_visibility_options_off_unless_asked() {
 }
 
 #[test]
+fn cli_dead_strict_keeps_bin_pub_not_root_off_unless_asked() {
+    let out = dead_bin_pub(None, &["--strict"]);
+    assert!(
+        !out.contains("bare_pub"),
+        "strict alone keeps pub as roots: {out}"
+    );
+    let out = dead_bin_pub(None, &["--strict", "--bin-pub-not-root"]);
+    assert!(out.contains("bare_pub"), "explicit flag wins: {out}");
+}
+
+#[test]
 fn cli_dead_restricted_opt_out_overrides_config() {
     let out = dead_restricted(
         Some("[dead]\nrestricted_vis_not_root = true\n"),

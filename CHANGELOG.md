@@ -10,11 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** `dead` and `pr` now treat bare `pub` functions in bin/test/example/bench-only files as non-roots by default (`bin_pub_not_root`), so they report more functions and `--max`/`--fail-on-new-dead` thresholds can trip on unchanged code. Opt out with `--no-bin-pub-not-root`, `bin_pub_not_root = false` under `[dead]`, or `"bin_pub_not_root": false` in the MCP `dead_code` tool. See [#92](https://github.com/GarthDB/ferrograph/issues/92).
-- `dead` recomputes liveness on every call (the stored index-time result is only used with `--no-bin-pub-not-root` and no other custom flag such as `--strict`, `--restricted-vis-not-root` or `--entry`), which costs time on large graphs. `pr` warns when a `--base-db` from an older version lacks the `pub_bin_only` marker.
+- `dead` recomputes liveness on every call (the stored index-time result is only used with both `--no-restricted-vis-not-root` and `--no-bin-pub-not-root` and none of `--strict` or `--entry`), which costs time on large graphs. `pr` warns when a `--base-db` from an older version lacks the `pub_bin_only` marker.
 - MCP `trait_implementors` no longer returns a `note` field, and a failed query is now an error instead of an empty list with a "not yet implemented" note ([#64](https://github.com/GarthDB/ferrograph/issues/64)).
 - `dead` and `pr`: functions whose name starts with `_` are roots, like in rustc, which never reports them.
 - **Breaking:** `dead` and `pr` now also treat `pub(crate)`, `pub(super)` and `pub(in ..)` functions as non-roots by default (`restricted_vis_not_root`). Opt out with `--no-restricted-vis-not-root`, `restricted_vis_not_root = false` under `[dead]`, or `"restricted_vis_not_root": false` in the MCP `dead_code` tool ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
-- With `--strict`, `restricted_vis_not_root` and `bin_pub_not_root` default to off (their extras were mostly false positives there); pass the flag or set the config key to turn them on.
+- With `--strict`, `restricted_vis_not_root` and `bin_pub_not_root` default to off (their extras were 68-78% false positives there); pass the flag or set the config key to turn them on. This reverses the `--strict` behaviour of the `bin_pub_not_root` default above: `dead --strict` and `pr --strict` report fewer functions than in the 5.0 development builds, the same as in 4.x.
 - **Breaking (library):** `bin_pub_not_root` and `restricted_vis_not_root` are `Option<bool>` in `DeadOptions`, `PrOptions` and `DeadConfig` (`None` = default / config file).
 
 ### Added

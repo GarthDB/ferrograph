@@ -1220,6 +1220,37 @@ mod tests {
     }
 
     #[test]
+    fn handle_dead_code_strict_keeps_the_visibility_options_off_unless_asked() {
+        let store = Store::new_memory().unwrap();
+        let f = NodeId("./src/a.rs#1:1".to_string());
+        store
+            .put_node(&f, &NodeType::Function, Some("pub::restricted"))
+            .unwrap();
+        store
+            .put_edge(
+                &f,
+                &NodeId("attr::pub_restricted".to_string()),
+                &EdgeType::HasAttribute,
+            )
+            .unwrap();
+        let dead = |args: serde_json::Value| {
+            let request = tool_request("dead_code", args.as_object().cloned());
+            let json = result_json(FerrographMcp::handle_dead_code(&request, &store).unwrap());
+            json["dead_node_ids"].as_array().unwrap().len()
+        };
+        assert_eq!(dead(serde_json::json!({})), 1, "default demotes pub(..)");
+        assert_eq!(
+            dead(serde_json::json!({"strict": true})),
+            0,
+            "strict keeps it"
+        );
+        let both = serde_json::json!({"strict": true, "restricted_vis_not_root": true});
+        assert_eq!(dead(both), 1, "explicit flag wins");
+        let off = serde_json::json!({"restricted_vis_not_root": false});
+        assert_eq!(dead(off), 0, "explicit false opts out");
+    }
+
+    #[test]
     fn handle_dead_code_file_glob_filters_by_pattern() {
         let store = Store::new_memory().unwrap();
         store.put_dead_function("src/lib.rs#10:1").unwrap();
