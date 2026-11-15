@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.0](https://github.com/GarthDB/ferrograph/compare/v6.0.0...v6.1.0) - 2026-11-15
+
+### Added
+
+- *(calls)* drop call edges between packages and targets that cannot call each other ([#177](https://github.com/GarthDB/ferrograph/pull/177))
+
+### Fixed
+
+- *(calls)* dev-dependencies for src/ unit tests and workspace-inherited renames in the crate filter ([#177](https://github.com/GarthDB/ferrograph/pull/177))
+- *(calls)* a receiver typed as a generic param or an unmodelled project iterator Item is untyped ([#166](https://github.com/GarthDB/ferrograph/pull/166))
+
+### Other
+
+- *(readme)* say what the --strict figure counts
+- *(readme)* re-measure the dead-code recall and precision on 22 corpora after #175 and #178
+
 ## [6.0.0](https://github.com/GarthDB/ferrograph/compare/v5.0.0...v6.0.0) - 2026-11-15
 
 ### ⚠ Breaking changes
