@@ -416,7 +416,9 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
             let is_project_type = idx.type_names.contains(ty);
             match part.strip_suffix("()") {
                 Some(m) if is_project_type => {
-                    if let Some(item) = idx.iter_items.get(ty) {
+                    let fns = methods_of_type(m, ty, idx);
+                    // An inherent method wins over the `Iterator` adapter of the same name.
+                    if let Some(item) = idx.iter_items.get(ty).filter(|_| fns.is_empty()) {
                         match m {
                             "next" => return Some(format!("Option<{item}>")),
                             "take_while" | "skip_while" | "filter" | "skip" | "take"
@@ -426,7 +428,6 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
                             _ => {}
                         }
                     }
-                    let fns = methods_of_type(m, ty, idx);
                     if fns.is_empty() && m == "clone" {
                         return Some(ty.to_string());
                     }
@@ -1380,6 +1381,7 @@ fn fill_fields(
         if let Some((_, ty)) = to.rsplit_once(RET_MARK) {
             match idx.scopes.get(&from).filter(|s| s.0) {
                 Some((_, owner)) => {
+                    // shortcut: keyed by type name only, so same-named types with different `Item`s collide (last wins); key by node id to fix.
                     idx.iter_items.insert(owner.clone(), ty.to_string());
                 }
                 None => {

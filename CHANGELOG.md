@@ -12,20 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `dead` and `pr` now treat bare `pub` functions in bin/test/example/bench-only files as non-roots by default (`bin_pub_not_root`), so they report more functions and `--max`/`--fail-on-new-dead` thresholds can trip on unchanged code. Opt out with `--no-bin-pub-not-root`, `bin_pub_not_root = false` under `[dead]`, or `"bin_pub_not_root": false` in the MCP `dead_code` tool. See [#92](https://github.com/GarthDB/ferrograph/issues/92).
 - `dead` recomputes liveness on every call (the stored index-time result is only used with `--no-bin-pub-not-root` and no other custom flag such as `--strict`, `--restricted-vis-not-root` or `--entry`), which costs time on large graphs. `pr` warns when a `--base-db` from an older version lacks the `pub_bin_only` marker.
 - MCP `trait_implementors` no longer returns a `note` field, and a failed query is now an error instead of an empty list with a "not yet implemented" note ([#64](https://github.com/GarthDB/ferrograph/issues/64)).
+- `dead` and `pr`: functions whose name starts with `_` are roots, like in rustc, which never reports them.
 - **Breaking (library):** `bin_pub_not_root` and `restricted_vis_not_root` are `Option<bool>` in `DeadOptions`, `PrOptions` and `DeadConfig` (`None` = default / config file).
-
-### Fixed
-
-- `Type::<A, B>::f()` paths keep their call edge (the type arguments are dropped before resolving); `for x in it` / `it.next()` on a project `impl Iterator` type use its `type Item`, so `x.method()` resolves ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
-
-### Changed (dead)
-
-- Functions whose name starts with `_` are roots, like rustc, which never reports them.
 
 ### Added
 
 - `pr --out FORMAT=PATH` (repeatable) writes json, markdown, sarif or text reports from one run, so one index pass of each tree serves every format ([#80](https://github.com/GarthDB/ferrograph/issues/80)).
 - `--no-bin-pub-not-root` and `--no-restricted-vis-not-root`.
+
+### Fixed
+
+- `Type::<A, B>::f()` paths keep their call edge (the type arguments are dropped before resolving); `for x in it` / `it.next()` on a project `impl Iterator` type use its `type Item`, so `x.method()` resolves ([#91](https://github.com/GarthDB/ferrograph/issues/91)).
 
 ## [4.1.0](https://github.com/GarthDB/ferrograph/compare/v4.0.4...v4.1.0) - 2026-11-12
 

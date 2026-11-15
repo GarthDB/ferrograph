@@ -1415,7 +1415,8 @@ fn pipeline_turbofish_on_a_type_path_still_resolves_the_associated_fn() {
         .iter()
         .filter(|t| t.0.starts_with("./src/grid.rs#"))
         .collect();
-    assert_eq!(grid.len(), 2, "{targets:?}");
+    assert_eq!(grid.len(), 3, "{targets:?}");
+    assert!(grid.iter().all(|t| !t.1), "all certain: {targets:?}");
 }
 
 #[test]
@@ -1466,4 +1467,15 @@ fn pipeline_underscore_prefixed_fns_are_roots() {
             );
         }
     }
+}
+
+#[test]
+fn pipeline_generic_iterator_item_names_no_project_type() {
+    let store = run_fixture("iterator_items");
+    let targets = call_targets(&store, "use_wrapper");
+    // `type Item = I::Item` names no project type: `x` stays untyped and is not taken for `IgnoreRef`.
+    assert!(
+        !targets.iter().any(|t| t.0.starts_with("./src/dir.rs")),
+        "{targets:?}"
+    );
 }

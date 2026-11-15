@@ -1014,7 +1014,8 @@ fn strip_turbofish(path: &str) -> String {
         }
         match c {
             '<' if depth > 0 => depth += 1,
-            '>' if depth > 0 => depth -= 1,
+            // `->` in an `Fn() -> T` argument is not a closing bracket.
+            '>' if depth > 0 && !path[..path.len() - rest.len()].ends_with('-') => depth -= 1,
             _ if depth == 0 => out.push(c),
             _ => {}
         }

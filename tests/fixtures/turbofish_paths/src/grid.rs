@@ -11,3 +11,9 @@ pub struct Wrapper<T, const N: usize>(T);
 impl<T, const N: usize> Wrapper<T, N> {
     pub(crate) fn make() {}
 }
+
+pub struct FnHolder<F>(F);
+
+impl<F> FnHolder<F> {
+    pub(crate) fn hold() {}
+}
