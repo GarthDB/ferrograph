@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `pr` Markdown header is now `N impacted (T tests, E examples, L library)`; the "depends on" count is no longer in the header (it stays in the table and the JSON). The header changes once across the 6.0.0 release.
 - `pr`: functions under `examples/` get `kind: "example"`, like `helper`: `blast_count: 0`, no forward closure, `impacted` kept. A gallery story's closure was 245 of 255 nodes on a Rune PR.
 
 ### Added

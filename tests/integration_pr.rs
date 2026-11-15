@@ -646,6 +646,10 @@ fn reports_transitive_callers_and_tests_changed() {
     assert_eq!(depth1["impacted"]["library"]["count"], 1);
     let md = String::from_utf8_lossy(&pr(d.path(), &["--format", "markdown"]).stdout).into_owned();
     assert!(
+        md.contains("impacted (0 tests, 0 examples, 2 library)\n"),
+        "{md}"
+    );
+    assert!(
         md.contains("Impacted by this change")
             && md.contains("Tests, benches and examples changed"),
         "{md}"

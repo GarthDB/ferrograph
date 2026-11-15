@@ -263,10 +263,12 @@ pub fn impact_group_label(g: &ImpactGroup) -> String {
 pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
     let i = &r.impacted;
     let mut out = format!(
-        "{MARKER}\n### ferrograph: {} newly dead, {} impacted, depends on {}\n\n",
+        "{MARKER}\n### ferrograph: {} newly dead, {} impacted ({} tests, {} examples, {} library)\n\n",
         r.newly_dead_count,
         count_label(i.count, i.truncated),
-        count_label(r.blast.count, r.blast.truncated)
+        i.tests.count,
+        i.examples.count,
+        i.library.count
     );
     out.push_str("**Newly dead functions**\n\n");
     let rows: Vec<Vec<String>> = r
@@ -492,6 +494,12 @@ mod tests {
         assert_eq!(v["runs"][0]["results"].as_array().unwrap().len(), 1);
         let md = markdown_pr(&r, 50);
         assert!(md.starts_with(MARKER));
+        assert!(
+            md.contains(
+                "### ferrograph: 1 newly dead, 0 impacted (0 tests, 0 examples, 0 library)\n"
+            ),
+            "{md}"
+        );
         assert!(md.contains("| foo | src/a.rs:3 | added_dead |"));
     }
 
