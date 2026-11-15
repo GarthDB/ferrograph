@@ -417,24 +417,24 @@ fn bin_pub_not_root_applies_to_base_and_head() {
     );
     commit(d.path(), "drop call");
     let v = json(&pr(d.path(), &["--json"]));
-    assert!(
-        names(&v["newly_dead"]).is_empty(),
-        "default keeps them roots"
-    );
-    let v = json(&pr(d.path(), &["--json", "--bin-pub-not-root"]));
     assert_eq!(
         names(&v["newly_dead"]),
         ["helper"],
         "already_dead is pre-existing"
     );
+    let v = json(&pr(d.path(), &["--json", "--no-bin-pub-not-root"]));
+    assert!(
+        names(&v["newly_dead"]).is_empty(),
+        "opt-out keeps them roots"
+    );
     write(
         d.path(),
         ".ferrograph.toml",
-        "[dead]\nbin_pub_not_root = true\n",
+        "[dead]\nbin_pub_not_root = false\n",
     );
     commit(d.path(), "config");
     let v = json(&pr(d.path(), &["--json"]));
-    assert_eq!(names(&v["newly_dead"]), ["helper"]);
+    assert!(names(&v["newly_dead"]).is_empty(), "config opt-out");
 }
 
 #[test]
@@ -459,6 +459,9 @@ fn bin_pub_not_root_warns_when_only_one_side_has_the_marker() {
             .iter()
             .any(|w| w.as_str().unwrap().contains("pub_bin_only"))
     };
-    assert!(!warned(&["--json"]), "option off: nothing to warn about");
-    assert!(warned(&["--json", "--bin-pub-not-root"]));
+    assert!(
+        !warned(&["--json", "--no-bin-pub-not-root"]),
+        "option off: nothing to warn about"
+    );
+    assert!(warned(&["--json"]));
 }

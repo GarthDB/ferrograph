@@ -47,8 +47,8 @@ fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
             },
             "bin_pub_not_root": {
                 "type": "boolean",
-                "description": "Do not treat bare pub functions in files compiled only by bin/test/example/bench targets as entry points (default false)",
-                "default": false
+                "description": "Do not treat bare pub functions in files compiled only by bin/test/example/bench targets as entry points (default true; pass false to keep them as entry points)",
+                "default": true
             },
             "restricted_vis_not_root": {
                 "type": "boolean",
@@ -563,8 +563,15 @@ impl FerrographMcp {
         store: &crate::graph::Store,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let strict = get_bool_arg(request, "strict");
-        let restricted = get_bool_arg(request, "restricted_vis_not_root");
-        let bin_pub = get_bool_arg(request, "bin_pub_not_root");
+        let arg = |key| {
+            request
+                .arguments
+                .as_ref()
+                .and_then(|m| m.get(key))
+                .and_then(serde_json::Value::as_bool)
+        };
+        let restricted = arg("restricted_vis_not_root").unwrap_or(false);
+        let bin_pub = arg("bin_pub_not_root").unwrap_or(true);
         let mut ids = if strict || restricted || bin_pub {
             Vec::new()
         } else {

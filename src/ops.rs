@@ -245,10 +245,10 @@ pub struct ModuleGraphResult {
 pub struct DeadOptions {
     /// Ignore ambiguous (low-confidence) call edges when deciding liveness.
     pub strict: bool,
-    /// `pub(crate)`/`pub(super)`/`pub(in ..)` functions are not roots (bare `pub` still is).
-    pub restricted_vis_not_root: bool,
-    /// Bare `pub` functions in files compiled only by bin/test/example/bench units are not roots.
-    pub bin_pub_not_root: bool,
+    /// `pub(crate)`/`pub(super)`/`pub(in ..)` functions are not roots (bare `pub` still is). `None`: false.
+    pub restricted_vis_not_root: Option<bool>,
+    /// Bare `pub` functions in files compiled only by bin/test/example/bench units are not roots. `None`: true.
+    pub bin_pub_not_root: Option<bool>,
     /// Extra entry points: file globs (`examples/**`) or attributes (`#[no_mangle]`).
     pub entry: Vec<String>,
     /// File globs whose functions are never reported.
@@ -308,10 +308,9 @@ pub fn dead_code(
     opts: &DeadOptions,
 ) -> Result<DeadCodeResult> {
     // The stored relation reflects index-time defaults only, so any option forces a recompute.
-    let custom = opts.strict
-        || opts.restricted_vis_not_root
-        || opts.bin_pub_not_root
-        || !opts.entry.is_empty();
+    let restricted = opts.restricted_vis_not_root.unwrap_or(false);
+    let bin_pub = opts.bin_pub_not_root.unwrap_or(true);
+    let custom = opts.strict || restricted || bin_pub || !opts.entry.is_empty();
     let mut triples = if custom {
         Vec::new()
     } else {
@@ -323,8 +322,8 @@ pub fn dead_code(
             store,
             opts.strict,
             &entries,
-            opts.restricted_vis_not_root,
-            opts.bin_pub_not_root,
+            restricted,
+            bin_pub,
         )?;
         "computed"
     } else {

@@ -1108,11 +1108,14 @@ fn dead_bin_pub(config: Option<&str>, extra: &[&str]) -> String {
 
 #[test]
 fn cli_dead_bin_pub_not_root() {
-    let out = dead_bin_pub(None, &[]);
-    assert!(!out.contains("bare_pub"), "{out}");
     for out in [
+        dead_bin_pub(None, &[]),
         dead_bin_pub(None, &["--bin-pub-not-root"]),
         dead_bin_pub(Some("[dead]\nbin_pub_not_root = true\n"), &[]),
+        dead_bin_pub(
+            Some("[dead]\nbin_pub_not_root = false\n"),
+            &["--bin-pub-not-root"],
+        ),
     ] {
         assert!(out.contains("bare_pub"), "{out}");
         assert!(
@@ -1120,4 +1123,26 @@ fn cli_dead_bin_pub_not_root() {
             "pub(..) stays a root without --restricted-vis-not-root: {out}"
         );
     }
+    for out in [
+        dead_bin_pub(None, &["--no-bin-pub-not-root"]),
+        dead_bin_pub(Some("[dead]\nbin_pub_not_root = false\n"), &[]),
+        dead_bin_pub(
+            Some("[dead]\nbin_pub_not_root = true\n"),
+            &["--no-bin-pub-not-root"],
+        ),
+    ] {
+        assert!(
+            !out.contains("bare_pub"),
+            "opt-out keeps pub as root: {out}"
+        );
+    }
+}
+
+#[test]
+fn cli_dead_restricted_opt_out_overrides_config() {
+    let out = dead_restricted(
+        Some("[dead]\nrestricted_vis_not_root = true\n"),
+        &["--no-restricted-vis-not-root"],
+    );
+    assert!(!out.contains("only_crate"), "{out}");
 }

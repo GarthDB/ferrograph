@@ -149,3 +149,5 @@ the first `--n` hits are measured); the default `--select last` keeps the last-N
 - Replay `--select calls` keys on removed text (a removed line that mentions a fn defined at the replayed HEAD), not on the call
   graph, so it overselects (deleted comments aside, renamed callees and moved lines count); it only raises the share of commits that
   can orphan something. Read the `commits with rustc newly dead` column for the real denominator.
+
+Note: since 5.0 `--bin-pub-not-root` is on by default. The harness arms and `fgacc.py` still assume the 4.x default (off); pass `--no-bin-pub-not-root` in `--extra-args` for the old baseline, and the `bin_pub` detection in `fgacc.py` does not know about the new default yet.

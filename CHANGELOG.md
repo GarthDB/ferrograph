@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `dead` and `pr` now treat bare `pub` functions in bin/test/example/bench-only files as non-roots by default (`bin_pub_not_root`), so they report more functions and `--max`/`--fail-on-new-dead` thresholds can trip on unchanged code. Opt out with `--no-bin-pub-not-root`, `bin_pub_not_root = false` under `[dead]`, or `"bin_pub_not_root": false` in the MCP `dead_code` tool. See [#92](https://github.com/GarthDB/ferrograph/issues/92).
+- **Breaking (library):** `bin_pub_not_root` and `restricted_vis_not_root` are `Option<bool>` in `DeadOptions`, `PrOptions` and `DeadConfig` (`None` = default / config file).
+
+### Added
+
+- `--no-bin-pub-not-root` and `--no-restricted-vis-not-root`.
+
 ## [4.1.0](https://github.com/GarthDB/ferrograph/compare/v4.0.4...v4.1.0) - 2026-11-12
 
 ### Added

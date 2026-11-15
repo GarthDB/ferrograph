@@ -39,10 +39,10 @@ pub struct PrOptions {
     /// Index the head tree into memory instead of reading `head_db`.
     pub index_head: bool,
     pub strict: bool,
-    /// Applied to base and head alike; also enabled by `restricted_vis_not_root` in `[dead]` of the HEAD config.
-    pub restricted_vis_not_root: bool,
-    /// Applied to base and head alike; also enabled by `bin_pub_not_root` in `[dead]` of the HEAD config.
-    pub bin_pub_not_root: bool,
+    /// Applied to base and head alike; `None` falls back to `restricted_vis_not_root` in `[dead]` of the HEAD config, then false.
+    pub restricted_vis_not_root: Option<bool>,
+    /// Applied to base and head alike; `None` falls back to `bin_pub_not_root` in `[dead]` of the HEAD config, then true.
+    pub bin_pub_not_root: Option<bool>,
     pub entry: Vec<String>,
     pub ignore: Vec<String>,
     pub exclude_low_confidence: bool,
@@ -681,8 +681,14 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
     let entry: Vec<String> = opts.entry.iter().cloned().chain(cfg.dead.entry).collect();
     let ignore: Vec<String> = opts.ignore.iter().cloned().chain(cfg.dead.ignore).collect();
 
-    let restricted = opts.restricted_vis_not_root || cfg.dead.restricted_vis_not_root;
-    let bin_pub = opts.bin_pub_not_root || cfg.dead.bin_pub_not_root;
+    let restricted = opts
+        .restricted_vis_not_root
+        .or(cfg.dead.restricted_vis_not_root)
+        .unwrap_or(false);
+    let bin_pub = opts
+        .bin_pub_not_root
+        .or(cfg.dead.bin_pub_not_root)
+        .unwrap_or(true);
 
     let diffs = diff_files(&root, &merge_base, &head)?;
 
