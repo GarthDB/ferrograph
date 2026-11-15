@@ -294,7 +294,7 @@ fn all_tools() -> Vec<Tool> {
         ),
         tool(
             "trait_implementors",
-            "Given a trait name, list all impl blocks that implement it (uses ImplementsTrait edges). Only traits declared in the indexed project are found; the name is matched as a substring.",
+            "Given a trait name, list all impl blocks that implement it (uses ImplementsTrait edges). Only traits declared in the indexed project are found; the name is matched as a substring; at most 500 results.",
             trait_implementors_input_schema(),
         ),
         tool(
@@ -1446,13 +1446,33 @@ mod tests {
         store
             .put_edge(&imp, &tr, &EdgeType::ImplementsTrait)
             .unwrap();
+        // Substring match: a longer trait name containing the query counts too.
+        let ext = NodeId("te".to_string());
+        let ext_impl = NodeId("ie".to_string());
+        store
+            .put_node(&ext, &NodeType::Trait, Some("ShapeExt"))
+            .unwrap();
+        store
+            .put_node(&ext_impl, &NodeType::Impl, Some("Circle"))
+            .unwrap();
+        store
+            .put_edge(&ext_impl, &ext, &EdgeType::ImplementsTrait)
+            .unwrap();
         let mut args = serde_json::Map::new();
         args.insert("trait_name".to_string(), serde_json::json!("Shape"));
         let request = tool_request("trait_implementors", Some(args));
         let json = result_json(FerrographMcp::handle_trait_implementors(&request, &store).unwrap());
-        assert_eq!(json["count"], 1);
-        assert_eq!(json["implementors"][0]["id"], "i");
-        assert_eq!(json["implementors"][0]["payload"], "Sq");
+        assert_eq!(json["count"], 2, "{json}");
+        let ids: Vec<&str> = json["implementors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["id"].as_str().unwrap())
+            .collect();
+        assert!(
+            ids.contains(&"i") && ids.contains(&"ie") && !ids.contains(&"o"),
+            "{ids:?}"
+        );
         assert!(json.get("note").is_none(), "{json}");
     }
 
