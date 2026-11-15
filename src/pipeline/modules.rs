@@ -773,10 +773,10 @@ pub fn resolve_modules(store: &Store, root: &Path) -> Result<()> {
 fn resolve_module_to_file(module_path: &str, crate_dir: &Path) -> Option<std::path::PathBuf> {
     let rest = module_path.strip_prefix("crate::").unwrap_or(module_path);
     // A crate root outside `src/` (`examples/<name>/main.rs`) holds its modules next to it.
-    let src = if crate_dir.join("src").is_dir() {
-        crate_dir.join("src")
-    } else {
+    let src = if !crate_dir.join("src").is_dir() && crate_dir.join("main.rs").is_file() {
         crate_dir.to_path_buf()
+    } else {
+        crate_dir.join("src")
     };
     if rest.is_empty() {
         return ["lib.rs", "main.rs"]
@@ -791,6 +791,54 @@ fn resolve_module_to_file(module_path: &str, crate_dir: &Path) -> Option<std::pa
     }
     let mod_rs = src.join(rel).join("mod.rs");
     mod_rs.exists().then_some(mod_rs)
+}
+
+#[cfg(test)]
+mod target_root_tests {
+    use super::{resolve_module_to_file, target_dir_root};
+    use std::path::Path;
+
+    fn touch(root: &Path, rel: &str) {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, "").unwrap();
+    }
+
+    #[test]
+    fn target_dirs_with_main_rs_are_roots() {
+        let d = tempfile::tempdir().unwrap();
+        for f in [
+            "examples/reel/main.rs",
+            "examples/reel/frame.rs",
+            "tests/it/main.rs",
+            "src/bin/tool/main.rs",
+            "src/bin/tool/util.rs",
+            "tests/common/mod.rs",
+            "examples/single.rs",
+        ] {
+            touch(d.path(), f);
+        }
+        let root = |rel: &str| target_dir_root(d.path(), Path::new(rel));
+        assert_eq!(root("examples/reel/frame.rs"), Some("examples/reel".into()));
+        assert_eq!(root("tests/it/main.rs"), Some("tests/it".into()));
+        assert_eq!(root("src/bin/tool/util.rs"), Some("src/bin/tool".into()));
+        assert_eq!(root("tests/common/mod.rs"), None);
+        assert_eq!(root("examples/single.rs"), None);
+        assert_eq!(root("src/lib.rs"), None);
+    }
+
+    #[test]
+    fn crate_dir_without_src_resolves_modules_only_next_to_its_main_rs() {
+        let d = tempfile::tempdir().unwrap();
+        touch(d.path(), "x.rs");
+        // A custom-root package (`[[bin]] path = "crates/core/main.rs"`) has no top-level main.rs.
+        assert_eq!(resolve_module_to_file("crate::x", d.path()), None);
+        touch(d.path(), "main.rs");
+        assert_eq!(
+            resolve_module_to_file("crate::x", d.path()),
+            Some(d.path().join("x.rs"))
+        );
+    }
 }
 
 #[cfg(test)]
