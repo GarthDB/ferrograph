@@ -193,7 +193,7 @@ pub enum Command {
         /// Exit with code 1 if more than N functions are newly dead.
         #[arg(long)]
         max_new_dead: Option<usize>,
-        /// Exit with code 1 if the combined blast radius has more than N nodes.
+        /// Exit with code 1 if the combined blast radius (what the change depends on, not the impacted callers) has more than N nodes.
         #[arg(long)]
         max_blast: Option<usize>,
         /// Also write a report to a file: `FORMAT=PATH` (`json`, `markdown`, `sarif`, `text`). Repeatable;
