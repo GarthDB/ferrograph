@@ -15,7 +15,7 @@ use crate::graph::schema::{EdgeType, NodeId, NodeType};
 use crate::graph::{unquote_datavalue, Store};
 
 /// Directory of the crate owning `path`: the nearest ancestor (within `root`) holding a `Cargo.toml`.
-fn crate_dir(root: &Path, path: &Path) -> std::path::PathBuf {
+pub(super) fn crate_dir(root: &Path, path: &Path) -> std::path::PathBuf {
     path.ancestors()
         .skip(1)
         .take_while(|d| d.starts_with(root))

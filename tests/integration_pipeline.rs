@@ -1401,6 +1401,21 @@ fn pipeline_generic_receiver_is_not_certain_but_unevaluated_hint_is() {
 }
 
 #[test]
+fn pipeline_calls_do_not_cross_packages_that_cannot_call_each_other() {
+    let store = run_fixture("crate_units");
+    // `b` has no dependency on `a`.
+    assert_eq!(call_targets(&store, "run"), []);
+    // `c` depends on `a` but only sees its public API.
+    let go = call_targets(&store, "go");
+    assert!(
+        go.len() == 1 && go[0].0.starts_with("./a/src/lib.rs#") && !go[0].1,
+        "{go:?}"
+    );
+    // The same package calls its own private method.
+    assert_eq!(call_targets(&store, "api").len(), 1);
+}
+
+#[test]
 fn pipeline_example_dir_with_main_rs_is_its_own_crate_root() {
     let store = run_fixture("example_crate_root");
     let targets = call_targets(&store, "main");
