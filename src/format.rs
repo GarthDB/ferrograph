@@ -339,7 +339,7 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
         .collect();
     if !tests.is_empty() {
         out.push_str(
-            "\n**Tests, benches and examples changed** (with the callers they impact)\n\n",
+            "\n**Tests, test helpers, benches and examples changed** (with the callers they impact)\n\n",
         );
         table(
             &mut out,

@@ -651,7 +651,7 @@ fn reports_transitive_callers_and_tests_changed() {
     );
     assert!(
         md.contains("Impacted by this change")
-            && md.contains("Tests, benches and examples changed"),
+            && md.contains("Tests, test helpers, benches and examples changed"),
         "{md}"
     );
 }

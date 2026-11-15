@@ -768,7 +768,10 @@ fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
         );
     }
     if !tests.is_empty() {
-        emit!("\nTests, benches and examples changed: {}", tests.len());
+        emit!(
+            "\nTests, test helpers, benches and examples changed: {}",
+            tests.len()
+        );
         for f in tests {
             emit!(
                 "  {}\t{}\timpacted {}",
