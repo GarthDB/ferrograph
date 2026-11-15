@@ -532,16 +532,13 @@ fn fn_kind(store: &Store, id: &str) -> Result<&'static str> {
     params.insert("id".to_string(), cozo::DataValue::from(id));
     let rows = store.run_query("?[p] := *nodes[$id, _, p]", params)?;
     let payload = rows.rows.first().map(|r| unquote_datavalue(&r[0]));
+    let in_dir = |d: &str| split_id(id).0.split('/').any(|c| c == d);
     Ok(match payload.as_deref() {
         Some(p) if p.starts_with("test::") => "test",
         Some(p) if p.starts_with("bench::") => "bench",
-        // A helper in tests/ or benches/ is not a leaf (tests call it), but its closure is noise.
-        _ if ["tests", "benches"]
-            .iter()
-            .any(|d| split_id(id).0.split('/').any(|c| c == *d)) =>
-        {
-            "helper"
-        }
+        // Not leaves (tests/the gallery call them), but their forward closure is noise.
+        _ if in_dir("examples") => "example",
+        _ if in_dir("tests") || in_dir("benches") => "helper",
         _ => "fn",
     })
 }

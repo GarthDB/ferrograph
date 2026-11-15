@@ -196,6 +196,9 @@ pub enum Command {
         /// Exit with code 1 if the combined blast radius (what the change depends on, not the impacted callers) has more than N nodes.
         #[arg(long)]
         max_blast: Option<usize>,
+        /// Exit with code 1 if more than N functions are impacted (transitive callers of the changed functions; name-based, so it can over-count).
+        #[arg(long)]
+        max_impacted: Option<usize>,
         /// Also write a report to a file: `FORMAT=PATH` (`json`, `markdown`, `sarif`, `text`). Repeatable;
         /// all outputs come from one run. With `--out` and no `--format`/`--json`, nothing goes to stdout.
         #[arg(long = "out", value_name = "FORMAT=PATH", value_parser = parse_out)]
@@ -367,6 +370,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             fail_on_new_dead,
             max_new_dead,
             max_blast,
+            max_impacted,
             out,
             fmt,
         } => {
@@ -390,6 +394,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 &opts,
                 fail_on_new_dead.then_some(0).or(max_new_dead),
                 max_blast,
+                max_impacted,
                 fmt.resolve(json)?,
                 &out,
                 to_stdout,
@@ -681,6 +686,7 @@ fn run_pr(
     opts: &crate::pr::PrOptions,
     max_new_dead: Option<usize>,
     max_blast: Option<usize>,
+    max_impacted: Option<usize>,
     (format, md_limit): (Format, usize),
     out: &[(Format, PathBuf)],
     to_stdout: bool,
@@ -709,6 +715,7 @@ fn run_pr(
     for (label, count, max) in [
         ("new dead", r.newly_dead_count, max_new_dead),
         ("blast", r.blast.count, max_blast),
+        ("impacted", r.impacted.count, max_impacted),
     ] {
         if let Some(m) = max.filter(|&m| count > m) {
             eprintln!("threshold exceeded: {label} {count} > {m}");
@@ -761,7 +768,10 @@ fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
         );
     }
     if !tests.is_empty() {
-        emit!("\nTests changed (and test helpers): {}", tests.len());
+        emit!(
+            "\nTests, test helpers, benches and examples changed: {}",
+            tests.len()
+        );
         for f in tests {
             emit!(
                 "  {}\t{}\timpacted {}",
