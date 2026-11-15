@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0](https://github.com/GarthDB/ferrograph/compare/v4.1.0...v5.0.0) - 2026-11-15
+
+### Added
+
+- *(dead)* [**breaking**] restricted_vis_not_root on by default; both options default off with --strict ([#91](https://github.com/GarthDB/ferrograph/pull/91))
+- *(pr)* --out FORMAT=PATH writes several report formats from one run ([#80](https://github.com/GarthDB/ferrograph/pull/80))
+- *(traits)* drop the trait_implementors stub note, surface query errors, add tests ([#64](https://github.com/GarthDB/ferrograph/pull/64))
+- *(dead)* [**breaking**] bin_pub_not_root on by default; add --no-* opt-outs ([#92](https://github.com/GarthDB/ferrograph/pull/92))
+- *(dead)* opt-in --bin-pub-not-root for bare pub fns in bin/test-only files
+- *(dead)* opt-in --restricted-vis-not-root for pub(crate)/pub(super) functions
+
+### Fixed
+
+- strict-default tests (cli, pr, mcp), docs and changelog wording, harness model follows --strict
+- *(calls)* inherent methods beat iterator adapters, '->' in turbofish args, iterator tests; changelog order
+- *(calls,dead)* turbofish type paths, project Iterator items, _-prefixed fns are roots ([#91](https://github.com/GarthDB/ferrograph/pull/91))
+- *(pr)* --out creates parent dirs and a failed write no longer skips stdout or thresholds
+- *(dead)* write!/writeln! call write_fmt; attribute-macro impl methods are roots (#101, #102)
+- *(modules)* crate-dir-without-src fallback only next to a main.rs; test target roots ([#119](https://github.com/GarthDB/ferrograph/pull/119))
+- *(modules)* examples/tests/benches/src/bin dirs with main.rs are their own crate roots ([#119](https://github.com/GarthDB/ferrograph/pull/119))
+- *(calls)* keep the same-file method past the fan-out cap and for self calls ([#128](https://github.com/GarthDB/ferrograph/pull/128))
+- *(calls)* untyped receiver does not get a certain edge to the only same-file method ([#128](https://github.com/GarthDB/ferrograph/pull/128))
+- *(calls)* a bare call of a local binding is not a call to a same-named fn ([#125](https://github.com/GarthDB/ferrograph/pull/125))
+- *(calls)* glob import resolves private fns only for self/ancestor globs ([#127](https://github.com/GarthDB/ferrograph/pull/127))
+- *(modules)* resolve `use m::f;` when `m` is bound by another use ([#154](https://github.com/GarthDB/ferrograph/pull/154))
+- *(calls)* one item imported twice is not an ambiguous import ([#153](https://github.com/GarthDB/ferrograph/pull/153))
+- *(calls)* prefer own-file impl for self.method() on same-named types ([#151](https://github.com/GarthDB/ferrograph/pull/151))
+- *(calls)* type .map(Type::new) results and same-named bare variants in dead --strict ([#115](https://github.com/GarthDB/ferrograph/pull/115))
+- *(clippy)* nest or-pattern; note positional limit
+- *(clippy)* nest or-pattern; note positional limit
+- *(dead)* positional callback may be last attribute arg
+- *(dead)* treat positional attribute args as fn references ([#147](https://github.com/GarthDB/ferrograph/pull/147))
+- *(calls)* type closure receivers over `let v: Vec<_> = it.map(|x| S{..}).collect()` ([#115](https://github.com/GarthDB/ferrograph/pull/115))
+- *(dead)* #[serde(default = "f")] names a fn (default is a keyword token)
+- *(status)* exit 2 with stderr error when the graph is missing
+- *(pr)* warn when only one side has the visibility marker an option needs
+- *(calls)* type tokio lock().await and try_lock/try_read/try_write receivers
+- *(calls)* conflicting local aliases hide file-level renames; cover RwLock/RefMut
+- *(calls)* synthesized guards never collide with project type names
+- *(calls)* keep project types named like std wrappers, type get_mut, conflict local aliases
+
+### Other
+
+- *(readme)* replace stale v4.0.4 accuracy claims with the 5.0 measurements
+- recall numbers for the 5.0 defaults ([#91](https://github.com/GarthDB/ferrograph/pull/91))
+- *(changelog)* trait_implementors response change ([#64](https://github.com/GarthDB/ferrograph/pull/64))
+- *(traits)* pin substring match, name the CLI helper, mention the cap in the tool description
+- *(traits)* pin substring match, name the CLI helper, mention the cap in the tool description
+- drop fixed #101/#102 from known false positives; rustfmt::skip in PLAIN_IMPL_ATTRS
+- *(calls)* parameter and self-shadowing let cases for #125
+- *(changelog)* qualify when stored dead result is used
+- fix default-on/off wording, note dead recompute
+- Merge branch 'main' into fix/153-duplicate-named-import
+- satisfy clippy assert_is_empty, fmt
+- *(calls)* fix misplaced doc line, note name-only type match
+- *(calls)* note the enclosing-impl variant fallback limit
+- drop fmt churn from the fixture, wrap doc line
+- note that neg_b_own is live but deliberately unresolved
+- drop single-element loop
+
 ### Changed
 
 - **Breaking:** `dead` and `pr` now treat bare `pub` functions in bin/test/example/bench-only files as non-roots by default (`bin_pub_not_root`), so they report more functions and `--max`/`--fail-on-new-dead` thresholds can trip on unchanged code. Opt out with `--no-bin-pub-not-root`, `bin_pub_not_root = false` under `[dead]`, or `"bin_pub_not_root": false` in the MCP `dead_code` tool. See [#92](https://github.com/GarthDB/ferrograph/issues/92).
