@@ -601,3 +601,75 @@ fn pr_out_write_failure_is_an_error_but_stdout_is_kept() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("Failed to write src"));
     serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap();
 }
+
+const IMPACT_BASE: &str = "fn main() {\n    caller();\n}\nfn caller() {\n    leaf();\n}\nfn leaf() {}\n#[test]\nfn leaf_works() {\n    leaf();\n}\n";
+
+#[test]
+fn reports_transitive_callers_and_tests_changed() {
+    let Some(d) = repo() else { return };
+    write(d.path(), "src/main.rs", IMPACT_BASE);
+    commit(d.path(), "impact base");
+    git(d.path(), &["checkout", "-q", "-B", "main"]);
+    git(d.path(), &["checkout", "-q", "-b", "f2"]);
+    write(
+        d.path(),
+        "src/main.rs",
+        &IMPACT_BASE
+            .replace("fn leaf() {}", "fn leaf() {\n    let _ = 1;\n}")
+            .replace("fn leaf_works() {\n", "fn leaf_works() {\n    let _ = 2;\n"),
+    );
+    commit(d.path(), "edit leaf and its test");
+    let v = json(&pr(d.path(), &["--json"]));
+    let f = |n: &str| {
+        v["changed_functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == n)
+            .unwrap()
+            .clone()
+    };
+    let leaf = f("leaf");
+    assert_eq!(leaf["kind"], "fn");
+    // leaf <- caller <- main (2 hops), leaf <- leaf_works
+    assert_eq!(leaf["impacted"]["count"], 3, "{leaf}");
+    assert_eq!(leaf["impacted"]["tests"], 1);
+    assert_eq!(v["impacted"]["library"]["count"], 2);
+    // #170: a changed test has no blast and no impacted set, and adds nothing to the union.
+    let t = f("leaf_works");
+    assert_eq!(
+        (t["kind"].as_str(), t["blast_count"].as_u64()),
+        (Some("test"), Some(0))
+    );
+    assert!(t.get("impacted").is_none());
+    let depth1 = json(&pr(d.path(), &["--json", "--impact-depth", "1"]));
+    assert_eq!(depth1["impacted"]["library"]["count"], 1);
+    let md = String::from_utf8_lossy(&pr(d.path(), &["--format", "markdown"]).stdout).into_owned();
+    assert!(
+        md.contains("Impacted by this change") && md.contains("Tests changed"),
+        "{md}"
+    );
+}
+
+#[test]
+fn ignore_filters_changed_lists() {
+    let Some(d) = repo() else { return };
+    write(d.path(), "src/generated.rs", "fn gen() {}\n");
+    write(d.path(), "src/main.rs", &format!("{BASE}// c\n"));
+    commit(d.path(), "edit both");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert_eq!(v["changed_without_function"].as_array().unwrap().len(), 1);
+    assert_eq!(names(&v["changed_functions"]), ["gen"]);
+    let v = json(&pr(
+        d.path(),
+        &[
+            "--json",
+            "--ignore",
+            "**/main.rs",
+            "--ignore",
+            "**/generated.rs",
+        ],
+    ));
+    assert_eq!(v["changed_without_function"].as_array().unwrap().len(), 0);
+    assert_eq!(names(&v["changed_functions"]).len(), 0);
+}

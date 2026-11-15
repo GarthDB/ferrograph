@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `pr` labels the blast radius "depends on" (it is the forward closure plus direct callers, not what depends on the change); the Markdown header and changed-functions table now lead with impact. `blast_count` is 0 for changed `#[test]`/`#[bench]` functions, which are excluded from the union blast. `--ignore` and `[dead] ignore` now also filter the changed-function, changed-lines and impacted lists of `pr`. ([#169](https://github.com/GarthDB/ferrograph/issues/169)) ([#170](https://github.com/GarthDB/ferrograph/issues/170)) ([#171](https://github.com/GarthDB/ferrograph/issues/171))
+
+### Added
+
+- `pr --impact-depth N` (default 3) and an `impacted` section: transitive callers of the changed functions, per function and as a union grouped into tests, examples/benches and library code. New JSON fields only: `impacted`, and `kind`/`impacted` on each `changed_functions` entry. ([#169](https://github.com/GarthDB/ferrograph/issues/169))
+- `pr` lists changed tests and benches under "Tests changed". ([#170](https://github.com/GarthDB/ferrograph/issues/170))
+
 ## [5.0.0](https://github.com/GarthDB/ferrograph/compare/v4.1.0...v5.0.0) - 2026-11-15
 
 ### ⚠ Breaking changes

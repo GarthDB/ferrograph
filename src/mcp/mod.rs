@@ -264,7 +264,7 @@ fn all_tools() -> Vec<Tool> {
         ),
         tool(
             "blast_radius",
-            "List nodes reachable from a given node (what breaks if this changes). Approximate: name-based call resolution may over- or under-approximate.",
+            "List nodes reachable from a given node: what it depends on (forward closure) plus its direct callers. For what depends on it (what breaks if it changes), use callers. Approximate: name-based call resolution may over- or under-approximate.",
             blast_radius_input_schema(),
         ),
         tool(

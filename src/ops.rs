@@ -151,10 +151,28 @@ pub struct ChangedFunction {
     pub name: String,
     pub start_line: u32,
     pub end_line: u32,
+    /// Size of the forward ("depends on") closure; always 0 for `test`/`bench` functions.
     pub blast_count: usize,
     /// `blast_count` is a lower bound (the blast query hit its internal cap).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub blast_truncated: bool,
+    /// `fn`, `test` or `bench` (from the payload prefix).
+    pub kind: &'static str,
+    /// Transitive callers within `--impact-depth`; absent for `test`/`bench` functions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impacted: Option<FnImpact>,
+}
+
+/// Transitive-caller counts of one changed function.
+#[derive(Debug, Serialize)]
+pub struct FnImpact {
+    pub count: usize,
+    pub tests: usize,
+    pub examples: usize,
+    pub library: usize,
+    /// `count` is a lower bound (the callers query hit its internal cap).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 /// Changed lines in one file that fall outside every function (use/struct/const edits).
@@ -178,6 +196,48 @@ pub struct PrBlast {
     pub nodes: Vec<NodeSummary>,
 }
 
+/// A caller impacted by the change.
+#[derive(Debug, Serialize)]
+pub struct ImpactedNode {
+    pub id: String,
+    pub name: String,
+    /// `tests`, `examples` (examples and benches) or `library`.
+    pub group: &'static str,
+}
+
+/// One file's share of an impact group.
+#[derive(Debug, Serialize)]
+pub struct ImpactFile {
+    pub file: String,
+    pub count: usize,
+}
+
+/// Impacted functions of one group (`tests`, `examples`, `library`); `files` is sorted by count.
+#[derive(Debug, Default, Serialize)]
+pub struct ImpactGroup {
+    pub count: usize,
+    pub files: Vec<ImpactFile>,
+}
+
+/// Union of the transitive callers of all changed non-test functions: what the change impacts.
+/// Callers are name-based, so common names (`new`, `build`, `view`) over-count.
+#[derive(Debug, Serialize)]
+pub struct PrImpacted {
+    /// `--impact-depth`: caller hops followed.
+    pub depth: u32,
+    /// Distinct impacted functions (always the full count).
+    pub count: usize,
+    /// Number of nodes listed in `nodes` (capped by `--blast-limit`).
+    pub shown: usize,
+    /// `count` is a lower bound (some callers query hit its internal cap).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+    pub tests: ImpactGroup,
+    pub examples: ImpactGroup,
+    pub library: ImpactGroup,
+    pub nodes: Vec<ImpactedNode>,
+}
+
 /// Files that historically change together with a changed file but are untouched here.
 #[derive(Debug, Serialize)]
 pub struct CouplingHint {
@@ -196,7 +256,9 @@ pub struct PrResult {
     pub newly_dead_count: usize,
     pub changed_functions: Vec<ChangedFunction>,
     pub changed_without_function: Vec<ChangedItems>,
+    /// Forward closure ("depends on"), not impact; see `impacted`.
     pub blast: PrBlast,
+    pub impacted: PrImpacted,
     /// Present only when the graph has `changes_with` edges (`git` feature).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub coupling: Vec<CouplingHint>,

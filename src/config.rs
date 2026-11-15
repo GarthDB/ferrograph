@@ -141,7 +141,7 @@ pub enum Command {
         #[command(flatten)]
         fmt: FormatArgs,
     },
-    /// Report what a change introduces relative to a base ref: newly dead functions and blast radius.
+    /// Report what a change introduces relative to a base ref: newly dead functions, impacted callers and blast radius (what the changed code depends on).
     ///
     /// Accuracy is still being measured; try without thresholds first.
     Pr {
@@ -175,15 +175,18 @@ pub enum Command {
         /// Extra entry point: file glob or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
-        /// Never report functions in files matching this glob. Repeatable.
+        /// Never report functions in files matching this glob, also in the changed and impacted lists (like `[dead] ignore`). Repeatable.
         #[arg(long)]
         ignore: Vec<String>,
-        /// Ignore ambiguous (low-confidence) call edges in blast radius.
+        /// Ignore ambiguous (low-confidence) call edges in the impacted set and blast radius.
         #[arg(long)]
         exclude_low_confidence: bool,
-        /// Maximum blast radius nodes listed (the full count is always reported).
+        /// Maximum impacted and blast radius nodes listed (the full counts are always reported).
         #[arg(long, default_value = "200")]
         blast_limit: usize,
+        /// Caller hops followed to find what a change impacts.
+        #[arg(long, default_value = "3")]
+        impact_depth: u32,
         /// Exit with code 1 if any function is newly dead.
         #[arg(long, conflicts_with = "max_new_dead")]
         fail_on_new_dead: bool,
@@ -200,7 +203,7 @@ pub enum Command {
         #[command(flatten)]
         fmt: FormatArgs,
     },
-    /// Show blast radius (transitive impact) of a node.
+    /// Show the blast radius of a node: what it depends on (forward closure) plus its direct callers; use `callers` for what depends on it.
     Blast {
         /// Path to the graph database, or a project directory containing .ferrograph.
         #[arg(short, long)]
@@ -360,6 +363,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             ignore,
             exclude_low_confidence,
             blast_limit,
+            impact_depth,
             fail_on_new_dead,
             max_new_dead,
             max_blast,
@@ -380,6 +384,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 ignore,
                 exclude_low_confidence,
                 blast_limit,
+                impact_depth,
             };
             run_pr(
                 &opts,
@@ -729,14 +734,37 @@ fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
     for f in &r.newly_dead {
         emit!("  {}\t{}\t{}", f.id, f.name, f.status);
     }
-    emit!("\nChanged functions: {}", r.changed_functions.len());
-    for f in &r.changed_functions {
+    let i = &r.impacted;
+    emit!(
+        "\nImpacted by this change (callers up to {} hops): {}",
+        i.depth,
+        format::count_label(i.count, i.truncated)
+    );
+    for (n, g) in [
+        ("tests", &i.tests),
+        ("examples/benches", &i.examples),
+        ("library", &i.library),
+    ] {
+        emit!("  {n}: {}", format::impact_group_label(g));
+    }
+    let (fns, tests): (Vec<_>, Vec<_>) = r.changed_functions.iter().partition(|f| f.kind == "fn");
+    emit!("\nChanged functions: {}", fns.len());
+    for f in fns {
         emit!(
-            "  {}\t{}\tblast {}",
+            "  {}\t{}\timpacted {}\tdepends on {}",
             f.id,
             f.name,
+            f.impacted
+                .as_ref()
+                .map_or_else(String::new, |x| format::count_label(x.count, x.truncated)),
             format::count_label(f.blast_count, f.blast_truncated)
         );
+    }
+    if !tests.is_empty() {
+        emit!("\nTests changed: {}", tests.len());
+        for f in tests {
+            emit!("  {}\t{}", f.id, f.name);
+        }
     }
     for c in &r.changed_without_function {
         let ranges: Vec<String> = c
@@ -753,7 +781,7 @@ fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
         emit!("  (no function) {}: lines {}", c.file, ranges.join(", "));
     }
     emit!(
-        "\nBlast radius: {} node(s), showing {}",
+        "\nDepends on (blast radius): {} node(s), showing {}",
         format::count_label(r.blast.count, r.blast.truncated),
         r.blast.shown
     );
