@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `pr --out FORMAT=PATH` (repeatable) writes json, markdown, sarif or text reports from one run, so one index pass of each tree serves every format ([#80](https://github.com/GarthDB/ferrograph/issues/80)).
 - `--no-bin-pub-not-root` and `--no-restricted-vis-not-root`.
 
 ## [4.1.0](https://github.com/GarthDB/ferrograph/compare/v4.0.4...v4.1.0) - 2026-11-12
