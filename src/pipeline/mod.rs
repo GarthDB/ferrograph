@@ -14,10 +14,12 @@ mod placeholder;
 mod primitives;
 mod references;
 mod traits;
+mod units;
 
 pub use ast::extract_ast;
 pub use borrows::{resolve_borrows_edges, resolve_borrows_mut_edges};
 pub use calls::build_call_graph;
+use calls::build_call_graph_in;
 pub use dead_code::detect_dead_code;
 pub use discovery::discover_files;
 pub use expands::resolve_expands_to_edges;
@@ -119,7 +121,7 @@ pub fn run_pipeline(store: &Store, root: &Path, config: &PipelineConfig) -> Resu
     }
     primitives::create_primitive_nodes(store)?;
     resolve_modules(store, root)?; // Imports edges must exist before call resolution
-    build_call_graph(store)?;
+    build_call_graph_in(store, Some(&units::Units::load(root)))?;
     resolve_impl_trait_edges(store)?; // Resolve placeholder impl→trait edges from AST
     resolve_reference_edges(store)?; // Resolve placeholder type reference edges from AST
     resolve_owns_edges(store)?; // Resolve placeholder owns edges (item → type)

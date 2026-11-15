@@ -25,6 +25,7 @@ use super::modules::{
     ALIAS_IMPORT_PREFIX, EXTERNAL_IMPORT_PREFIX, GLOB_IMPORT_PREFIX, GLOB_PUB_ONLY_SUFFIX,
     PATH_MOD_IMPORT_PREFIX,
 };
+use super::units::Units;
 
 /// Suffix the AST phase puts on call placeholders for paths used as values (see `ast.rs`).
 pub(crate) const VALUE_SUFFIX: &str = "@value";
@@ -657,24 +658,33 @@ fn resolve_typed_method(
 }
 
 /// Resolve `x.name()` by name only: a lone same-file method wins unless the receiver is untyped and another file has one too (#128), else all methods project-wide.
-fn resolve_method(name: &str, from_file: &str, untyped: bool, idx: &Index) -> Resolution {
-    let all = idx.global_by_name.get(name).map_or(&[][..], Vec::as_slice);
+/// `reachable` drops candidates the caller's package cannot call before the fan-out cap applies (#177).
+fn resolve_method(
+    name: &str,
+    from_file: &str,
+    untyped: bool,
+    reachable: &dyn Fn(&NodeId) -> bool,
+    idx: &Index,
+) -> Resolution {
+    let every = idx.global_by_name.get(name).map_or(&[][..], Vec::as_slice);
+    let declared = every
+        .iter()
+        .filter(|n| idx.methods.contains(n.as_str()))
+        .count();
+    let all: Vec<&NodeId> = every.iter().filter(|n| reachable(n)).collect();
     let prefix = format!("{from_file}#");
-    let is_method = |n: &&NodeId| idx.methods.contains(n.as_str());
+    let is_method = |n: &&&NodeId| idx.methods.contains(n.as_str());
     let mut cands: Vec<NodeId> = all
         .iter()
         .filter(is_method)
         .filter(|n| n.as_str().starts_with(&prefix))
-        .cloned()
+        .map(|n| (*n).clone())
         .collect();
     // A lone same-file method is only a guess when another file declares a method of that name too:
     // the untyped receiver may be that other type (#128). A receiver typed as an external type
     // keeps the same-file preference.
     // Past the fan-out cap the global lookup would drop the call, so the same-file method stays.
-    if untyped
-        && cands.len() == 1
-        && (2..=MAX_METHOD_CANDIDATES).contains(&all.iter().filter(is_method).count())
-    {
+    if untyped && cands.len() == 1 && (2..=MAX_METHOD_CANDIDATES).contains(&declared) {
         cands.clear();
     }
     if cands.is_empty() {
@@ -684,7 +694,7 @@ fn resolve_method(name: &str, from_file: &str, untyped: bool, idx: &Index) -> Re
         {
             return Resolution::None;
         }
-        cands = all.iter().filter(is_method).cloned().collect();
+        cands = all.iter().filter(is_method).map(|n| (*n).clone()).collect();
     }
     match cands.len() {
         0 => Resolution::None,
@@ -1476,6 +1486,71 @@ fn parse_target(raw_to: &str) -> (String, bool, bool, bool, Option<&str>) {
     (core.to_string(), value, self_method, method, hint)
 }
 
+/// Functions no other package can call: `pub(crate)`/`pub(super)`/private free fns and inherent
+/// methods. Trait items and trait impl methods are as visible as the trait.
+fn private_fn_ids(
+    idx: &Index,
+    nodes: &cozo::NamedRows,
+    edges: &cozo::NamedRows,
+) -> HashSet<String> {
+    let has_attr = EdgeType::HasAttribute.to_string();
+    let attr_of = |name: &str| -> HashSet<String> {
+        let target = format!("attr::{name}");
+        edges
+            .rows
+            .iter()
+            .filter(|r| r.get(2).map(unquote_datavalue).as_deref() == Some(has_attr.as_str()))
+            .filter(|r| r.get(1).map(unquote_datavalue).as_deref() == Some(target.as_str()))
+            .filter_map(|r| r.first().map(unquote_datavalue))
+            .collect()
+    };
+    let restricted = attr_of("pub_restricted");
+    let trait_impl = attr_of("trait_impl");
+    let traits: HashSet<String> = nodes
+        .rows
+        .iter()
+        .filter(|r| {
+            r.get(1).map(unquote_datavalue).as_deref() == Some(NodeType::Trait.to_string().as_str())
+        })
+        .filter_map(|r| r.first().map(unquote_datavalue))
+        .collect();
+    idx.node_id_to_payload
+        .iter()
+        .filter(|(id, payload)| {
+            restricted.contains(*id)
+                || (!payload.starts_with("pub::")
+                    && !trait_impl.contains(*id)
+                    && !idx.parent.get(*id).is_some_and(|p| traits.contains(p)))
+        })
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
+/// Drop the candidates of `resolution` that code in `from_file` cannot call.
+fn restrict(
+    resolution: Resolution,
+    from_file: &str,
+    units: &Units,
+    private_fns: &HashSet<String>,
+) -> Resolution {
+    let ok = |id: &NodeId| {
+        let to_file = id.as_str().split('#').next().unwrap_or("");
+        units.allows(from_file, to_file, !private_fns.contains(id.as_str()))
+    };
+    match resolution {
+        Resolution::One(id) if !ok(&id) => Resolution::None,
+        Resolution::Ambiguous(ids) => {
+            let kept: Vec<NodeId> = ids.into_iter().filter(ok).collect();
+            if kept.is_empty() {
+                Resolution::None
+            } else {
+                Resolution::Ambiguous(kept)
+            }
+        }
+        r => r,
+    }
+}
+
 /// Build or enrich call graph by resolving AST placeholder call targets to real function nodes.
 ///
 /// Same-file placeholders are resolved first; then Imports edges (from `resolve_modules`) are used
@@ -1484,6 +1559,16 @@ fn parse_target(raw_to: &str) -> (String, bool, bool, bool, Option<&str>) {
 /// # Errors
 /// Fails if the graph query or update fails.
 pub fn build_call_graph(store: &Store) -> Result<()> {
+    build_call_graph_in(store, None)
+}
+
+/// [`build_call_graph`] that also drops call edges between files whose packages and targets cannot
+/// call each other (#177). `None` skips that check.
+///
+/// # Errors
+/// Fails if the graph query or update fails.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn build_call_graph_in(store: &Store, units: Option<&Units>) -> Result<()> {
     let function_type = NodeType::Function.to_string();
     let calls_type = EdgeType::Calls;
     let calls_type_str = calls_type.to_string();
@@ -1518,6 +1603,7 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
     fill_scopes(&mut idx, &nodes, &edges);
     fill_consts(&mut idx, &nodes);
     fill_fields(store, &mut idx, &nodes, &edges)?;
+    let private_fns = units.map_or_else(HashSet::new, |_| private_fn_ids(&idx, &nodes, &edges));
 
     let mut high: HashSet<(String, String)> = HashSet::new();
     let mut low: Vec<(NodeId, NodeId, f64)> = Vec::new();
@@ -1543,7 +1629,13 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
             own.unwrap_or_else(|| {
                 let untyped = !self_method
                     && hint.is_none_or(|h| is_opaque_hint(h, &from_str, from_file, &idx));
-                resolve_method(fn_name, from_file, untyped, &idx)
+                let reachable = |id: &NodeId| {
+                    units.is_none_or(|u| {
+                        let to_file = id.as_str().split('#').next().unwrap_or("");
+                        u.allows(from_file, to_file, !private_fns.contains(id.as_str()))
+                    })
+                };
+                resolve_method(fn_name, from_file, untyped, &reachable, &idx)
             })
         } else {
             resolve_placeholder(
@@ -1554,6 +1646,10 @@ pub fn build_call_graph(store: &Store) -> Result<()> {
                 value,
                 &idx,
             )
+        };
+        let resolution = match units {
+            Some(u) => restrict(resolution, from_file, u, &private_fns),
+            None => resolution,
         };
         let from_id = NodeId(from_str.clone());
         store.remove_edge(&from_id, &NodeId(raw_to), &calls_type)?;
