@@ -1343,3 +1343,10 @@ fn pipeline_lock_await_and_try_lock_receivers() {
         assert!(dead.contains(&tags[neg]), "{neg}");
     }
 }
+
+#[test]
+fn pipeline_bare_call_of_a_local_closure_is_not_a_call_to_a_same_named_fn() {
+    let store = run_fixture("local_closure_calls");
+    let targets = call_targets(&store, "entry");
+    assert_eq!(targets.len(), 1, "only `a::run`: {targets:?}");
+}
