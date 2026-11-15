@@ -64,6 +64,10 @@ fn file_to_module_path(root: &Path, path: &Path) -> Option<(String, String)> {
     let dir = crate_dir(&root, &path);
     let krate = dir.strip_prefix(&root).ok()?.to_string_lossy().into_owned();
     let rel = path.strip_prefix(&dir).ok()?;
+    if let Some(sub) = target_dir_root(&dir, rel) {
+        let krate = Path::new(&krate).join(&sub).to_string_lossy().into_owned();
+        return Some((krate, module_in_root(rel.strip_prefix(&sub).ok()?)));
+    }
     let rel = custom_root_dir(&dir, rel).map_or(rel, |d| rel.strip_prefix(d).unwrap_or(rel));
     let s = rel.to_string_lossy();
     let s = s
@@ -77,6 +81,31 @@ fn file_to_module_path(root: &Path, path: &Path) -> Option<(String, String)> {
     let s = s.replace(std::path::MAIN_SEPARATOR, "::");
     let s = s.strip_suffix("::mod").unwrap_or(&s);
     Some((krate, format!("crate::{s}")))
+}
+
+/// `examples/<name>/`, `tests/<name>/`, `benches/<name>/` or `src/bin/<name>/` when that directory holds
+/// a `main.rs`: Cargo builds it as its own crate, so its `mod x;` and `use x::..` start there (#119).
+fn target_dir_root(dir: &Path, rel: &Path) -> Option<std::path::PathBuf> {
+    let mut parts = rel.components().map(std::path::Component::as_os_str);
+    let n = match parts.next()?.to_str()? {
+        "examples" | "tests" | "benches" => 2,
+        "src" if parts.next()?.to_str()? == "bin" => 3,
+        _ => return None,
+    };
+    let sub: std::path::PathBuf = rel.components().take(n).collect();
+    (sub.components().count() == n && rel != sub && dir.join(&sub).join("main.rs").is_file())
+        .then_some(sub)
+}
+
+/// Module path of `rel` (relative to the crate root directory): `crate::a::b` for `a/b.rs`.
+fn module_in_root(rel: &Path) -> String {
+    let s = rel.to_string_lossy();
+    let s = s.strip_suffix(".rs").unwrap_or(&s);
+    if s == "main" {
+        return "crate".to_string();
+    }
+    let s = s.replace(std::path::MAIN_SEPARATOR, "::");
+    format!("crate::{}", s.strip_suffix("::mod").unwrap_or(&s))
 }
 
 /// Directory of a crate root declared outside `src/` (`[[bin]] path = "crates/core/main.rs"`) that
@@ -743,7 +772,12 @@ pub fn resolve_modules(store: &Store, root: &Path) -> Result<()> {
 
 fn resolve_module_to_file(module_path: &str, crate_dir: &Path) -> Option<std::path::PathBuf> {
     let rest = module_path.strip_prefix("crate::").unwrap_or(module_path);
-    let src = crate_dir.join("src");
+    // A crate root outside `src/` (`examples/<name>/main.rs`) holds its modules next to it.
+    let src = if crate_dir.join("src").is_dir() {
+        crate_dir.join("src")
+    } else {
+        crate_dir.to_path_buf()
+    };
     if rest.is_empty() {
         return ["lib.rs", "main.rs"]
             .iter()
