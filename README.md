@@ -98,6 +98,14 @@ Normal output (including `--json`) is printed first and is unchanged; a breach a
 # e.g. marocchino/sticky-pull-request-comment with `path: comment.md`
 ```
 
+`pr` can write several formats from one run (one index of each tree) with a repeatable `--out FORMAT=PATH`, where `FORMAT` is `json`, `markdown`, `sarif` or `text`:
+
+```
+ferrograph pr --base origin/main --index-head --out json=report.json --out markdown=comment.md --out sarif=ferrograph.sarif --max-new-dead 0
+```
+
+With `--out` and no `--format`/`--json`, nothing is printed to stdout; with either, stdout is unchanged and the files are extra. Threshold exit codes and warnings are computed once and do not depend on the formats.
+
 ### Reviewing a change (`pr`)
 
 `ferrograph pr --base <ref>` reports only what the current branch introduces, so it is intended for CI gating where whole-repo `dead` lists are too noisy. Its accuracy is still being measured (see [Accuracy and limitations](#accuracy-and-limitations)): thresholds (`--fail-on-new-dead`, `--max-*`) are opt-in, so run it in advisory mode on your own repo first and adopt them only once the reports hold up:

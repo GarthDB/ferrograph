@@ -193,6 +193,10 @@ pub enum Command {
         /// Exit with code 1 if the combined blast radius has more than N nodes.
         #[arg(long)]
         max_blast: Option<usize>,
+        /// Also write a report to a file: `FORMAT=PATH` (`json`, `markdown`, `sarif`, `text`). Repeatable;
+        /// all outputs come from one run. With `--out` and no `--format`/`--json`, nothing goes to stdout.
+        #[arg(long = "out", value_name = "FORMAT=PATH", value_parser = parse_out)]
+        out: Vec<(Format, PathBuf)>,
         #[command(flatten)]
         fmt: FormatArgs,
     },
@@ -359,8 +363,10 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             fail_on_new_dead,
             max_new_dead,
             max_blast,
+            out,
             fmt,
         } => {
+            let to_stdout = out.is_empty() || json || fmt.format.is_some();
             let opts = crate::pr::PrOptions {
                 root: std::env::current_dir()?,
                 base,
@@ -380,6 +386,8 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 fail_on_new_dead.then_some(0).or(max_new_dead),
                 max_blast,
                 fmt.resolve(json)?,
+                &out,
+                to_stdout,
             )
         }
         Command::Blast {
@@ -640,37 +648,82 @@ fn run_dead(
     Ok(check_threshold(result.count, max))
 }
 
+/// Parse `FORMAT=PATH` for `pr --out`.
+fn parse_out(s: &str) -> Result<(Format, PathBuf), String> {
+    let (name, path) = s
+        .split_once('=')
+        .filter(|(_, p)| !p.is_empty())
+        .ok_or("expected FORMAT=PATH")?;
+    let format = <Format as clap::ValueEnum>::from_str(name, true)?;
+    Ok((format, PathBuf::from(path)))
+}
+
+/// One rendering of a `pr` result, ending in a newline.
+fn render_pr(r: &crate::ops::PrResult, format: Format, md_limit: usize) -> Result<String> {
+    Ok(match format {
+        Format::Json => format!("{}\n", serde_json::to_string_pretty(r)?),
+        Format::Sarif => format!("{}\n", serde_json::to_string_pretty(&format::sarif_pr(r))?),
+        Format::Markdown => format!("{}\n", format::markdown_pr(r, md_limit)),
+        Format::Text => {
+            let mut out = String::new();
+            write_pr_text(&mut out, r);
+            out
+        }
+    })
+}
+
 fn run_pr(
     opts: &crate::pr::PrOptions,
     max_new_dead: Option<usize>,
     max_blast: Option<usize>,
     (format, md_limit): (Format, usize),
+    out: &[(Format, PathBuf)],
+    to_stdout: bool,
 ) -> Result<Outcome> {
     let r = crate::pr::run(opts)?;
     for w in &r.warnings {
         eprintln!("warning: {w}");
     }
-    if format == Format::Json {
-        println!("{}", serde_json::to_string_pretty(&r)?);
-    } else if format == Format::Sarif {
-        println!("{}", serde_json::to_string_pretty(&format::sarif_pr(&r))?);
-    } else if format == Format::Markdown {
-        println!("{}", format::markdown_pr(&r, md_limit));
-    } else {
-        println!(
+    for (f, path) in out {
+        std::fs::write(path, render_pr(&r, *f, md_limit)?)
+            .with_context(|| format!("Failed to write {}", path.display()))?;
+    }
+    if to_stdout {
+        print!("{}", render_pr(&r, format, md_limit)?);
+    }
+    let mut outcome = Outcome::Ok;
+    for (label, count, max) in [
+        ("new dead", r.newly_dead_count, max_new_dead),
+        ("blast", r.blast.count, max_blast),
+    ] {
+        if let Some(m) = max.filter(|&m| count > m) {
+            eprintln!("threshold exceeded: {label} {count} > {m}");
+            outcome = Outcome::FindingsOverThreshold;
+        }
+    }
+    Ok(outcome)
+}
+
+fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
+    use std::fmt::Write as _;
+    macro_rules! emit {
+        ($($t:tt)*) => {{ let _ = writeln!(out, $($t)*); }};
+    }
+    {
+        emit!(
             "base {} (merge base {:.8}) .. head {:.8}: {} changed .rs file(s)",
             r.base,
             r.merge_base,
             r.head,
             r.changed_files.len()
         );
-        println!("\nNewly dead functions: {}", r.newly_dead_count);
+        emit!("\nNewly dead functions: {}", r.newly_dead_count);
         for f in &r.newly_dead {
-            println!("  {}\t{}\t{}", f.id, f.name, f.status);
+            emit!("  {}\t{}\t{}", f.id, f.name, f.status);
         }
-        println!("\nChanged functions: {}", r.changed_functions.len());
+        emit!("\nChanged functions: {}", r.changed_functions.len());
         for f in &r.changed_functions {
-            println!(
+            emit!(
                 "  {}\t{}\tblast {}",
                 f.id,
                 f.name,
@@ -689,15 +742,15 @@ fn run_pr(
                     }
                 })
                 .collect();
-            println!("  (no function) {}: lines {}", c.file, ranges.join(", "));
+            emit!("  (no function) {}: lines {}", c.file, ranges.join(", "));
         }
-        println!(
+        emit!(
             "\nBlast radius: {} node(s), showing {}",
             format::count_label(r.blast.count, r.blast.truncated),
             r.blast.shown
         );
         for n in &r.blast.nodes {
-            println!(
+            emit!(
                 "  {}\t{}\t{}",
                 n.id,
                 n.node_type,
@@ -705,24 +758,13 @@ fn run_pr(
             );
         }
         for h in &r.coupling {
-            println!(
+            emit!(
                 "\nOften changes with {}: {}",
                 h.file,
                 h.coupled_with.join(", ")
             );
         }
     }
-    let mut outcome = Outcome::Ok;
-    for (label, count, max) in [
-        ("new dead", r.newly_dead_count, max_new_dead),
-        ("blast", r.blast.count, max_blast),
-    ] {
-        if let Some(m) = max.filter(|&m| count > m) {
-            eprintln!("threshold exceeded: {label} {count} > {m}");
-            outcome = Outcome::FindingsOverThreshold;
-        }
-    }
-    Ok(outcome)
 }
 
 fn run_blast(

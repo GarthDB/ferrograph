@@ -465,3 +465,67 @@ fn bin_pub_not_root_warns_when_only_one_side_has_the_marker() {
     );
     assert!(warned(&["--json"]));
 }
+
+#[test]
+fn pr_out_writes_several_formats_from_one_run() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "src/main.rs",
+        &BASE.replace("    helper();\n", ""),
+    );
+    commit(d.path(), "drop call");
+    let out = pr(
+        d.path(),
+        &[
+            "--out",
+            "json=r.json",
+            "--out",
+            "markdown=r.md",
+            "--out",
+            "sarif=r.sarif",
+            "--max-new-dead",
+            "0",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1), "threshold exit code is kept");
+    assert!(out.stdout.is_empty(), "only --out: nothing on stdout");
+    let read = |f: &str| std::fs::read_to_string(d.path().join(f)).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&read("r.json")).unwrap();
+    assert_eq!(names(&v["newly_dead"]), ["helper"]);
+    let md = read("r.md");
+    assert!(md.starts_with("<!-- ferrograph -->\n"), "{md}");
+    assert!(
+        md.contains(&format!("{} newly dead", v["newly_dead_count"])),
+        "{md}"
+    );
+    let sarif: serde_json::Value = serde_json::from_str(&read("r.sarif")).unwrap();
+    assert_eq!(
+        sarif["runs"][0]["results"].as_array().unwrap().len(),
+        v["newly_dead"].as_array().unwrap().len()
+    );
+}
+
+#[test]
+fn pr_out_keeps_stdout_when_a_format_is_given() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "src/main.rs",
+        &BASE.replace("fn used", "fn used2"),
+    );
+    commit(d.path(), "rename");
+    let out = pr(d.path(), &["--json", "--out", "markdown=r.md"]);
+    let v = json(&out);
+    let md = std::fs::read_to_string(d.path().join("r.md")).unwrap();
+    assert!(md.contains(&format!("{} newly dead", v["newly_dead_count"])));
+}
+
+#[test]
+fn pr_out_rejects_a_bad_spec() {
+    let Some(d) = repo() else { return };
+    for bad in ["json", "json=", "yaml=r.yml"] {
+        let out = pr(d.path(), &["--out", bad]);
+        assert_eq!(out.status.code(), Some(2), "{bad}");
+    }
+}
