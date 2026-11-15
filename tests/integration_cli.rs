@@ -375,6 +375,29 @@ fn cli_modules() {
 }
 
 #[test]
+fn cli_traits_lists_real_implementors() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("g.db");
+    assert!(
+        run(&["index", "--output", s(&db), s(&fixture_path("trait_impls"))])
+            .status
+            .success()
+    );
+    let count = |name: &str| -> serde_json::Value {
+        let out = run(&["--json", "traits", "--db", s(&db), name]);
+        assert!(out.status.success(), "{name}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let shape = count("Shape");
+    assert_eq!(shape["count"], 1, "{shape}");
+    assert_eq!(shape["implementors"][0]["type"], "impl");
+    assert_eq!(shape["implementors"][0]["payload"], "Sq");
+    assert_eq!(count("Generic")["count"], 1, "generic trait");
+    assert_eq!(count("NoImpl")["count"], 0, "trait without impls");
+    assert_eq!(count("Display")["count"], 0, "std trait has no node");
+}
+
+#[test]
 fn cli_traits() {
     let (db_path, _dir) = index_fixture();
     let out = ferrograph_cmd()

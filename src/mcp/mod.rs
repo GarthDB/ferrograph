@@ -294,7 +294,7 @@ fn all_tools() -> Vec<Tool> {
         ),
         tool(
             "trait_implementors",
-            "Given a trait name, list all impl blocks that implement it (uses ImplementsTrait edges). Note: results depend on the index pipeline having populated trait edges; currently a stub.",
+            "Given a trait name, list all impl blocks that implement it (uses ImplementsTrait edges). Only traits declared in the indexed project are found; the name is matched as a substring.",
             trait_implementors_input_schema(),
         ),
         tool(
@@ -849,13 +849,9 @@ impl FerrographMcp {
         let trait_name = get_str_arg(request, "trait_name").ok_or_else(|| {
             rmcp::ErrorData::invalid_params("missing required parameter: trait_name", None)
         })?;
-        let (impls, note) = match crate::graph::Query::trait_implementors(store, trait_name) {
-            Ok(list) => (list, None),
-            Err(_) => (
-                Vec::new(),
-                Some("Trait edge extraction is not yet implemented; results may be incomplete."),
-            ),
-        };
+        let impls = crate::graph::Query::trait_implementors(store, trait_name).map_err(|e| {
+            rmcp::ErrorData::internal_error(format!("Trait implementors query failed: {e}"), None)
+        })?;
         let results: Vec<serde_json::Value> = impls
             .into_iter()
             .map(|(id, node_type, payload)| {
@@ -866,15 +862,11 @@ impl FerrographMcp {
                 })
             })
             .collect();
-        let mut out = serde_json::json!({
+        Ok(CallToolResult::structured(serde_json::json!({
             "trait_name": trait_name,
             "implementors": results,
             "count": results.len()
-        });
-        if let Some(n) = note {
-            out["note"] = serde_json::Value::String(n.to_string());
-        }
-        Ok(CallToolResult::structured(out))
+        })))
     }
 
     fn handle_module_graph(
@@ -1434,6 +1426,34 @@ mod tests {
         let json = result_json(result);
         assert_eq!(json.get("id").unwrap().as_str().unwrap(), "n1");
         assert_eq!(json.get("node_type").unwrap().as_str().unwrap(), "function");
+    }
+
+    #[test]
+    fn handle_trait_implementors_lists_impls_of_a_project_trait() {
+        let store = Store::new_memory().unwrap();
+        let (tr, imp, other) = (
+            NodeId("t".to_string()),
+            NodeId("i".to_string()),
+            NodeId("o".to_string()),
+        );
+        store
+            .put_node(&tr, &NodeType::Trait, Some("Shape"))
+            .unwrap();
+        store.put_node(&imp, &NodeType::Impl, Some("Sq")).unwrap();
+        store
+            .put_node(&other, &NodeType::Impl, Some("Unrelated"))
+            .unwrap();
+        store
+            .put_edge(&imp, &tr, &EdgeType::ImplementsTrait)
+            .unwrap();
+        let mut args = serde_json::Map::new();
+        args.insert("trait_name".to_string(), serde_json::json!("Shape"));
+        let request = tool_request("trait_implementors", Some(args));
+        let json = result_json(FerrographMcp::handle_trait_implementors(&request, &store).unwrap());
+        assert_eq!(json["count"], 1);
+        assert_eq!(json["implementors"][0]["id"], "i");
+        assert_eq!(json["implementors"][0]["payload"], "Sq");
+        assert!(json.get("note").is_none(), "{json}");
     }
 
     #[test]

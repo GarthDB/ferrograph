@@ -491,7 +491,7 @@ impl Query {
     pub fn trait_implementors(store: &Store, trait_name: &str) -> Result<Vec<NodeTriple>> {
         let mut params = BTreeMap::new();
         params.insert("trait_name".to_string(), DataValue::from(trait_name));
-        // Guard against null payload so str_includes does not fail; implements_trait edges may not exist (stub).
+        // Guard against null payload so str_includes does not fail.
         let script = r#"
             ?[impl_id, impl_type, impl_payload] := *nodes[trait_id, type, payload],
               type = "trait",

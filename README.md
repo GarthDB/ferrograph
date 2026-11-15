@@ -240,7 +240,7 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 | `blast_radius` | Transitive impact set via calls, references, and changes_with edges. `exclude_low_confidence: true` skips ambiguous calls. |
 | `callers` | Direct and transitive callers up to a given depth. `exclude_low_confidence: true` skips ambiguous calls. |
 | `query` | Raw Datalog queries (read-only; mutations rejected). |
-| `trait_implementors` | Find implementations of a named trait (stub; returns empty with note). |
+| `trait_implementors` | Find the `impl` blocks of a trait declared in the project (substring match on the trait name, at most 500). Traits from other crates (`Display`, `Iterator`) have no node and return nothing. |
 | `module_graph` | File-to-module containment edges; optional relative path prefix filter (e.g. `./src/`). |
 
 ## CI
