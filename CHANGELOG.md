@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0](https://github.com/GarthDB/ferrograph/compare/v5.0.0...v6.0.0) - 2026-11-15
+
+### Added
+
+- *(pr)* Markdown header leads with impact by group, drops depends-on
+- *(pr)* --max-impacted, and no forward blast for examples/ functions
+- *(pr)* helper kind for tests/ functions, validate --impact-depth, document counts
+- *(pr)* report reverse impact, list changed tests, apply ignore (#169 #170 #171)
+
+### Other
+
+- *(pr)* merge changelog sections, title mentions helpers, note path-segment matching
+- *(pr)* state blast_count 0 for tests and what --max-blast gates
+
 ### Changed
 
 - `pr` Markdown header is now `N impacted (T tests, E examples, L library)`; the "depends on" count is no longer in the header (it stays in the table and the JSON). The header changes once across the 6.0.0 release.
