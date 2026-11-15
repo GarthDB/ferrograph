@@ -1380,3 +1380,16 @@ fn pipeline_untyped_receiver_is_not_certain_just_because_a_method_is_in_the_same
         "{targets:?}"
     );
 }
+
+#[test]
+fn pipeline_example_dir_with_main_rs_is_its_own_crate_root() {
+    let store = run_fixture("example_crate_root");
+    let targets = call_targets(&store, "main");
+    for file in ["frame", "output"] {
+        let prefix = format!("./examples/reel/{file}.rs#");
+        assert!(
+            targets.iter().any(|t| t.0.starts_with(&prefix) && !t.1),
+            "{file}: {targets:?}"
+        );
+    }
+}
