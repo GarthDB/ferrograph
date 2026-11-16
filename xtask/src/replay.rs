@@ -109,6 +109,18 @@ fn clone(c: &Corpus, work: &Path, n: usize) -> Result<PathBuf> {
     let dest = work.join("replay").join(&c.name);
     let url = c.url.as_deref().context("replay needs a url corpus")?;
     let depth = (n + 2).to_string();
+    // a directory without the `replay-head` tag is a leftover of an interrupted run
+    if dest.exists()
+        && git(
+            &dest,
+            &["rev-parse", "--verify", "-q", "replay-head"],
+            false,
+        )?
+        .code
+            != 0
+    {
+        std::fs::remove_dir_all(&dest)?;
+    }
     if dest.exists() {
         let cnt: usize = git(&dest, &["rev-list", "--count", "replay-head"], true)?
             .stdout
@@ -126,29 +138,35 @@ fn clone(c: &Corpus, work: &Path, n: usize) -> Result<PathBuf> {
         }
         return Ok(dest);
     }
-    std::fs::create_dir_all(dest.parent().context("parent")?)?;
-    run(
-        &["git", "init", "-q", dest.to_str().context("path")?],
-        None,
-        &[],
-        T,
-        true,
-    )?;
-    git(&dest, &["remote", "add", "origin", url], true)?;
-    git(
-        &dest,
-        &[
-            "fetch",
-            "-q",
-            "--depth",
-            &depth,
-            "origin",
-            c.git_ref.as_deref().unwrap_or("HEAD"),
-        ],
-        true,
-    )?;
-    git(&dest, &["tag", "replay-head", "FETCH_HEAD"], true)?;
-    git(&dest, &["checkout", "-q", "--detach", "replay-head"], true)?;
+    // Clone beside `dest` and rename on success (as `corpus::prepare` does), so a failure or kill
+    // mid-clone never leaves a half-made `dest` for a later run to reuse.
+    let tmp = dest.with_file_name(format!(".{}.partial", c.name));
+    std::fs::remove_dir_all(&tmp).ok();
+    std::fs::create_dir_all(&tmp)?;
+    let built = (|| -> Result<()> {
+        git(&tmp, &["init", "-q"], true)?;
+        git(&tmp, &["remote", "add", "origin", url], true)?;
+        git(
+            &tmp,
+            &[
+                "fetch",
+                "-q",
+                "--depth",
+                &depth,
+                "origin",
+                c.git_ref.as_deref().unwrap_or("HEAD"),
+            ],
+            true,
+        )?;
+        git(&tmp, &["tag", "replay-head", "FETCH_HEAD"], true)?;
+        git(&tmp, &["checkout", "-q", "--detach", "replay-head"], true)?;
+        Ok(())
+    })();
+    if let Err(e) = built {
+        std::fs::remove_dir_all(&tmp).ok();
+        return Err(e);
+    }
+    std::fs::rename(&tmp, &dest)?;
     Ok(dest)
 }
 
@@ -784,6 +802,23 @@ mod tests {
         assert!(md.contains("- a `fedcba0987` `./b.rs#1:1` `g`: rustc says still live"));
         assert!(md.contains("- a: no .rs change: 1, pr failed: 1"));
         assert!(md.contains("- b: not measured: nope"));
+    }
+
+    #[test]
+    fn failed_clone_leaves_nothing_and_a_tagless_leftover_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().join("work");
+        let mut c = crate::testutil::synthetic_history(dir.path());
+        let good = c.url.clone();
+        c.url = Some(format!("file://{}", dir.path().join("missing").display()));
+        assert!(clone(&c, &work, 5).is_err());
+        assert!(!work.join("replay/hist").exists() && !work.join("replay/.hist.partial").exists());
+        // an interrupted earlier run (init done, nothing fetched)
+        std::fs::create_dir_all(work.join("replay/hist")).unwrap();
+        git(&work.join("replay/hist"), &["init", "-q"], true).unwrap();
+        c.url = good;
+        let d = clone(&c, &work, 5).unwrap();
+        assert!(git(&d, &["rev-parse", "--verify", "replay-head"], true).is_ok());
     }
 
     #[test]

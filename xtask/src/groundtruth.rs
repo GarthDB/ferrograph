@@ -4,11 +4,10 @@ use crate::corpus::{self, Corpus};
 use crate::graph::{
     build_index, canon, chain, map_item, model_dead, reach, split_id, Fg, Graph, Info,
 };
-use crate::run::run;
 use crate::rustc::{collect_ground_truth, run_rustc};
 use crate::source::{cfg_gated, text_refs, visibility};
 use crate::stats::{frac, frac_ci};
-use crate::util::{head, pyf, round1, tail, Counter};
+use crate::util::{head, platform, pyf, round1, rustc_version, tail, today, Counter};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -543,7 +542,7 @@ pub fn render(results: &[CorpusResult], meta: &Meta, max_check: usize) -> String
             })
             .collect();
         w(format!(
-            "\nSelf-check (python model of `dead` vs CLI): {}\n",
+            "\nSelf-check (model of `dead` vs CLI): {}\n",
             sc.join(", ")
         ));
         if !r.r_unmapped.is_empty() {
@@ -755,19 +754,12 @@ pub fn main(a: &Args) -> Result<()> {
     let only: BTreeSet<&str> = a.only.split(',').filter(|s| !s.is_empty()).collect();
     let extra = shlex::split(&a.extra_args).context("bad --extra-args quoting")?;
     let fg = Fg::new(&a.ferrograph, &extra);
-    let t = Duration::from_secs(900);
     let meta = Meta {
         version: fg.version()?,
         binary: a.ferrograph.clone(),
-        rustc: run(&["rustc", "-V"], None, &[], t, true)?
-            .stdout
-            .trim()
-            .to_string(),
-        platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
-        date: run(&["date", "+%Y-%m-%d"], None, &[], t, true)?
-            .stdout
-            .trim()
-            .to_string(),
+        rustc: rustc_version()?,
+        platform: platform(),
+        date: today()?,
         extra_args: fg.extra.clone(),
     };
     let opts = Opts {
@@ -794,7 +786,7 @@ mod tests {
     use std::sync::OnceLock;
 
     #[test]
-    fn render_matches_python_byte_for_byte() {
+    fn render_matches_golden_report() {
         let d: Data =
             serde_json::from_str(include_str!("../tests/golden/groundtruth-input.json")).unwrap();
         assert_eq!(

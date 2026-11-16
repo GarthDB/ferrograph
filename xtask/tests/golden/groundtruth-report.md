@@ -18,14 +18,14 @@
 
 `RUSTFLAGS="--force-warn dead_code" cargo check --workspace --all-targets --all-features --message-format=json`
 
-Self-check (python model of `dead` vs CLI): default: cli=5 model=5 diff=0, strict: cli=7 model=7 diff=0
+Self-check (model of `dead` vs CLI): default: cli=5 model=5 diff=0, strict: cli=7 model=7 diff=0
 
 ### second
 
 `RUSTFLAGS="--force-warn dead_code" cargo check --workspace --all-targets --all-features --message-format=json`  
 (**fallback used**: default features (--all-features failed))
 
-Self-check (python model of `dead` vs CLI): default: cli=5 model=5 diff=0, strict: cli=7 model=7 diff=0
+Self-check (model of `dead` vs CLI): default: cli=5 model=5 diff=0, strict: cli=7 model=7 diff=0
 
 Unmapped rustc items (indexing misses): no fn node with that name within 10 lines: 2; file has no indexed fn nodes: 1
 
@@ -39,7 +39,7 @@ Unmapped rustc items (indexing misses): no fn node with that name within 10 line
 
 `RUSTFLAGS="--force-warn dead_code" cargo check --workspace --all-targets --all-features --message-format=json`
 
-Self-check (python model of `dead` vs CLI): default: cli=5 model=5 diff=0, strict: cli=7 model=7 diff=0
+Self-check (model of `dead` vs CLI): default: cli=5 model=5 diff=0, strict: cli=7 model=7 diff=0
 
 Unmapped rustc items (indexing misses): no fn node with that name within 10 lines: 2; file has no indexed fn nodes: 1
 

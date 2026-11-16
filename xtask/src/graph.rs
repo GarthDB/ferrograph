@@ -1,4 +1,4 @@
-//! Running ferrograph, loading its graph and the Python model of `dead` (port of `fgacc.py`).
+//! Running ferrograph, loading its graph and the model of `dead` (port of `fgacc.py`).
 
 use crate::run::run;
 use anyhow::{bail, Context, Result};
@@ -732,7 +732,7 @@ mod tests {
         }
     }
 
-    /// The Python model must agree with the CLI's own `dead` (the harness's `selfcheck`).
+    /// The model must agree with the CLI's own `dead` (the harness's `selfcheck`).
     /// Skipped without a binary (`$FERROGRAPH` or `cargo build`).
     #[test]
     fn model_agrees_with_cli_on_synthetic_corpus() {
