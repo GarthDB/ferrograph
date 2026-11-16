@@ -868,6 +868,7 @@ fn pr_without_unsafe_changes_has_no_unsafe_section() {
     assert_eq!(v["unsafe_gained_count"], 0);
     let md = String::from_utf8_lossy(&pr(d.path(), &["--format", "markdown"]).stdout).into_owned();
     assert!(!md.contains("Unsafe changes"), "{md}");
+}
 
 /// `pub_unexported` is absent from a graph with nothing to demote, so only one side having it is not a stale graph.
 #[test]
