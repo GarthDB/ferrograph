@@ -3,3 +3,12 @@ publish = true
 git_tag_enable = true
 git_release_enable = true
 changelog_update = true
+# With a second workspace member (xtask) release-plz would tag `ferrograph-vX.Y.Z`; the action,
+# the binaries workflow and the docs all expect `vX.Y.Z`.
+git_tag_name = "v{{ version }}"
+git_release_name = "v{{ version }}"
+
+# The accuracy harness is not a release artefact.
+[[package]]
+name = "xtask"
+release = false
