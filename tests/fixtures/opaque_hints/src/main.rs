@@ -30,6 +30,25 @@ fn collected(items: &[u8]) {
     }
 }
 
+struct Runner {
+    cmds: Vec<u8>,
+}
+
+impl Runner {
+    // The shape of fd's `execute_batch`: a `_` hole in the declared type, then a match arm and a loop.
+    fn batch(&self) {
+        let built: io::Result<Vec<_>> = self.cmds.iter().map(|c| S::new(*c)).collect();
+        match built {
+            Ok(mut built) => {
+                for b in &mut built {
+                    b.go();
+                }
+            }
+            Err(_) => {}
+        }
+    }
+}
+
 fn main() {
     let _ = other::T;
     collected(&[]);
