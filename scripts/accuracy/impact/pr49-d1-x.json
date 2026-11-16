@@ -1,0 +1,1417 @@
+{
+  "base": "488cdf5",
+  "merge_base": "488cdf5369227da8dcd14d12940869c3a4df3c90",
+  "head": "de50888b108162e14c2ae3448ae0dd13a0152b16",
+  "changed_files": [
+    "crates/spectrum-rune/src/badge.rs",
+    "crates/spectrum-rune/src/button.rs",
+    "crates/spectrum-rune/src/constraints/generated.rs",
+    "crates/spectrum-rune/src/icons/generated.rs",
+    "crates/spectrum-rune/src/tokens/generated.rs",
+    "crates/spectrum-rune/tests/button.rs",
+    "crates/spectrum-rune/tests/wrap.rs"
+  ],
+  "newly_dead": [],
+  "newly_dead_count": 0,
+  "changed_functions": [
+    {
+      "id": "./crates/spectrum-rune/src/badge.rs#394:5",
+      "file": "crates/spectrum-rune/src/badge.rs",
+      "name": "build",
+      "start_line": 394,
+      "end_line": 467,
+      "blast_count": 202,
+      "kind": "fn",
+      "impacted": {
+        "count": 4,
+        "tests": 3,
+        "examples": 1,
+        "library": 0
+      }
+    },
+    {
+      "id": "./crates/spectrum-rune/src/button.rs#430:5",
+      "file": "crates/spectrum-rune/src/button.rs",
+      "name": "build",
+      "start_line": 430,
+      "end_line": 602,
+      "blast_count": 220,
+      "kind": "fn",
+      "impacted": {
+        "count": 8,
+        "tests": 7,
+        "examples": 1,
+        "library": 0
+      }
+    },
+    {
+      "id": "./crates/spectrum-rune/tests/button.rs#198:1",
+      "file": "crates/spectrum-rune/tests/button.rs",
+      "name": "matches_oracle_scene",
+      "start_line": 198,
+      "end_line": 344,
+      "blast_count": 0,
+      "kind": "test"
+    },
+    {
+      "id": "./crates/spectrum-rune/tests/button.rs#492:1",
+      "file": "crates/spectrum-rune/tests/button.rs",
+      "name": "label_only_button_has_no_icon",
+      "start_line": 492,
+      "end_line": 507,
+      "blast_count": 0,
+      "kind": "test"
+    },
+    {
+      "id": "./crates/spectrum-rune/tests/wrap.rs#92:1",
+      "file": "crates/spectrum-rune/tests/wrap.rs",
+      "name": "check_with",
+      "start_line": 92,
+      "end_line": 189,
+      "blast_count": 0,
+      "kind": "helper",
+      "impacted": {
+        "count": 2,
+        "tests": 2,
+        "examples": 0,
+        "library": 0
+      }
+    }
+  ],
+  "changed_without_function": [
+    {
+      "file": "crates/spectrum-rune/src/badge.rs",
+      "lines": [
+        [
+          25,
+          25
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/src/button.rs",
+      "lines": [
+        [
+          10,
+          11
+        ],
+        [
+          37,
+          37
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/src/constraints/generated.rs",
+      "lines": [
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/src/icons/generated.rs",
+      "lines": [
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/src/tokens/generated.rs",
+      "lines": [
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/tests/button.rs",
+      "lines": [
+        [
+          488,
+          490
+        ]
+      ]
+    }
+  ],
+  "blast": {
+    "count": 231,
+    "shown": 231,
+    "nodes": [
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/main.rs#24:1",
+        "type": "enum",
+        "payload": "FontStatus"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/main.rs#61:5",
+        "type": "static",
+        "payload": "S"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/main.rs#65:1",
+        "type": "struct",
+        "payload": "G"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#100:1",
+        "type": "function",
+        "payload": "backdrop"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#243:1",
+        "type": "function",
+        "payload": "button"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#446:1",
+        "type": "function",
+        "payload": "badge"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#53:1",
+        "type": "function",
+        "payload": "blue"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#56:1",
+        "type": "function",
+        "payload": "yellow"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#60:1",
+        "type": "const",
+        "payload": "SIZES"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#68:1",
+        "type": "const",
+        "payload": "WRAPPED"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#70:1",
+        "type": "function",
+        "payload": "valid"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#76:1",
+        "type": "function",
+        "payload": "flow"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#81:1",
+        "type": "function",
+        "payload": "line"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#85:1",
+        "type": "function",
+        "payload": "section"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#96:1",
+        "type": "function",
+        "payload": "page"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/accordion.rs#221:5",
+        "type": "function",
+        "payload": "pub::children"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/accordion.rs#79:5",
+        "type": "function",
+        "payload": "pub::as_str"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#100:1",
+        "type": "function",
+        "payload": "palette"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#232:1",
+        "type": "function",
+        "payload": "pub::look"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#262:1",
+        "type": "struct",
+        "payload": "Dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#272:5",
+        "type": "function",
+        "payload": "badge_dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#310:1",
+        "type": "struct",
+        "payload": "Badge"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#320:1",
+        "type": "impl",
+        "payload": "Badge"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#322:5",
+        "type": "function",
+        "payload": "pub::new"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#336:5",
+        "type": "function",
+        "payload": "pub::width"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#341:5",
+        "type": "function",
+        "payload": "pub::label"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#346:5",
+        "type": "function",
+        "payload": "pub::variant"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#352:5",
+        "type": "function",
+        "payload": "pub::style"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#356:5",
+        "type": "function",
+        "payload": "pub::size"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#361:5",
+        "type": "function",
+        "payload": "pub::icon"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#367:5",
+        "type": "function",
+        "payload": "pub::options"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#394:5",
+        "type": "function",
+        "payload": "pub::build"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#41:1",
+        "type": "enum",
+        "payload": "Variant"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#81:1",
+        "type": "enum",
+        "payload": "Style"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/badge.rs#92:1",
+        "type": "struct",
+        "payload": "Look"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#118:1",
+        "type": "struct",
+        "payload": "Look"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#125:1",
+        "type": "struct",
+        "payload": "Ink"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#135:5",
+        "type": "function",
+        "payload": "ink"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#157:1",
+        "type": "function",
+        "payload": "by_state"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#166:1",
+        "type": "function",
+        "payload": "pub::look"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#260:1",
+        "type": "function",
+        "payload": "pub::focus_ring_color"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#278:1",
+        "type": "function",
+        "payload": "pub::press_scale"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#286:1",
+        "type": "type_alias",
+        "payload": "Press"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#288:1",
+        "type": "struct",
+        "payload": "Button"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#304:1",
+        "type": "impl",
+        "payload": "Button"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#307:5",
+        "type": "function",
+        "payload": "pub::new"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#327:5",
+        "type": "function",
+        "payload": "pub::width"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#332:5",
+        "type": "function",
+        "payload": "pub::label"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#336:5",
+        "type": "function",
+        "payload": "pub::variant"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#340:5",
+        "type": "function",
+        "payload": "pub::style"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#344:5",
+        "type": "function",
+        "payload": "pub::size"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#349:5",
+        "type": "function",
+        "payload": "pub::icon"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#355:5",
+        "type": "function",
+        "payload": "pub::label_hidden"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#359:5",
+        "type": "function",
+        "payload": "pub::disabled"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#369:5",
+        "type": "function",
+        "payload": "pub::pending"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#375:5",
+        "type": "function",
+        "payload": "pub::pending_label"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#379:5",
+        "type": "function",
+        "payload": "pub::static_color"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#384:5",
+        "type": "function",
+        "payload": "pub::on_press"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#391:5",
+        "type": "function",
+        "payload": "pub::options"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#41:1",
+        "type": "enum",
+        "payload": "Variant"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#430:5",
+        "type": "function",
+        "payload": "pub::build"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#50:1",
+        "type": "enum",
+        "payload": "Style"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#58:1",
+        "type": "enum",
+        "payload": "StaticColor"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#64:1",
+        "type": "struct",
+        "payload": "Dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/button.rs#78:5",
+        "type": "function",
+        "payload": "button_dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#102:5",
+        "type": "function",
+        "payload": "pub::new"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#117:5",
+        "type": "function",
+        "payload": "pub::label"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#123:5",
+        "type": "function",
+        "payload": "pub::width"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#136:5",
+        "type": "function",
+        "payload": "pub::size"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#160:5",
+        "type": "function",
+        "payload": "pub::options"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#167:5",
+        "type": "function",
+        "payload": "pub::build"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#29:1",
+        "type": "struct",
+        "payload": "Dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#42:5",
+        "type": "function",
+        "payload": "checkbox_dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#84:1",
+        "type": "type_alias",
+        "payload": "Press"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/checkbox.rs#86:1",
+        "type": "struct",
+        "payload": "Checkbox"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/generated.rs#116:1",
+        "type": "function",
+        "payload": "pub::component"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/generated.rs#7:1",
+        "type": "static",
+        "payload": "COMPONENTS"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#100:1",
+        "type": "function",
+        "payload": "pub::check"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#104:1",
+        "type": "function",
+        "payload": "evaluate"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#142:1",
+        "type": "function",
+        "payload": "pub::assert_valid"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#22:1",
+        "type": "enum",
+        "payload": "Lit"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#29:1",
+        "type": "enum",
+        "payload": "OptionValue"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#39:5",
+        "type": "function",
+        "payload": "is"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#58:1",
+        "type": "enum",
+        "payload": "Severity"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#67:1",
+        "type": "enum",
+        "payload": "Require"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#73:1",
+        "type": "struct",
+        "payload": "Rule"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#83:1",
+        "type": "struct",
+        "payload": "ComponentConstraints"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/constraints/mod.rs#92:1",
+        "type": "struct",
+        "payload": "Violation"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/font.rs#13:1",
+        "type": "const",
+        "payload": "SPECTRUM_VF"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/font.rs#18:1",
+        "type": "const",
+        "payload": "FAMILY_LIST"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/font.rs#20:1",
+        "type": "const",
+        "payload": "FALLBACKS"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/font.rs#25:1",
+        "type": "function",
+        "payload": "pub::family"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/font.rs#29:5",
+        "type": "static",
+        "payload": "CACHE"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/font.rs#39:1",
+        "type": "function",
+        "payload": "pub::text_style"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#10:1",
+        "type": "static",
+        "payload": "ADD_50"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#11:1",
+        "type": "static",
+        "payload": "ADD_75"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#12:1",
+        "type": "static",
+        "payload": "ARROW_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#13:1",
+        "type": "static",
+        "payload": "ARROW_400"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#14:1",
+        "type": "static",
+        "payload": "ASTERISK_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#15:1",
+        "type": "static",
+        "payload": "ASTERISK_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#16:1",
+        "type": "static",
+        "payload": "ASTERISK_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#17:1",
+        "type": "static",
+        "payload": "CHECKMARK_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#18:1",
+        "type": "static",
+        "payload": "CHECKMARK_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#19:1",
+        "type": "static",
+        "payload": "CHECKMARK_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#20:1",
+        "type": "static",
+        "payload": "CHECKMARK_400"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#21:1",
+        "type": "static",
+        "payload": "CHECKMARK_50"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#22:1",
+        "type": "static",
+        "payload": "CHECKMARK_75"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#23:1",
+        "type": "static",
+        "payload": "CHEVRON_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#24:1",
+        "type": "static",
+        "payload": "CHEVRON_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#25:1",
+        "type": "static",
+        "payload": "CHEVRON_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#26:1",
+        "type": "static",
+        "payload": "CHEVRON_400"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#27:1",
+        "type": "static",
+        "payload": "CHEVRON_50"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#28:1",
+        "type": "static",
+        "payload": "CHEVRON_75"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#29:1",
+        "type": "static",
+        "payload": "CORNER_TRIANGLE_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#30:1",
+        "type": "static",
+        "payload": "CORNER_TRIANGLE_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#31:1",
+        "type": "static",
+        "payload": "CORNER_TRIANGLE_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#32:1",
+        "type": "static",
+        "payload": "CORNER_TRIANGLE_75"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#33:1",
+        "type": "static",
+        "payload": "CROSS_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#34:1",
+        "type": "static",
+        "payload": "CROSS_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#35:1",
+        "type": "static",
+        "payload": "CROSS_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#36:1",
+        "type": "static",
+        "payload": "CROSS_400"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#37:1",
+        "type": "static",
+        "payload": "CROSS_500"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#38:1",
+        "type": "static",
+        "payload": "CROSS_600"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#39:1",
+        "type": "static",
+        "payload": "CROSS_75"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#40:1",
+        "type": "static",
+        "payload": "DASH_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#41:1",
+        "type": "static",
+        "payload": "DASH_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#42:1",
+        "type": "static",
+        "payload": "DASH_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#43:1",
+        "type": "static",
+        "payload": "DASH_50"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#44:1",
+        "type": "static",
+        "payload": "DASH_75"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#45:1",
+        "type": "static",
+        "payload": "DRAG_HANDLE_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#46:1",
+        "type": "static",
+        "payload": "DRAG_HANDLE_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#47:1",
+        "type": "static",
+        "payload": "DRAG_HANDLE_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#48:1",
+        "type": "static",
+        "payload": "DRAG_HANDLE_75"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#49:1",
+        "type": "static",
+        "payload": "LINK_OUT_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#50:1",
+        "type": "static",
+        "payload": "LINK_OUT_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#51:1",
+        "type": "static",
+        "payload": "LINK_OUT_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#52:1",
+        "type": "static",
+        "payload": "LINK_OUT_400"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#55:1",
+        "type": "function",
+        "payload": "pub::icon"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#7:1",
+        "type": "static",
+        "payload": "ADD_100"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#8:1",
+        "type": "static",
+        "payload": "ADD_200"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/icons/generated.rs#9:1",
+        "type": "static",
+        "payload": "ADD_300"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/interaction.rs#12:1",
+        "type": "enum",
+        "payload": "State"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/interaction.rs#28:1",
+        "type": "const",
+        "payload": "KEPT_MAX"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/interaction.rs#37:5",
+        "type": "function",
+        "payload": "pub::of"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/interaction.rs#49:5",
+        "type": "function",
+        "payload": "pub::state"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/interaction.rs#59:5",
+        "type": "function",
+        "payload": "pub::attach"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/interaction.rs#65:5",
+        "type": "function",
+        "payload": "pub::attach_hover"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/interaction.rs#71:5",
+        "type": "function",
+        "payload": "pub::attach_press"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/lib.rs#27:1",
+        "type": "function",
+        "payload": "pub::hug"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#102:5",
+        "type": "function",
+        "payload": "pub::size"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#120:5",
+        "type": "function",
+        "payload": "pub::build"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#25:1",
+        "type": "struct",
+        "payload": "Dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#32:5",
+        "type": "function",
+        "payload": "radio_dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#58:1",
+        "type": "type_alias",
+        "payload": "Press"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#60:1",
+        "type": "struct",
+        "payload": "RadioButton"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#74:5",
+        "type": "function",
+        "payload": "pub::new"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#88:5",
+        "type": "function",
+        "payload": "pub::label"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/radio_button.rs#94:5",
+        "type": "function",
+        "payload": "pub::width"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/size.rs#12:1",
+        "type": "enum",
+        "payload": "Size"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/size.rs#22:5",
+        "type": "function",
+        "payload": "pub::label_type"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/status_light.rs#102:5",
+        "type": "function",
+        "payload": "pub::size"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/status_light.rs#107:5",
+        "type": "function",
+        "payload": "pub::width"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/status_light.rs#113:5",
+        "type": "function",
+        "payload": "pub::build"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/status_light.rs#17:1",
+        "type": "enum",
+        "payload": "Variant"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/status_light.rs#47:5",
+        "type": "function",
+        "payload": "dot"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/status_light.rs#78:1",
+        "type": "struct",
+        "payload": "StatusLight"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/status_light.rs#89:5",
+        "type": "function",
+        "payload": "pub::new"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#107:5",
+        "type": "function",
+        "payload": "pub::label"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#113:5",
+        "type": "function",
+        "payload": "pub::width"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#121:5",
+        "type": "function",
+        "payload": "pub::size"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#144:5",
+        "type": "function",
+        "payload": "pub::build"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#24:1",
+        "type": "struct",
+        "payload": "Dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#35:5",
+        "type": "function",
+        "payload": "dims"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#77:1",
+        "type": "type_alias",
+        "payload": "Press"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#79:1",
+        "type": "struct",
+        "payload": "Switch"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/switch.rs#94:5",
+        "type": "function",
+        "payload": "pub::new"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/tokens/generated.rs#9:1",
+        "type": "struct",
+        "payload": "Tokens"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/tokens/mod.rs#14:1",
+        "type": "enum",
+        "payload": "Scale"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/tokens/mod.rs#20:1",
+        "type": "struct",
+        "payload": "Typography"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/tokens/mod.rs#29:1",
+        "type": "struct",
+        "payload": "Shadow"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/tokens/mod.rs#8:1",
+        "type": "enum",
+        "payload": "ColorScheme"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/wrap.rs#14:1",
+        "type": "struct",
+        "payload": "Fit"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/wrap.rs#25:5",
+        "type": "function",
+        "payload": "pub::new"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/wrap.rs#50:5",
+        "type": "function",
+        "payload": "pub::root"
+      },
+      {
+        "id": "./crates/spectrum-rune/src/wrap.rs#59:5",
+        "type": "function",
+        "payload": "pub::part"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/alignment.rs#33:1",
+        "type": "function",
+        "payload": "rects"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/alignment.rs#73:1",
+        "type": "function",
+        "payload": "narrow"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/alignment.rs#85:1",
+        "type": "function",
+        "payload": "test::does_not_shrink_in_a_narrow_parent"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/badge.rs#19:1",
+        "type": "struct",
+        "payload": "App"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/badge.rs#29:1",
+        "type": "function",
+        "payload": "view"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/badge_pixels.rs#15:1",
+        "type": "const",
+        "payload": "PAD"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/badge_pixels.rs#18:1",
+        "type": "struct",
+        "payload": "App"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/badge_pixels.rs#25:1",
+        "type": "function",
+        "payload": "view"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button.rs#18:1",
+        "type": "struct",
+        "payload": "App"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button.rs#509:1",
+        "type": "function",
+        "payload": "errors"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button.rs#545:1",
+        "type": "function",
+        "payload": "test::static_color_on_accent_is_advisory_not_an_error"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button.rs#54:1",
+        "type": "function",
+        "payload": "view"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button.rs#560:1",
+        "type": "function",
+        "payload": "test::building_an_error_combination_asserts_in_debug"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button_pixels.rs#23:1",
+        "type": "const",
+        "payload": "SIZE"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button_pixels.rs#24:1",
+        "type": "const",
+        "payload": "PAD"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button_pixels.rs#26:1",
+        "type": "const",
+        "payload": "BACKDROP"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button_pixels.rs#33:1",
+        "type": "struct",
+        "payload": "App"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button_pixels.rs#47:1",
+        "type": "function",
+        "payload": "view"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/wrap.rs#27:1",
+        "type": "struct",
+        "payload": "App"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/wrap.rs#32:1",
+        "type": "function",
+        "payload": "size"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/wrap.rs#41:1",
+        "type": "function",
+        "payload": "view"
+      },
+      {
+        "id": "external::Box",
+        "type": "external_type",
+        "payload": "Box"
+      },
+      {
+        "id": "external::Color",
+        "type": "external_type",
+        "payload": "Color"
+      },
+      {
+        "id": "external::Cx",
+        "type": "external_type",
+        "payload": "Cx"
+      },
+      {
+        "id": "external::El",
+        "type": "external_type",
+        "payload": "El"
+      },
+      {
+        "id": "external::Fn",
+        "type": "external_type",
+        "payload": "Fn"
+      },
+      {
+        "id": "external::FnOnce",
+        "type": "external_type",
+        "payload": "FnOnce"
+      },
+      {
+        "id": "external::HashMap",
+        "type": "external_type",
+        "payload": "HashMap"
+      },
+      {
+        "id": "external::HashSet",
+        "type": "external_type",
+        "payload": "HashSet"
+      },
+      {
+        "id": "external::Icon",
+        "type": "external_type",
+        "payload": "Icon"
+      },
+      {
+        "id": "external::Into",
+        "type": "external_type",
+        "payload": "Into"
+      },
+      {
+        "id": "external::IntoIterator",
+        "type": "external_type",
+        "payload": "IntoIterator"
+      },
+      {
+        "id": "external::Item",
+        "type": "external_type",
+        "payload": "Item"
+      },
+      {
+        "id": "external::Mutex",
+        "type": "external_type",
+        "payload": "Mutex"
+      },
+      {
+        "id": "external::OnceLock",
+        "type": "external_type",
+        "payload": "OnceLock"
+      },
+      {
+        "id": "external::Option",
+        "type": "external_type",
+        "payload": "Option"
+      },
+      {
+        "id": "external::S",
+        "type": "external_type",
+        "payload": "S"
+      },
+      {
+        "id": "external::Self",
+        "type": "external_type",
+        "payload": "Self"
+      },
+      {
+        "id": "external::String",
+        "type": "external_type",
+        "payload": "String"
+      },
+      {
+        "id": "external::Style",
+        "type": "external_type",
+        "payload": "Style"
+      },
+      {
+        "id": "external::T",
+        "type": "external_type",
+        "payload": "T"
+      },
+      {
+        "id": "external::TextStyle",
+        "type": "external_type",
+        "payload": "TextStyle"
+      },
+      {
+        "id": "external::Value",
+        "type": "external_type",
+        "payload": "Value"
+      },
+      {
+        "id": "external::Variant",
+        "type": "external_type",
+        "payload": "Variant"
+      },
+      {
+        "id": "external::Vec",
+        "type": "external_type",
+        "payload": "Vec"
+      },
+      {
+        "id": "external::_",
+        "type": "external_type",
+        "payload": "_"
+      }
+    ]
+  },
+  "impacted": {
+    "depth": 1,
+    "count": 13,
+    "shown": 13,
+    "tests": {
+      "count": 11,
+      "files": [
+        {
+          "file": "crates/spectrum-rune/tests/button.rs",
+          "count": 3
+        },
+        {
+          "file": "crates/spectrum-rune/tests/wrap.rs",
+          "count": 3
+        },
+        {
+          "file": "crates/spectrum-rune/tests/alignment.rs",
+          "count": 2
+        },
+        {
+          "file": "crates/spectrum-rune/tests/badge.rs",
+          "count": 1
+        },
+        {
+          "file": "crates/spectrum-rune/tests/badge_pixels.rs",
+          "count": 1
+        },
+        {
+          "file": "crates/spectrum-rune/tests/button_pixels.rs",
+          "count": 1
+        }
+      ]
+    },
+    "examples": {
+      "count": 2,
+      "files": [
+        {
+          "file": "crates/spectrum-rune/examples/gallery/stories.rs",
+          "count": 2
+        }
+      ]
+    },
+    "library": {
+      "count": 0,
+      "files": []
+    },
+    "nodes": [
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#243:1",
+        "name": "button",
+        "group": "examples"
+      },
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs#446:1",
+        "name": "badge",
+        "group": "examples"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/alignment.rs#73:1",
+        "name": "narrow",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/alignment.rs#85:1",
+        "name": "does_not_shrink_in_a_narrow_parent",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/badge.rs#29:1",
+        "name": "view",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/badge_pixels.rs#25:1",
+        "name": "view",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button.rs#545:1",
+        "name": "static_color_on_accent_is_advisory_not_an_error",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button.rs#54:1",
+        "name": "view",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button.rs#560:1",
+        "name": "building_an_error_combination_asserts_in_debug",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/button_pixels.rs#47:1",
+        "name": "view",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/wrap.rs#237:1",
+        "name": "line_counts_match_the_oracle_with_the_spectrum_font",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/wrap.rs#41:1",
+        "name": "view",
+        "group": "tests"
+      },
+      {
+        "id": "./crates/spectrum-rune/tests/wrap.rs#87:1",
+        "name": "check",
+        "group": "tests"
+      }
+    ]
+  },
+  "warnings": []
+}
