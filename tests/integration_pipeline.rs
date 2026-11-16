@@ -1398,6 +1398,18 @@ fn pipeline_generic_receiver_is_not_certain_but_unevaluated_hint_is() {
             .any(|t| t.0.starts_with("./src/main.rs#") && !t.1),
         "{holes:?}"
     );
+    // The shape of fd's `execute_batch`, whose hint does not evaluate: the same-file `go` stays the only candidate.
+    let batch = call_targets(&store, "batch");
+    // `S::new` and `S::go`: the presence check keeps the next assertion from passing on an empty list.
+    let own = batch
+        .iter()
+        .filter(|t| t.0.starts_with("./src/main.rs#"))
+        .count();
+    assert_eq!(own, 2, "{batch:?}");
+    assert!(
+        !batch.iter().any(|t| t.0.starts_with("./src/other.rs#")),
+        "{batch:?}"
+    );
 }
 
 #[test]
