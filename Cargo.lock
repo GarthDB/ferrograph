@@ -5843,6 +5843,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "csv",
  "serde",
  "serde_json",
  "tempfile",
