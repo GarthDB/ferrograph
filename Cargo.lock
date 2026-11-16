@@ -5844,6 +5844,7 @@ dependencies = [
  "anyhow",
  "clap",
  "csv",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

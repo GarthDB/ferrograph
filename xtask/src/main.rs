@@ -7,8 +7,11 @@ use std::path::PathBuf;
 
 mod compare;
 mod corpus;
+mod graph;
 mod impact_sample;
 mod run;
+mod rustc;
+mod source;
 mod stats;
 
 #[derive(Parser)]
