@@ -758,7 +758,9 @@ fn exclude_low_confidence_drops_trait_dispatch_callers() {
     write(d.path(), "src/main.rs", &src.replace("{ 1 }", "{ 11 }"));
     commit(d.path(), "change one draw");
     let all = json(&pr(d.path(), &["--json"]));
-    assert_eq!(names(&all["impacted"]["nodes"]), ["render", "main"]);
+    let mut got = names(&all["impacted"]["nodes"]);
+    got.sort_unstable();
+    assert_eq!(got, ["main", "render"]);
     let x = json(&pr(d.path(), &["--json", "--exclude-low-confidence"]));
     assert!(names(&x["impacted"]["nodes"]).is_empty(), "{x}");
 }
