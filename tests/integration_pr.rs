@@ -744,3 +744,21 @@ fn example_fn_has_no_blast_and_max_impacted_gates() {
         Some(1)
     );
 }
+
+/// #187: a call through a trait bound resolves to every `impl`, so all edges are low-confidence and
+/// `--exclude-low-confidence` drops the real callers. Documents why the flag is not the default.
+#[test]
+fn exclude_low_confidence_drops_trait_dispatch_callers() {
+    let Some(d) = repo() else { return };
+    let src = "trait Draw { fn draw(&self) -> u32; }\nstruct A;\nstruct B;\nimpl Draw for A { fn draw(&self) -> u32 { 1 } }\nimpl Draw for B { fn draw(&self) -> u32 { 2 } }\nfn render<T: Draw>(t: &T) -> u32 { t.draw() }\nfn main() { render(&A); }\n";
+    write(d.path(), "src/main.rs", src);
+    commit(d.path(), "trait base");
+    git(d.path(), &["checkout", "-q", "-B", "main"]);
+    git(d.path(), &["checkout", "-q", "-b", "f3"]);
+    write(d.path(), "src/main.rs", &src.replace("{ 1 }", "{ 11 }"));
+    commit(d.path(), "change one draw");
+    let all = json(&pr(d.path(), &["--json"]));
+    assert_eq!(names(&all["impacted"]["nodes"]), ["render", "main"]);
+    let x = json(&pr(d.path(), &["--json", "--exclude-low-confidence"]));
+    assert!(names(&x["impacted"]["nodes"]).is_empty(), "{x}");
+}

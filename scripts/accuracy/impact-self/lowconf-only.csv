@@ -1,19 +1,19 @@
 pr,id,name,group,depth,confident,label,note
-140bcba,./src/graph/query.rs#20:5,all_nodes,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/query.rs#31:5,all_edges,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#216:5,remove_edge,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#24:5,new_memory,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#252:5,clear,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#275:5,clear_dead_functions,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#290:5,put_dead_function,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#339:5,store_datalog_query,tests,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#35:5,new_persistent,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#44:5,init_schema,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#76:5,put_node,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#97:5,put_edge,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/mcp/mod.rs#64:5,get_info,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/pipeline/git_coupling.rs#32:1,analyze_git_coupling_impl,library,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
-140bcba,./src/graph/store.rs#351:5,store_clear_removes_all,tests,2,0,FP,reached only through a depth-1 false positive
-140bcba,./src/graph/store.rs#365:5,store_persistent_reopen_preserves_data,tests,2,0,FP,reached only through a depth-1 false positive
-140bcba,./src/pipeline/git_coupling.rs#16:1,analyze_git_coupling,library,2,0,FP,reached only through a depth-1 false positive
-ca9323f,./tests/integration_pr.rs#226:1,uses_db_and_base_db_and_reports_stale_head,tests,1,0,FP,"name-only match: external type (BTreeMap::new, DbInstance::new, Default::default), a Store method vs a same-named free fn, or a local closure"
+140bcba,./src/graph/query.rs#20:5,all_nodes,library,1,0,FP,"`store.run_query(..)` method call matched to changed free fn `run_query` (config.rs); the receiver is a Store, whose method is unchanged"
+140bcba,./src/graph/query.rs#31:5,all_edges,library,1,0,FP,same as all_nodes: `store.run_query(..)` vs changed free fn `run_query`
+140bcba,./src/graph/store.rs#216:5,remove_edge,library,1,0,FP,`BTreeMap::new()` (std) matched to changed `NodeId::new`
+140bcba,./src/graph/store.rs#24:5,new_memory,library,1,0,FP,`DbInstance::new(..)` (cozo) and `Default::default()` matched to changed `new` / `default`
+140bcba,./src/graph/store.rs#252:5,clear,library,1,0,FP,`BTreeMap::new()` (std) matched to changed `NodeId::new`
+140bcba,./src/graph/store.rs#275:5,clear_dead_functions,library,1,0,FP,`BTreeMap::new()` (std) matched to changed `NodeId::new`
+140bcba,./src/graph/store.rs#290:5,put_dead_function,library,1,0,FP,`BTreeMap::new()` (std) matched to changed `NodeId::new`
+140bcba,./src/graph/store.rs#339:5,store_datalog_query,tests,1,0,FP,same: `store.run_query(..)` vs changed free fn `run_query`
+140bcba,./src/graph/store.rs#35:5,new_persistent,library,1,0,FP,`DbInstance::new(..)` (cozo) and `Default::default()` matched to changed `new` / `default`
+140bcba,./src/graph/store.rs#44:5,init_schema,library,1,0,FP,`BTreeMap::new()` (std) matched to changed `NodeId::new`
+140bcba,./src/graph/store.rs#76:5,put_node,library,1,0,FP,`BTreeMap::new()` (std) matched to changed `NodeId::new`
+140bcba,./src/graph/store.rs#97:5,put_edge,library,1,0,FP,`BTreeMap::new()` (std) matched to changed `NodeId::new`
+140bcba,./src/mcp/mod.rs#64:5,get_info,library,1,0,FP,`..Default::default()` (struct update) matched to changed `default` (mcp/mod.rs)
+140bcba,./src/pipeline/git_coupling.rs#32:1,analyze_git_coupling_impl,library,1,0,FP,"`gix::diff::Options::default()`, `HashSet::new()`, `Path::new()` matched to changed `default` / `new`"
+140bcba,./src/graph/store.rs#351:5,store_clear_removes_all,tests,2,0,FP,"calls `store.clear()` and `Store::new_memory()`, both depth-1 false positives"
+140bcba,./src/graph/store.rs#365:5,store_persistent_reopen_preserves_data,tests,2,0,FP,"calls `Store::new_persistent()`, a depth-1 false positive"
+140bcba,./src/pipeline/git_coupling.rs#16:1,analyze_git_coupling,library,2,0,FP,"calls `analyze_git_coupling_impl`, a depth-1 false positive"
+ca9323f,./tests/integration_pr.rs#226:1,uses_db_and_base_db_and_reports_stale_head,tests,1,0,FP,"calls its local closure `run = || {..}`, matched to changed free fn `run` (config.rs)"
