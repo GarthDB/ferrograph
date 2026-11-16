@@ -1,0 +1,1494 @@
+{
+ "meta": {
+  "version": "v6.1.1",
+  "binary": "../../target/debug/ferrograph",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "date": "2026-11-15",
+  "extra_args": [
+   "--restricted-vis-not-root"
+  ]
+ },
+ "results": [
+  {
+   "name": "synthetic",
+   "ok": true,
+   "heldout": false,
+   "cohort": "original",
+   "sha": "0123456789abcdef0123",
+   "dirty": true,
+   "url": null,
+   "path": "scripts/accuracy/synthetic",
+   "ref": null,
+   "command": "RUSTFLAGS=\"--force-warn dead_code\" cargo check --workspace --all-targets --all-features --message-format=json",
+   "fallback": "",
+   "cargo_seconds": 0.3,
+   "index_seconds": 0.1,
+   "fn_nodes": 26,
+   "rustc_items": 8,
+   "r_mapped": 8,
+   "r_unmapped": [],
+   "rustc_partial": 0,
+   "modes": {
+    "default": {
+     "F": [
+      "./bin_app/src/main.rs#10:5",
+      "./bin_app/src/main.rs#39:1",
+      "./bin_app/src/main.rs#43:1",
+      "./bin_app/src/util.rs#3:1",
+      "./lib_crate/src/lib.rs#9:1"
+     ],
+     "misses": [
+      {
+       "id": "./bin_app/src/main.rs#16:5",
+       "file": "./bin_app/src/main.rs",
+       "line": 16,
+       "name": "run",
+       "class": "bin",
+       "bucket": "low-confidence call edge",
+       "cause": "calls(low-confidence)@main",
+       "collateral": false,
+       "chain": [
+        "./bin_app/src/main.rs#16:5 (calls(low))",
+        "./bin_app/src/main.rs#73:1 (root)"
+       ]
+      },
+      {
+       "id": "./bin_app/src/util.rs#5:1",
+       "file": "./bin_app/src/util.rs",
+       "line": 5,
+       "name": "pub_dead",
+       "class": "bin",
+       "bucket": "pub root: pub",
+       "cause": "root:pub",
+       "collateral": false,
+       "chain": [
+        "./bin_app/src/util.rs#5:1 (root)"
+       ]
+      },
+      {
+       "id": "./bin_app/src/util.rs#9:1",
+       "file": "./bin_app/src/util.rs",
+       "line": 9,
+       "name": "crate_dead",
+       "class": "bin",
+       "bucket": "pub root: pub(crate)/pub(super)",
+       "cause": "root:pub",
+       "collateral": false,
+       "chain": [
+        "./bin_app/src/util.rs#9:1 (root)"
+       ]
+      }
+     ],
+     "fp": {
+      "not_judgeable_file": [],
+      "not_judgeable_cfg": [],
+      "rustc_live_some_unit": [],
+      "disagree": []
+     }
+    },
+    "strict": {
+     "F": [
+      "./bin_app/src/main.rs#10:5",
+      "./bin_app/src/main.rs#16:5",
+      "./bin_app/src/main.rs#39:1",
+      "./bin_app/src/main.rs#43:1",
+      "./bin_app/src/main.rs#7:5",
+      "./bin_app/src/util.rs#3:1",
+      "./lib_crate/src/lib.rs#9:1"
+     ],
+     "misses": [
+      {
+       "id": "./bin_app/src/util.rs#5:1",
+       "file": "./bin_app/src/util.rs",
+       "line": 5,
+       "name": "pub_dead",
+       "class": "bin",
+       "bucket": "pub root: pub",
+       "cause": "root:pub",
+       "collateral": false,
+       "chain": [
+        "./bin_app/src/util.rs#5:1 (root)"
+       ]
+      },
+      {
+       "id": "./bin_app/src/util.rs#9:1",
+       "file": "./bin_app/src/util.rs",
+       "line": 9,
+       "name": "crate_dead",
+       "class": "bin",
+       "bucket": "pub root: pub(crate)/pub(super)",
+       "cause": "root:pub",
+       "collateral": false,
+       "chain": [
+        "./bin_app/src/util.rs#9:1 (root)"
+       ]
+      }
+     ],
+     "fp": {
+      "not_judgeable_file": [],
+      "not_judgeable_cfg": [],
+      "rustc_live_some_unit": [],
+      "disagree": [
+       {
+        "id": "./bin_app/src/main.rs#7:5",
+        "name": "run",
+        "file": "./bin_app/src/main.rs",
+        "line": 7,
+        "class": "bin",
+        "text_refs": [
+         "./bin_app/src/main.rs:16: fn run(&self) -> u32 {",
+         "./bin_app/src/main.rs:77: println!(\"{} {} {}\", live_a(), s.run(), s.speak());"
+        ]
+       }
+      ]
+     }
+    }
+   },
+   "selfcheck": {
+    "default": {
+     "cli": 5,
+     "model": 5,
+     "diff": 0
+    },
+    "strict": {
+     "cli": 7,
+     "model": 7,
+     "diff": 0
+    }
+   },
+   "R": {
+    "./bin_app/src/main.rs#10:5": {
+     "file": "./bin_app/src/main.rs",
+     "line": 10,
+     "name": "dead_m",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#16:5": {
+     "file": "./bin_app/src/main.rs",
+     "line": 16,
+     "name": "run",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#39:1": {
+     "file": "./bin_app/src/main.rs",
+     "line": 39,
+     "name": "dead_c",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#43:1": {
+     "file": "./bin_app/src/main.rs",
+     "line": 43,
+     "name": "dead_d",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#3:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 3,
+     "name": "unused_helper",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#5:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 5,
+     "name": "pub_dead",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#9:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 9,
+     "name": "crate_dead",
+     "class": "bin"
+    },
+    "./lib_crate/src/lib.rs#9:1": {
+     "file": "./lib_crate/src/lib.rs",
+     "line": 9,
+     "name": "lib_dead",
+     "class": "lib"
+    }
+   },
+   "classes": {
+    "./bin_app/src/main.rs#10:5": "bin",
+    "./bin_app/src/main.rs#16:5": "bin",
+    "./bin_app/src/main.rs#39:1": "bin",
+    "./bin_app/src/main.rs#43:1": "bin",
+    "./bin_app/src/util.rs#3:1": "bin",
+    "./bin_app/src/util.rs#5:1": "bin",
+    "./bin_app/src/util.rs#9:1": "bin",
+    "./lib_crate/src/lib.rs#9:1": "lib"
+   },
+   "roots_of_R": {
+    "./bin_app/src/main.rs#10:5": null,
+    "./bin_app/src/main.rs#16:5": null,
+    "./bin_app/src/main.rs#39:1": null,
+    "./bin_app/src/main.rs#43:1": null,
+    "./bin_app/src/util.rs#3:1": null,
+    "./bin_app/src/util.rs#5:1": "pub",
+    "./bin_app/src/util.rs#9:1": "pub",
+    "./lib_crate/src/lib.rs#9:1": null
+   },
+   "F_class": {
+    "./bin_app/src/main.rs#10:5": "bin",
+    "./bin_app/src/main.rs#39:1": "bin",
+    "./bin_app/src/main.rs#43:1": "bin",
+    "./bin_app/src/util.rs#3:1": "bin",
+    "./lib_crate/src/lib.rs#9:1": "lib",
+    "./bin_app/src/main.rs#16:5": "bin",
+    "./bin_app/src/main.rs#7:5": "bin"
+   }
+  },
+  {
+   "name": "second",
+   "ok": true,
+   "heldout": true,
+   "cohort": "held-out",
+   "sha": "0123456789abcdef0123",
+   "dirty": false,
+   "url": "https://example.com/x/y",
+   "path": null,
+   "ref": "main",
+   "command": "RUSTFLAGS=\"--force-warn dead_code\" cargo check --workspace --all-targets --all-features --message-format=json",
+   "fallback": "default features (--all-features failed)",
+   "cargo_seconds": 12.0,
+   "index_seconds": 0.25,
+   "fn_nodes": 26,
+   "rustc_items": 8,
+   "r_mapped": 8,
+   "r_unmapped": [
+    {
+     "file": "./a.rs",
+     "line": 1,
+     "name": "a",
+     "reason": "no fn node with that name within 10 lines",
+     "macro": false
+    },
+    {
+     "file": "./b.rs",
+     "line": 2,
+     "name": "b",
+     "reason": "file has no indexed fn nodes",
+     "macro": true
+    },
+    {
+     "file": "./c.rs",
+     "line": 3,
+     "name": "c",
+     "reason": "no fn node with that name within 10 lines",
+     "macro": false
+    }
+   ],
+   "rustc_partial": 0,
+   "modes": {
+    "default": {
+     "F": [
+      "./bin_app/src/main.rs#10:5",
+      "./bin_app/src/main.rs#39:1",
+      "./bin_app/src/main.rs#43:1",
+      "./bin_app/src/util.rs#3:1",
+      "./lib_crate/src/lib.rs#9:1",
+      "./m.rs#50:1",
+      "./m.rs#51:1",
+      "./m.rs#52:1",
+      "./m.rs#53:1",
+      "./m.rs#9:1"
+     ],
+     "misses": [
+      {
+       "id": "./m.rs#1:1",
+       "file": "./m.rs",
+       "line": 1,
+       "name": "m1",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": true,
+       "chain": [
+        "./m.rs#1:1 (calls)",
+        "./m.rs#2:1 (calls)",
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#2:1",
+       "file": "./m.rs",
+       "line": 2,
+       "name": "m2",
+       "class": "lib",
+       "bucket": "pub root: pub",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#2:1 (calls)",
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#3:1",
+       "file": "./m.rs",
+       "line": 3,
+       "name": "m3",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#4:1",
+       "file": "./m.rs",
+       "line": 4,
+       "name": "m4",
+       "class": "lib",
+       "bucket": "pub root: pub",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#5:1",
+       "file": "./m.rs",
+       "line": 5,
+       "name": "m5",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#6:1",
+       "file": "./m.rs",
+       "line": 6,
+       "name": "m6",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#7:1",
+       "file": "./m.rs",
+       "line": 7,
+       "name": "m7",
+       "class": "lib",
+       "bucket": "other",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#8:1",
+       "file": "./m.rs",
+       "line": 8,
+       "name": "m8",
+       "class": "lib",
+       "bucket": "low-confidence call edge",
+       "cause": "x",
+       "collateral": true,
+       "chain": [
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (calls)",
+        "./m.rs#12:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#9:1",
+       "file": "./m.rs",
+       "line": 9,
+       "name": "m9",
+       "class": "bin",
+       "bucket": "low-confidence call edge",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (calls)",
+        "./m.rs#12:1 (calls)",
+        "./m.rs#13:1 (root)"
+       ]
+      }
+     ],
+     "fp": {
+      "not_judgeable_file": [
+       {
+        "id": "./m.rs#50:1",
+        "name": "f50",
+        "file": "./m.rs",
+        "line": 50,
+        "class": "lib"
+       }
+      ],
+      "not_judgeable_cfg": [
+       {
+        "id": "./m.rs#51:1",
+        "name": "f51",
+        "file": "./m.rs",
+        "line": 51,
+        "class": "lib"
+       }
+      ],
+      "rustc_live_some_unit": [
+       {
+        "id": "./m.rs#52:1",
+        "name": "f52",
+        "file": "./m.rs",
+        "line": 52,
+        "class": "lib"
+       }
+      ],
+      "disagree": [
+       {
+        "id": "./m.rs#53:1",
+        "name": "f53",
+        "file": "./m.rs",
+        "line": 53,
+        "class": "lib",
+        "text_refs": [
+         "./x.rs:1: f"
+        ]
+       }
+      ]
+     }
+    },
+    "strict": {
+     "F": [
+      "./bin_app/src/main.rs#10:5",
+      "./bin_app/src/main.rs#39:1",
+      "./bin_app/src/main.rs#43:1",
+      "./bin_app/src/util.rs#3:1",
+      "./lib_crate/src/lib.rs#9:1",
+      "./m.rs#50:1",
+      "./m.rs#51:1",
+      "./m.rs#52:1",
+      "./m.rs#53:1",
+      "./m.rs#54:1",
+      "./m.rs#9:1"
+     ],
+     "misses": [
+      {
+       "id": "./m.rs#1:1",
+       "file": "./m.rs",
+       "line": 1,
+       "name": "m1",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": true,
+       "chain": [
+        "./m.rs#1:1 (calls)",
+        "./m.rs#2:1 (calls)",
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#2:1",
+       "file": "./m.rs",
+       "line": 2,
+       "name": "m2",
+       "class": "lib",
+       "bucket": "pub root: pub",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#2:1 (calls)",
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#3:1",
+       "file": "./m.rs",
+       "line": 3,
+       "name": "m3",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#4:1",
+       "file": "./m.rs",
+       "line": 4,
+       "name": "m4",
+       "class": "lib",
+       "bucket": "pub root: pub",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#5:1",
+       "file": "./m.rs",
+       "line": 5,
+       "name": "m5",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#6:1",
+       "file": "./m.rs",
+       "line": 6,
+       "name": "m6",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#7:1",
+       "file": "./m.rs",
+       "line": 7,
+       "name": "m7",
+       "class": "lib",
+       "bucket": "other",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#8:1",
+       "file": "./m.rs",
+       "line": 8,
+       "name": "m8",
+       "class": "lib",
+       "bucket": "low-confidence call edge",
+       "cause": "x",
+       "collateral": true,
+       "chain": [
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (calls)",
+        "./m.rs#12:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#9:1",
+       "file": "./m.rs",
+       "line": 9,
+       "name": "m9",
+       "class": "bin",
+       "bucket": "low-confidence call edge",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (calls)",
+        "./m.rs#12:1 (calls)",
+        "./m.rs#13:1 (root)"
+       ]
+      }
+     ],
+     "fp": {
+      "not_judgeable_file": [],
+      "not_judgeable_cfg": [
+       {
+        "id": "./m.rs#51:1",
+        "name": "f51",
+        "file": "./m.rs",
+        "line": 51,
+        "class": "lib"
+       }
+      ],
+      "rustc_live_some_unit": [],
+      "disagree": [
+       {
+        "id": "./m.rs#53:1",
+        "name": "f53",
+        "file": "./m.rs",
+        "line": 53,
+        "class": "lib"
+       },
+       {
+        "id": "./m.rs#54:1",
+        "name": "f54",
+        "file": "./m.rs",
+        "line": 54,
+        "class": "lib"
+       }
+      ]
+     }
+    }
+   },
+   "selfcheck": {
+    "default": {
+     "cli": 5,
+     "model": 5,
+     "diff": 0
+    },
+    "strict": {
+     "cli": 7,
+     "model": 7,
+     "diff": 0
+    }
+   },
+   "R": {
+    "./bin_app/src/main.rs#10:5": {
+     "file": "./bin_app/src/main.rs",
+     "line": 10,
+     "name": "dead_m",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#16:5": {
+     "file": "./bin_app/src/main.rs",
+     "line": 16,
+     "name": "run",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#39:1": {
+     "file": "./bin_app/src/main.rs",
+     "line": 39,
+     "name": "dead_c",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#43:1": {
+     "file": "./bin_app/src/main.rs",
+     "line": 43,
+     "name": "dead_d",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#3:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 3,
+     "name": "unused_helper",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#5:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 5,
+     "name": "pub_dead",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#9:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 9,
+     "name": "crate_dead",
+     "class": "bin"
+    },
+    "./lib_crate/src/lib.rs#9:1": {
+     "file": "./lib_crate/src/lib.rs",
+     "line": 9,
+     "name": "lib_dead",
+     "class": "lib"
+    },
+    "./m.rs#1:1": {
+     "file": "./m.rs",
+     "line": 1,
+     "name": "m1",
+     "class": "lib"
+    },
+    "./m.rs#2:1": {
+     "file": "./m.rs",
+     "line": 2,
+     "name": "m2",
+     "class": "lib"
+    },
+    "./m.rs#3:1": {
+     "file": "./m.rs",
+     "line": 3,
+     "name": "m3",
+     "class": "lib"
+    },
+    "./m.rs#4:1": {
+     "file": "./m.rs",
+     "line": 4,
+     "name": "m4",
+     "class": "lib"
+    },
+    "./m.rs#5:1": {
+     "file": "./m.rs",
+     "line": 5,
+     "name": "m5",
+     "class": "lib"
+    },
+    "./m.rs#6:1": {
+     "file": "./m.rs",
+     "line": 6,
+     "name": "m6",
+     "class": "lib"
+    },
+    "./m.rs#7:1": {
+     "file": "./m.rs",
+     "line": 7,
+     "name": "m7",
+     "class": "lib"
+    },
+    "./m.rs#8:1": {
+     "file": "./m.rs",
+     "line": 8,
+     "name": "m8",
+     "class": "lib"
+    },
+    "./m.rs#9:1": {
+     "file": "./m.rs",
+     "line": 9,
+     "name": "m9",
+     "class": "bin"
+    }
+   },
+   "classes": {
+    "./bin_app/src/main.rs#10:5": "bin",
+    "./bin_app/src/main.rs#16:5": "bin",
+    "./bin_app/src/main.rs#39:1": "bin",
+    "./bin_app/src/main.rs#43:1": "bin",
+    "./bin_app/src/util.rs#3:1": "bin",
+    "./bin_app/src/util.rs#5:1": "bin",
+    "./bin_app/src/util.rs#9:1": "bin",
+    "./lib_crate/src/lib.rs#9:1": "lib",
+    "./m.rs#1:1": "lib",
+    "./m.rs#2:1": "lib",
+    "./m.rs#3:1": "lib",
+    "./m.rs#4:1": "lib",
+    "./m.rs#5:1": "lib",
+    "./m.rs#6:1": "lib",
+    "./m.rs#7:1": "lib",
+    "./m.rs#8:1": "lib",
+    "./m.rs#9:1": "bin"
+   },
+   "roots_of_R": {
+    "./bin_app/src/main.rs#10:5": null,
+    "./bin_app/src/main.rs#16:5": null,
+    "./bin_app/src/main.rs#39:1": null,
+    "./bin_app/src/main.rs#43:1": null,
+    "./bin_app/src/util.rs#3:1": null,
+    "./bin_app/src/util.rs#5:1": "pub",
+    "./bin_app/src/util.rs#9:1": "pub",
+    "./lib_crate/src/lib.rs#9:1": null,
+    "./m.rs#1:1": "pub",
+    "./m.rs#2:1": null,
+    "./m.rs#3:1": "pub",
+    "./m.rs#4:1": null,
+    "./m.rs#5:1": "pub",
+    "./m.rs#6:1": null,
+    "./m.rs#7:1": "pub",
+    "./m.rs#8:1": null,
+    "./m.rs#9:1": "pub"
+   },
+   "F_class": {
+    "./bin_app/src/main.rs#10:5": "bin",
+    "./bin_app/src/main.rs#39:1": "bin",
+    "./bin_app/src/main.rs#43:1": "bin",
+    "./bin_app/src/util.rs#3:1": "bin",
+    "./lib_crate/src/lib.rs#9:1": "lib",
+    "./bin_app/src/main.rs#16:5": "bin",
+    "./bin_app/src/main.rs#7:5": "bin",
+    "./m.rs#50:1": "lib",
+    "./m.rs#51:1": "bin",
+    "./m.rs#52:1": "lib",
+    "./m.rs#53:1": "bin",
+    "./m.rs#54:1": "lib",
+    "./m.rs#9:1": "lib"
+   }
+  },
+  {
+   "name": "broken",
+   "ok": false,
+   "error": "cargo check failed: boom",
+   "command": "cargo check",
+   "sha": null,
+   "url": "https://example.com/broken",
+   "path": null
+  },
+  {
+   "name": "third",
+   "ok": true,
+   "heldout": false,
+   "cohort": "held-out-2",
+   "sha": "0123456789abcdef0123",
+   "dirty": false,
+   "url": "https://example.com/x/y",
+   "path": null,
+   "ref": "main",
+   "command": "RUSTFLAGS=\"--force-warn dead_code\" cargo check --workspace --all-targets --all-features --message-format=json",
+   "fallback": "",
+   "cargo_seconds": 12.0,
+   "index_seconds": 0.25,
+   "fn_nodes": 26,
+   "rustc_items": 8,
+   "r_mapped": 8,
+   "r_unmapped": [
+    {
+     "file": "./a.rs",
+     "line": 1,
+     "name": "a",
+     "reason": "no fn node with that name within 10 lines",
+     "macro": false
+    },
+    {
+     "file": "./b.rs",
+     "line": 2,
+     "name": "b",
+     "reason": "file has no indexed fn nodes",
+     "macro": true
+    },
+    {
+     "file": "./c.rs",
+     "line": 3,
+     "name": "c",
+     "reason": "no fn node with that name within 10 lines",
+     "macro": false
+    }
+   ],
+   "rustc_partial": 0,
+   "modes": {
+    "default": {
+     "F": [
+      "./bin_app/src/main.rs#10:5",
+      "./bin_app/src/main.rs#39:1",
+      "./bin_app/src/main.rs#43:1",
+      "./bin_app/src/util.rs#3:1",
+      "./lib_crate/src/lib.rs#9:1",
+      "./m.rs#50:1",
+      "./m.rs#51:1",
+      "./m.rs#52:1",
+      "./m.rs#53:1",
+      "./m.rs#9:1"
+     ],
+     "misses": [
+      {
+       "id": "./m.rs#1:1",
+       "file": "./m.rs",
+       "line": 1,
+       "name": "m1",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": true,
+       "chain": [
+        "./m.rs#1:1 (calls)",
+        "./m.rs#2:1 (calls)",
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#2:1",
+       "file": "./m.rs",
+       "line": 2,
+       "name": "m2",
+       "class": "lib",
+       "bucket": "pub root: pub",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#2:1 (calls)",
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#3:1",
+       "file": "./m.rs",
+       "line": 3,
+       "name": "m3",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#4:1",
+       "file": "./m.rs",
+       "line": 4,
+       "name": "m4",
+       "class": "lib",
+       "bucket": "pub root: pub",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#5:1",
+       "file": "./m.rs",
+       "line": 5,
+       "name": "m5",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#6:1",
+       "file": "./m.rs",
+       "line": 6,
+       "name": "m6",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#7:1",
+       "file": "./m.rs",
+       "line": 7,
+       "name": "m7",
+       "class": "lib",
+       "bucket": "other",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#8:1",
+       "file": "./m.rs",
+       "line": 8,
+       "name": "m8",
+       "class": "lib",
+       "bucket": "low-confidence call edge",
+       "cause": "x",
+       "collateral": true,
+       "chain": [
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (calls)",
+        "./m.rs#12:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#9:1",
+       "file": "./m.rs",
+       "line": 9,
+       "name": "m9",
+       "class": "bin",
+       "bucket": "low-confidence call edge",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (calls)",
+        "./m.rs#12:1 (calls)",
+        "./m.rs#13:1 (root)"
+       ]
+      }
+     ],
+     "fp": {
+      "not_judgeable_file": [
+       {
+        "id": "./m.rs#50:1",
+        "name": "f50",
+        "file": "./m.rs",
+        "line": 50,
+        "class": "lib"
+       }
+      ],
+      "not_judgeable_cfg": [
+       {
+        "id": "./m.rs#51:1",
+        "name": "f51",
+        "file": "./m.rs",
+        "line": 51,
+        "class": "lib"
+       }
+      ],
+      "rustc_live_some_unit": [
+       {
+        "id": "./m.rs#52:1",
+        "name": "f52",
+        "file": "./m.rs",
+        "line": 52,
+        "class": "lib"
+       }
+      ],
+      "disagree": [
+       {
+        "id": "./m.rs#53:1",
+        "name": "f53",
+        "file": "./m.rs",
+        "line": 53,
+        "class": "lib",
+        "text_refs": [
+         "./x.rs:1: f"
+        ]
+       }
+      ]
+     }
+    },
+    "strict": {
+     "F": [
+      "./bin_app/src/main.rs#10:5",
+      "./bin_app/src/main.rs#39:1",
+      "./bin_app/src/main.rs#43:1",
+      "./bin_app/src/util.rs#3:1",
+      "./lib_crate/src/lib.rs#9:1",
+      "./m.rs#50:1",
+      "./m.rs#51:1",
+      "./m.rs#52:1",
+      "./m.rs#53:1",
+      "./m.rs#54:1",
+      "./m.rs#9:1"
+     ],
+     "misses": [
+      {
+       "id": "./m.rs#1:1",
+       "file": "./m.rs",
+       "line": 1,
+       "name": "m1",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": true,
+       "chain": [
+        "./m.rs#1:1 (calls)",
+        "./m.rs#2:1 (calls)",
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#2:1",
+       "file": "./m.rs",
+       "line": 2,
+       "name": "m2",
+       "class": "lib",
+       "bucket": "pub root: pub",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#2:1 (calls)",
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#3:1",
+       "file": "./m.rs",
+       "line": 3,
+       "name": "m3",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#3:1 (calls)",
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#4:1",
+       "file": "./m.rs",
+       "line": 4,
+       "name": "m4",
+       "class": "lib",
+       "bucket": "pub root: pub",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#4:1 (calls)",
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#5:1",
+       "file": "./m.rs",
+       "line": 5,
+       "name": "m5",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#5:1 (calls)",
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#6:1",
+       "file": "./m.rs",
+       "line": 6,
+       "name": "m6",
+       "class": "lib",
+       "bucket": "calls edge from root item",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#6:1 (calls)",
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#7:1",
+       "file": "./m.rs",
+       "line": 7,
+       "name": "m7",
+       "class": "lib",
+       "bucket": "other",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#7:1 (calls)",
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#8:1",
+       "file": "./m.rs",
+       "line": 8,
+       "name": "m8",
+       "class": "lib",
+       "bucket": "low-confidence call edge",
+       "cause": "x",
+       "collateral": true,
+       "chain": [
+        "./m.rs#8:1 (calls)",
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (calls)",
+        "./m.rs#12:1 (root)"
+       ]
+      },
+      {
+       "id": "./m.rs#9:1",
+       "file": "./m.rs",
+       "line": 9,
+       "name": "m9",
+       "class": "bin",
+       "bucket": "low-confidence call edge",
+       "cause": "x",
+       "collateral": false,
+       "chain": [
+        "./m.rs#9:1 (calls)",
+        "./m.rs#10:1 (calls)",
+        "./m.rs#11:1 (calls)",
+        "./m.rs#12:1 (calls)",
+        "./m.rs#13:1 (root)"
+       ]
+      }
+     ],
+     "fp": {
+      "not_judgeable_file": [],
+      "not_judgeable_cfg": [
+       {
+        "id": "./m.rs#51:1",
+        "name": "f51",
+        "file": "./m.rs",
+        "line": 51,
+        "class": "lib"
+       }
+      ],
+      "rustc_live_some_unit": [],
+      "disagree": [
+       {
+        "id": "./m.rs#53:1",
+        "name": "f53",
+        "file": "./m.rs",
+        "line": 53,
+        "class": "lib"
+       },
+       {
+        "id": "./m.rs#54:1",
+        "name": "f54",
+        "file": "./m.rs",
+        "line": 54,
+        "class": "lib"
+       }
+      ]
+     }
+    }
+   },
+   "selfcheck": {
+    "default": {
+     "cli": 5,
+     "model": 5,
+     "diff": 0
+    },
+    "strict": {
+     "cli": 7,
+     "model": 7,
+     "diff": 0
+    }
+   },
+   "R": {
+    "./bin_app/src/main.rs#10:5": {
+     "file": "./bin_app/src/main.rs",
+     "line": 10,
+     "name": "dead_m",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#16:5": {
+     "file": "./bin_app/src/main.rs",
+     "line": 16,
+     "name": "run",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#39:1": {
+     "file": "./bin_app/src/main.rs",
+     "line": 39,
+     "name": "dead_c",
+     "class": "bin"
+    },
+    "./bin_app/src/main.rs#43:1": {
+     "file": "./bin_app/src/main.rs",
+     "line": 43,
+     "name": "dead_d",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#3:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 3,
+     "name": "unused_helper",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#5:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 5,
+     "name": "pub_dead",
+     "class": "bin"
+    },
+    "./bin_app/src/util.rs#9:1": {
+     "file": "./bin_app/src/util.rs",
+     "line": 9,
+     "name": "crate_dead",
+     "class": "bin"
+    },
+    "./lib_crate/src/lib.rs#9:1": {
+     "file": "./lib_crate/src/lib.rs",
+     "line": 9,
+     "name": "lib_dead",
+     "class": "lib"
+    },
+    "./m.rs#1:1": {
+     "file": "./m.rs",
+     "line": 1,
+     "name": "m1",
+     "class": "lib"
+    },
+    "./m.rs#2:1": {
+     "file": "./m.rs",
+     "line": 2,
+     "name": "m2",
+     "class": "lib"
+    },
+    "./m.rs#3:1": {
+     "file": "./m.rs",
+     "line": 3,
+     "name": "m3",
+     "class": "lib"
+    },
+    "./m.rs#4:1": {
+     "file": "./m.rs",
+     "line": 4,
+     "name": "m4",
+     "class": "lib"
+    },
+    "./m.rs#5:1": {
+     "file": "./m.rs",
+     "line": 5,
+     "name": "m5",
+     "class": "lib"
+    },
+    "./m.rs#6:1": {
+     "file": "./m.rs",
+     "line": 6,
+     "name": "m6",
+     "class": "lib"
+    },
+    "./m.rs#7:1": {
+     "file": "./m.rs",
+     "line": 7,
+     "name": "m7",
+     "class": "lib"
+    },
+    "./m.rs#8:1": {
+     "file": "./m.rs",
+     "line": 8,
+     "name": "m8",
+     "class": "lib"
+    },
+    "./m.rs#9:1": {
+     "file": "./m.rs",
+     "line": 9,
+     "name": "m9",
+     "class": "bin"
+    }
+   },
+   "classes": {
+    "./bin_app/src/main.rs#10:5": "bin",
+    "./bin_app/src/main.rs#16:5": "bin",
+    "./bin_app/src/main.rs#39:1": "bin",
+    "./bin_app/src/main.rs#43:1": "bin",
+    "./bin_app/src/util.rs#3:1": "bin",
+    "./bin_app/src/util.rs#5:1": "bin",
+    "./bin_app/src/util.rs#9:1": "bin",
+    "./lib_crate/src/lib.rs#9:1": "lib",
+    "./m.rs#1:1": "lib",
+    "./m.rs#2:1": "lib",
+    "./m.rs#3:1": "lib",
+    "./m.rs#4:1": "lib",
+    "./m.rs#5:1": "lib",
+    "./m.rs#6:1": "lib",
+    "./m.rs#7:1": "lib",
+    "./m.rs#8:1": "lib",
+    "./m.rs#9:1": "bin"
+   },
+   "roots_of_R": {
+    "./bin_app/src/main.rs#10:5": null,
+    "./bin_app/src/main.rs#16:5": null,
+    "./bin_app/src/main.rs#39:1": null,
+    "./bin_app/src/main.rs#43:1": null,
+    "./bin_app/src/util.rs#3:1": null,
+    "./bin_app/src/util.rs#5:1": "pub",
+    "./bin_app/src/util.rs#9:1": "pub",
+    "./lib_crate/src/lib.rs#9:1": null,
+    "./m.rs#1:1": "pub",
+    "./m.rs#2:1": null,
+    "./m.rs#3:1": "pub",
+    "./m.rs#4:1": null,
+    "./m.rs#5:1": "pub",
+    "./m.rs#6:1": null,
+    "./m.rs#7:1": "pub",
+    "./m.rs#8:1": null,
+    "./m.rs#9:1": "pub"
+   },
+   "F_class": {
+    "./bin_app/src/main.rs#10:5": "bin",
+    "./bin_app/src/main.rs#39:1": "bin",
+    "./bin_app/src/main.rs#43:1": "bin",
+    "./bin_app/src/util.rs#3:1": "bin",
+    "./lib_crate/src/lib.rs#9:1": "lib",
+    "./bin_app/src/main.rs#16:5": "bin",
+    "./bin_app/src/main.rs#7:5": "bin",
+    "./m.rs#50:1": "lib",
+    "./m.rs#51:1": "bin",
+    "./m.rs#52:1": "lib",
+    "./m.rs#53:1": "bin",
+    "./m.rs#54:1": "lib",
+    "./m.rs#9:1": "lib"
+   }
+  }
+ ]
+}

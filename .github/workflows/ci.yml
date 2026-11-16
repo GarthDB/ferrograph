@@ -39,17 +39,15 @@ jobs:
       - name: Clippy (xtask)
         run: cargo clippy -p xtask --all-targets -- -D warnings
 
+      # the harness self-tests run the ferrograph binary on the synthetic corpus (a missing binary fails under CI)
       - name: Test (xtask)
-        run: cargo test -p xtask
+        run: cargo build --bin ferrograph && cargo test -p xtask
 
       - name: Test (default features)
         run: cargo test
 
       - name: Test (all features)
         run: cargo test --all-features
-
-      - name: Accuracy harness self-test (synthetic corpus only)
-        run: python3 scripts/accuracy/test_harness.py
 
       - name: Doc
         run: cargo doc --no-deps
