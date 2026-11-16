@@ -19,6 +19,9 @@ use crate::graph::Store;
 
 /// Marker target, kept in sync with the entry rules in `graph::query`.
 pub(super) const PUB_UNEXPORTED_ATTR: &str = "pub_unexported";
+/// Written whenever the phase ran, on the first indexed file. `pub_unexported` itself is sparse (a library
+/// with nothing to demote has none), so `pr` checks this one to tell an older graph from an empty result.
+const INDEXED_ATTR: &str = "lib_exported_indexed";
 
 enum LeafKind {
     Name,
@@ -351,6 +354,14 @@ pub(super) fn mark_pub_unexported(
                 }
             }
         }
+    }
+    if let Some(first) = files.keys().next() {
+        let rel = first.strip_prefix(root).unwrap_or(first);
+        edges.push((
+            NodeId::new(format!("./{}", rel.to_string_lossy())),
+            NodeId::new(format!("attr::{INDEXED_ATTR}")),
+            EdgeType::HasAttribute,
+        ));
     }
     if !edges.is_empty() {
         store.put_edges_batch(&edges)?;

@@ -868,4 +868,26 @@ fn pr_without_unsafe_changes_has_no_unsafe_section() {
     assert_eq!(v["unsafe_gained_count"], 0);
     let md = String::from_utf8_lossy(&pr(d.path(), &["--format", "markdown"]).stdout).into_owned();
     assert!(!md.contains("Unsafe changes"), "{md}");
+
+/// `pub_unexported` is absent from a graph with nothing to demote, so only one side having it is not a stale graph.
+#[test]
+fn lib_exported_only_does_not_warn_when_only_the_head_has_unexported_fns() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "Cargo.toml",
+        "[package]\nname = \"p\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(d.path(), "src/lib.rs", "pub fn api() {}\n");
+    commit(d.path(), "lib");
+    git(d.path(), &["checkout", "-q", "main"]);
+    git(d.path(), &["merge", "-q", "--ff-only", "feature"]);
+    git(d.path(), &["checkout", "-q", "-b", "feature2"]);
+    write(d.path(), "src/lib.rs", "mod hidden;\npub fn api() {}\n");
+    write(d.path(), "src/hidden.rs", "pub fn unexported() {}\n");
+    commit(d.path(), "add hidden");
+    let v = json(&pr(d.path(), &["--json", "--lib-exported-only"]));
+    let warnings = v["warnings"].to_string();
+    assert!(!warnings.contains("lib_exported"), "{warnings}");
+    assert_eq!(names(&v["newly_dead"]), ["unexported"]);
 }

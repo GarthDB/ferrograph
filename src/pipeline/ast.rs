@@ -526,9 +526,14 @@ fn has_restricted_visibility(node: &tree_sitter::Node, source: &str) -> bool {
     })
 }
 
-/// A bare `pub` function that is not a test, bench or `main`: the only kind [`PUB_UNEXPORTED_ATTR`](super::exported::PUB_UNEXPORTED_ATTR) can demote.
+/// A bare `pub` function that is not a test, bench or `main` and carries no attribute macro
+/// (`#[wasm_bindgen]`, `#[pyfunction]`, `#[tauri::command]` register it outside the module tree):
+/// the only kind [`PUB_UNEXPORTED_ATTR`](super::exported::PUB_UNEXPORTED_ATTR) can demote.
 pub(super) fn is_unexported_candidate(node: &tree_sitter::Node, source: &str) -> bool {
     !has_restricted_visibility(node, source)
+        && attribute_names(node, source)
+            .iter()
+            .all(|n| PLAIN_IMPL_ATTRS.contains(&n.as_str()))
         && function_payload(node, source)
             .and_then(|p| p.strip_prefix("pub::").map(str::to_string))
             .is_some_and(|rest| {
