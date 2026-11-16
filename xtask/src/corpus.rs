@@ -188,6 +188,45 @@ mod tests {
     }
 
     #[test]
+    fn clones_url_corpus_via_rename() {
+        let t = tempfile::tempdir().unwrap();
+        let origin = t.path().join("origin");
+        std::fs::create_dir_all(&origin).unwrap();
+        std::fs::write(origin.join("a.rs"), "fn a() {}").unwrap();
+        let g = |args: &[&str]| {
+            let mut a = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
+            a.extend(args);
+            run(
+                &[&["git"], a.as_slice()].concat(),
+                Some(&origin),
+                &[],
+                T,
+                true,
+            )
+            .unwrap();
+        };
+        g(&["init", "-q"]);
+        g(&["add", "."]);
+        g(&["commit", "-qm", "x"]);
+        let c = Corpus {
+            name: "t".into(),
+            url: Some(format!("file://{}", origin.display())),
+            git_ref: None,
+            path: None,
+            index_path: None,
+            group: None,
+            heldout: false,
+            cohort: None,
+            cargo_args: None,
+        };
+        let work = t.path().join("work");
+        let p = prepare(&c, &work).unwrap();
+        assert!(p.root.join("a.rs").is_file());
+        assert!(p.sha.is_some());
+        assert!(!work.join("corpora/.t.partial").exists());
+    }
+
+    #[test]
     fn prepares_path_corpus_without_target_or_git() {
         let t = tempfile::tempdir().unwrap();
         let src = t.path().join("src");
