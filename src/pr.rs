@@ -21,7 +21,7 @@ use crate::graph::query::Query;
 use crate::graph::{unquote_datavalue, Store};
 use crate::ops::{
     ChangedFunction, ChangedItems, CouplingHint, FnImpact, ImpactFile, ImpactGroup, ImpactedNode,
-    NewlyDeadFunction, NodeSummary, PrBlast, PrImpacted, PrResult,
+    NewlyDeadFunction, NodeSummary, PrBlast, PrImpacted, PrResult, UnsafeChange,
 };
 use crate::pipeline::{run_pipeline, PipelineConfig};
 
@@ -367,17 +367,12 @@ pub(crate) fn bare_name(payload: &str) -> &str {
 struct DeadState {
     all: BTreeMap<FnKey, String>,
     dead: BTreeSet<FnKey>,
+    /// Functions with `unsafe` (an `unsafe fn` or an `unsafe` block in the body); not filtered by `ignore`.
+    unsafe_fns: BTreeSet<FnKey>,
 }
 
-fn dead_state(
-    store: &Store,
-    opts: &PrOptions,
-    entry: &[String],
-    ignore: &[String],
-    restricted_vis_not_root: bool,
-    bin_pub_not_root: bool,
-    lib_exported_only: bool,
-) -> Result<DeadState> {
+/// Every function keyed by identity (file, name, nth same-named function in the file), and id -> key.
+fn fn_keys(store: &Store) -> Result<(BTreeMap<FnKey, String>, HashMap<String, FnKey>)> {
     let rows = store.run_query(
         &format!(
             "?[id, payload] := *nodes[id, type, payload], type = \"{}\"",
@@ -406,6 +401,19 @@ fn dead_state(
         by_id.insert(id.clone(), key.clone());
         all.insert(key, id);
     }
+    Ok((all, by_id))
+}
+
+fn dead_state(
+    store: &Store,
+    opts: &PrOptions,
+    entry: &[String],
+    ignore: &[String],
+    restricted_vis_not_root: bool,
+    bin_pub_not_root: bool,
+    lib_exported_only: bool,
+) -> Result<DeadState> {
+    let (all, by_id) = fn_keys(store)?;
     let entries = crate::ops::resolve_entry_ids(store, entry)?;
     let pats = ignore
         .iter()
@@ -423,7 +431,24 @@ fn dead_state(
     .filter(|id| !pats.iter().any(|p| crate::ops::path_matches(p, id)))
     .filter_map(|id| by_id.get(&id).cloned())
     .collect();
-    Ok(DeadState { all, dead })
+    let unsafe_fns = store
+        .run_query(
+            &format!(
+                "?[id] := *edges[id, id, \"{}\"], *nodes[id, \"{}\", _]",
+                crate::graph::schema::EdgeType::UsesUnsafe,
+                crate::graph::schema::NodeType::Function
+            ),
+            BTreeMap::new(),
+        )?
+        .rows
+        .iter()
+        .filter_map(|r| by_id.get(&unquote_datavalue(&r[0])).cloned())
+        .collect();
+    Ok(DeadState {
+        all,
+        dead,
+        unsafe_fns,
+    })
 }
 
 /// Whether the graph has at least one `has_attribute` edge to `attr::{attr}`.
@@ -706,6 +731,70 @@ fn map_changes(
     Ok((changed_functions, changed_without_function, blast, impacted))
 }
 
+/// Functions that gained or lost `unsafe`, matched by (file, name, nth same-named function in the file)
+/// with renamed files remapped. A second `unsafe` block in a function that already had one is no change,
+/// and a renamed function shows as one lost plus one gained.
+fn unsafe_changes(
+    head: &DeadState,
+    base: &DeadState,
+    diffs: &[FileDiff],
+    ignore: &[String],
+) -> Result<(Vec<UnsafeChange>, Vec<UnsafeChange>)> {
+    let renames: HashMap<&str, &str> = diffs
+        .iter()
+        .filter_map(|d| d.old_path.as_deref().map(|o| (o, d.path.as_str())))
+        .collect();
+    let remap = |k: &FnKey| -> FnKey {
+        let path = renames.get(k.0.as_str()).map_or(k.0.as_str(), |p| *p);
+        (path.to_string(), k.1.clone(), k.2)
+    };
+    let pats = ignore
+        .iter()
+        .map(|p| glob::Pattern::new(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let ignored = |k: &FnKey| {
+        pats.iter()
+            .any(|p| crate::ops::path_matches(p, &format!("./{}", k.0)))
+    };
+    let base_unsafe: HashMap<FnKey, &FnKey> =
+        base.unsafe_fns.iter().map(|k| (remap(k), k)).collect();
+    let base_all: HashSet<FnKey> = base.all.keys().map(remap).collect();
+    let change = |k: &FnKey, id: &str, status| UnsafeChange {
+        id: id.to_string(),
+        file: k.0.clone(),
+        name: k.1.clone(),
+        line: split_id(id).1,
+        status,
+    };
+    let gained = head
+        .unsafe_fns
+        .iter()
+        .filter(|k| !base_unsafe.contains_key(*k) && !ignored(k))
+        .map(|k| {
+            let status = if base_all.contains(k) {
+                "gained"
+            } else {
+                "added"
+            };
+            change(k, &head.all[k], status)
+        })
+        .collect();
+    let lost = base
+        .unsafe_fns
+        .iter()
+        .filter(|k| !head.unsafe_fns.contains(&remap(k)) && !ignored(&remap(k)))
+        .map(|k| {
+            let status = if head.all.contains_key(&remap(k)) {
+                "lost"
+            } else {
+                "removed"
+            };
+            change(&remap(k), &base.all[k], status)
+        })
+        .collect();
+    Ok((gained, lost))
+}
+
 fn newly_dead(head: &DeadState, base: &DeadState, diffs: &[FileDiff]) -> Vec<NewlyDeadFunction> {
     let renames: HashMap<&str, &str> = diffs
         .iter()
@@ -876,6 +965,7 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
     )?;
 
     let newly_dead = newly_dead(&head_state, &base_state, &diffs);
+    let (unsafe_gained, unsafe_lost) = unsafe_changes(&head_state, &base_state, &diffs, &ignore)?;
     let (changed_functions, changed_without_function, blast, impacted) = map_changes(
         opts,
         &root,
@@ -893,6 +983,9 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
         changed_files: diffs.iter().map(|d| d.path.clone()).collect(),
         newly_dead_count: newly_dead.len(),
         newly_dead,
+        unsafe_gained_count: unsafe_gained.len(),
+        unsafe_gained,
+        unsafe_lost,
         changed_functions,
         changed_without_function,
         blast,

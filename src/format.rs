@@ -32,9 +32,11 @@ pub const DEFAULT_MARKDOWN_LIMIT: usize = 50;
 const MAX_MARKDOWN_CHARS: usize = 60_000;
 
 const RULE_ID: &str = "ferrograph/dead-code";
+const UNSAFE_RULE_ID: &str = "ferrograph/new-unsafe";
 const FINGERPRINT_KEY: &str = "ferrographIdentity/v1";
 
 struct Finding {
+    rule: &'static str,
     path: String,
     name: String,
     line: u32,
@@ -45,6 +47,7 @@ struct Finding {
 fn finding(id: &str, name: &str, message: String) -> Finding {
     let (path, line, col) = split_id(id);
     Finding {
+        rule: RULE_ID,
         path,
         name: name.to_string(),
         line,
@@ -68,7 +71,7 @@ fn sarif(mut findings: Vec<Finding>) -> Value {
             let fingerprint = format!("{}:{}:{n}", f.path, f.name);
             *n += 1;
             json!({
-                "ruleId": RULE_ID,
+                "ruleId": f.rule,
                 "level": "warning",
                 "message": { "text": f.message },
                 "locations": [{
@@ -95,6 +98,12 @@ fn sarif(mut findings: Vec<Finding>) -> Value {
                     "shortDescription": { "text": "Function is not reachable from any entry point" },
                     "defaultConfiguration": { "level": "warning" },
                     "helpUri": "https://github.com/GarthDB/ferrograph#dead-code-entry-points-and-ignores"
+                }, {
+                    "id": UNSAFE_RULE_ID,
+                    "name": "NewUnsafe",
+                    "shortDescription": { "text": "Function gained unsafe code in this change" },
+                    "defaultConfiguration": { "level": "warning" },
+                    "helpUri": "https://github.com/GarthDB/ferrograph#pr"
                 }]
             }},
             "results": results
@@ -120,22 +129,26 @@ pub fn sarif_dead(r: &DeadCodeResult) -> Value {
     )
 }
 
-/// SARIF for `ferrograph pr`: the newly dead functions.
+/// SARIF for `ferrograph pr`: the newly dead functions and the functions that gained `unsafe`.
 #[must_use]
 pub fn sarif_pr(r: &PrResult) -> Value {
-    sarif(
-        r.newly_dead
-            .iter()
-            .map(|f| {
-                let why = if f.status == "added_dead" {
-                    "added but never called"
-                } else {
-                    "no longer called after this change"
-                };
-                finding(&f.id, &f.name, format!("Function `{}` is {why}", f.name))
-            })
-            .collect(),
-    )
+    let dead = r.newly_dead.iter().map(|f| {
+        let why = if f.status == "added_dead" {
+            "added but never called"
+        } else {
+            "no longer called after this change"
+        };
+        finding(&f.id, &f.name, format!("Function `{}` is {why}", f.name))
+    });
+    let unsafe_fns = r.unsafe_gained.iter().map(|f| Finding {
+        rule: UNSAFE_RULE_ID,
+        ..finding(
+            &f.id,
+            &f.name,
+            format!("Function `{}` gained unsafe code", f.name),
+        )
+    });
+    sarif(dead.chain(unsafe_fns).collect())
 }
 
 /// Percent-encode a repo-relative path for a SARIF URI reference (keeps `/` and unreserved bytes).
@@ -258,6 +271,26 @@ pub fn impact_group_label(g: &ImpactGroup) -> String {
     format!("{} ({})", g.count, parts.join(", "))
 }
 
+fn unsafe_section(out: &mut String, r: &PrResult, limit: usize) {
+    if r.unsafe_gained.is_empty() && r.unsafe_lost.is_empty() {
+        return;
+    }
+    out.push_str("\n**Unsafe changes** (per function)\n\n");
+    let rows: Vec<Vec<String>> = r
+        .unsafe_gained
+        .iter()
+        .chain(&r.unsafe_lost)
+        .map(|f| {
+            vec![
+                esc(&f.name),
+                esc(&format!("{}:{}", f.file, f.line)),
+                f.status.to_string(),
+            ]
+        })
+        .collect();
+    table(out, &["Function", "Location", "Change"], &rows, limit);
+}
+
 /// Markdown for `ferrograph pr`.
 #[must_use]
 pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
@@ -283,6 +316,7 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
         })
         .collect();
     table(&mut out, &["Function", "Location", "Kind"], &rows, limit);
+    unsafe_section(&mut out, r, limit);
     let _ = write!(
         out,
         "\n**Impacted by this change** (callers up to {} hops; name-based, so common names over-count)\n\n",
@@ -388,7 +422,7 @@ pub fn markdown_callers(r: &CallersResult, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::{ImpactGroup, NewlyDeadFunction, PrBlast, PrImpacted};
+    use crate::ops::{ImpactGroup, NewlyDeadFunction, PrBlast, PrImpacted, UnsafeChange};
 
     fn node(id: &str, payload: &str) -> NodeSummary {
         NodeSummary {
@@ -469,6 +503,15 @@ mod tests {
                 status: "added_dead",
             }],
             newly_dead_count: 1,
+            unsafe_gained: vec![UnsafeChange {
+                id: "./src/a.rs#9:1".into(),
+                file: "src/a.rs".into(),
+                name: "risky".into(),
+                line: 9,
+                status: "gained",
+            }],
+            unsafe_gained_count: 1,
+            unsafe_lost: vec![],
             changed_functions: vec![],
             changed_without_function: vec![],
             blast: PrBlast {
@@ -491,7 +534,9 @@ mod tests {
             warnings: vec![],
         };
         let v = sarif_pr(&r);
-        assert_eq!(v["runs"][0]["results"].as_array().unwrap().len(), 1);
+        let results = v["runs"][0]["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[1]["ruleId"], UNSAFE_RULE_ID);
         let md = markdown_pr(&r, 50);
         assert!(md.starts_with(MARKER));
         assert!(
@@ -501,6 +546,7 @@ mod tests {
             "{md}"
         );
         assert!(md.contains("| foo | src/a.rs:3 | added_dead |"));
+        assert!(md.contains("| risky | src/a.rs:9 | gained |"), "{md}");
     }
 
     #[test]

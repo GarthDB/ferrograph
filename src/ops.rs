@@ -143,6 +143,19 @@ pub struct NewlyDeadFunction {
     pub status: &'static str,
 }
 
+/// A function that gained or lost `unsafe` (an `unsafe fn` or an `unsafe` block in its body) in the change.
+#[derive(Debug, Serialize)]
+pub struct UnsafeChange {
+    /// Node id at head (`gained`, `added`) or at base (`lost`, `removed`).
+    pub id: String,
+    pub file: String,
+    pub name: String,
+    pub line: u32,
+    /// `gained` (existed without unsafe at base), `added` (new unsafe function), `lost` (still exists
+    /// without unsafe) or `removed` (the function is gone).
+    pub status: &'static str,
+}
+
 /// A function containing changed lines, with its own blast radius size.
 #[derive(Debug, Serialize)]
 pub struct ChangedFunction {
@@ -254,6 +267,11 @@ pub struct PrResult {
     pub changed_files: Vec<String>,
     pub newly_dead: Vec<NewlyDeadFunction>,
     pub newly_dead_count: usize,
+    /// Functions that have `unsafe` at head but not at base. Per function, not per block.
+    pub unsafe_gained: Vec<UnsafeChange>,
+    pub unsafe_gained_count: usize,
+    /// Functions that had `unsafe` at base but not at head.
+    pub unsafe_lost: Vec<UnsafeChange>,
     pub changed_functions: Vec<ChangedFunction>,
     pub changed_without_function: Vec<ChangedItems>,
     /// Forward closure ("depends on"), not impact; see `impacted`.
