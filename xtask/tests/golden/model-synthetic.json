@@ -1,0 +1,2132 @@
+{
+ "graph": {
+  "nodes": [
+   [
+    "./bin_app/src/main.rs",
+    "file",
+    null
+   ],
+   [
+    "./bin_app/src/main.rs#10:5",
+    "function",
+    "dead_m"
+   ],
+   [
+    "./bin_app/src/main.rs#15:1",
+    "impl",
+    "T"
+   ],
+   [
+    "./bin_app/src/main.rs#16:5",
+    "function",
+    "run"
+   ],
+   [
+    "./bin_app/src/main.rs#1:1",
+    "module",
+    "util"
+   ],
+   [
+    "./bin_app/src/main.rs#21:1",
+    "trait",
+    "Speak"
+   ],
+   [
+    "./bin_app/src/main.rs#25:1",
+    "impl",
+    "S"
+   ],
+   [
+    "./bin_app/src/main.rs#26:5",
+    "function",
+    "speak"
+   ],
+   [
+    "./bin_app/src/main.rs#31:1",
+    "function",
+    "live_a"
+   ],
+   [
+    "./bin_app/src/main.rs#35:1",
+    "function",
+    "live_b"
+   ],
+   [
+    "./bin_app/src/main.rs#39:1",
+    "function",
+    "dead_c"
+   ],
+   [
+    "./bin_app/src/main.rs#3:1",
+    "struct",
+    "S"
+   ],
+   [
+    "./bin_app/src/main.rs#43:1",
+    "function",
+    "dead_d"
+   ],
+   [
+    "./bin_app/src/main.rs#47:1",
+    "function",
+    "cleanup"
+   ],
+   [
+    "./bin_app/src/main.rs#4:1",
+    "struct",
+    "T"
+   ],
+   [
+    "./bin_app/src/main.rs#51:1",
+    "function",
+    "teardown"
+   ],
+   [
+    "./bin_app/src/main.rs#55:1",
+    "impl",
+    "T"
+   ],
+   [
+    "./bin_app/src/main.rs#56:5",
+    "function",
+    "fmt"
+   ],
+   [
+    "./bin_app/src/main.rs#61:1",
+    "function",
+    "greeting_helper"
+   ],
+   [
+    "./bin_app/src/main.rs#65:1",
+    "function",
+    "table_entry"
+   ],
+   [
+    "./bin_app/src/main.rs#69:1",
+    "const",
+    "TABLE"
+   ],
+   [
+    "./bin_app/src/main.rs#6:1",
+    "impl",
+    "S"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "function",
+    "main"
+   ],
+   [
+    "./bin_app/src/main.rs#7:5",
+    "function",
+    "run"
+   ],
+   [
+    "./bin_app/src/main.rs#84:1",
+    "module",
+    "tests"
+   ],
+   [
+    "./bin_app/src/main.rs#86:5",
+    "function",
+    "test::t"
+   ],
+   [
+    "./bin_app/src/main.rs#90:5",
+    "function",
+    "test_only_helper"
+   ],
+   [
+    "./bin_app/src/util.rs",
+    "file",
+    null
+   ],
+   [
+    "./bin_app/src/util.rs#1:1",
+    "function",
+    "pub::used"
+   ],
+   [
+    "./bin_app/src/util.rs#3:1",
+    "function",
+    "unused_helper"
+   ],
+   [
+    "./bin_app/src/util.rs#5:1",
+    "function",
+    "pub::pub_dead"
+   ],
+   [
+    "./bin_app/src/util.rs#9:1",
+    "function",
+    "pub::crate_dead"
+   ],
+   [
+    "./lib_crate/src/lib.rs",
+    "file",
+    null
+   ],
+   [
+    "./lib_crate/src/lib.rs#13:1",
+    "function",
+    "pub::pub_unused"
+   ],
+   [
+    "./lib_crate/src/lib.rs#17:1",
+    "function",
+    "pub::entry"
+   ],
+   [
+    "./lib_crate/src/lib.rs#1:1",
+    "function",
+    "pub::api"
+   ],
+   [
+    "./lib_crate/src/lib.rs#21:1",
+    "function",
+    "only_by_entry"
+   ],
+   [
+    "./lib_crate/src/lib.rs#5:1",
+    "function",
+    "helper"
+   ],
+   [
+    "./lib_crate/src/lib.rs#9:1",
+    "function",
+    "lib_dead"
+   ],
+   [
+    "external::Display",
+    "external_type",
+    "Display"
+   ],
+   [
+    "external::Formatter",
+    "external_type",
+    "Formatter"
+   ],
+   [
+    "external::Result",
+    "external_type",
+    "Result"
+   ],
+   [
+    "external::assert_eq",
+    "external_type",
+    "assert_eq"
+   ],
+   [
+    "external::println",
+    "external_type",
+    "println"
+   ],
+   [
+    "external::write",
+    "external_type",
+    "write"
+   ],
+   [
+    "primitive::bool",
+    "primitive",
+    "bool"
+   ],
+   [
+    "primitive::char",
+    "primitive",
+    "char"
+   ],
+   [
+    "primitive::f32",
+    "primitive",
+    "f32"
+   ],
+   [
+    "primitive::f64",
+    "primitive",
+    "f64"
+   ],
+   [
+    "primitive::i128",
+    "primitive",
+    "i128"
+   ],
+   [
+    "primitive::i16",
+    "primitive",
+    "i16"
+   ],
+   [
+    "primitive::i32",
+    "primitive",
+    "i32"
+   ],
+   [
+    "primitive::i64",
+    "primitive",
+    "i64"
+   ],
+   [
+    "primitive::i8",
+    "primitive",
+    "i8"
+   ],
+   [
+    "primitive::isize",
+    "primitive",
+    "isize"
+   ],
+   [
+    "primitive::str",
+    "primitive",
+    "str"
+   ],
+   [
+    "primitive::u128",
+    "primitive",
+    "u128"
+   ],
+   [
+    "primitive::u16",
+    "primitive",
+    "u16"
+   ],
+   [
+    "primitive::u32",
+    "primitive",
+    "u32"
+   ],
+   [
+    "primitive::u64",
+    "primitive",
+    "u64"
+   ],
+   [
+    "primitive::u8",
+    "primitive",
+    "u8"
+   ],
+   [
+    "primitive::usize",
+    "primitive",
+    "usize"
+   ]
+  ],
+  "edges": [
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#15:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#1:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#21:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#25:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#31:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#35:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#39:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#3:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#43:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#47:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#4:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#51:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#55:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#61:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#65:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#69:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#6:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#73:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs",
+    "./bin_app/src/main.rs#84:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs#10:5",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#15:1",
+    "./bin_app/src/main.rs#16:5",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs#15:1",
+    "./bin_app/src/main.rs#4:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#16:5",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#21:1",
+    "./bin_app/src/main.rs#21:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#25:1",
+    "./bin_app/src/main.rs#21:1",
+    "implements_trait"
+   ],
+   [
+    "./bin_app/src/main.rs#25:1",
+    "./bin_app/src/main.rs#21:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#25:1",
+    "./bin_app/src/main.rs#26:5",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs#25:1",
+    "./bin_app/src/main.rs#3:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#26:5",
+    "attr::trait_impl",
+    "has_attribute"
+   ],
+   [
+    "./bin_app/src/main.rs#26:5",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#31:1",
+    "./bin_app/src/main.rs#35:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#31:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#35:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#39:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#3:1",
+    "./bin_app/src/main.rs#3:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#43:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#47:1",
+    "external::println",
+    "expands_to"
+   ],
+   [
+    "./bin_app/src/main.rs#4:1",
+    "./bin_app/src/main.rs#4:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#51:1",
+    "external::println",
+    "expands_to"
+   ],
+   [
+    "./bin_app/src/main.rs#55:1",
+    "./bin_app/src/main.rs#4:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#55:1",
+    "./bin_app/src/main.rs#56:5",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs#55:1",
+    "external::Display",
+    "implements_trait"
+   ],
+   [
+    "./bin_app/src/main.rs#55:1",
+    "external::Display",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#56:5",
+    "./bin_app/src/main.rs#61:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#56:5",
+    "attr::trait_impl",
+    "has_attribute"
+   ],
+   [
+    "./bin_app/src/main.rs#56:5",
+    "external::Formatter",
+    "borrows_mut"
+   ],
+   [
+    "./bin_app/src/main.rs#56:5",
+    "external::Formatter",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#56:5",
+    "external::Result",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#56:5",
+    "external::Result",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#56:5",
+    "external::write",
+    "expands_to"
+   ],
+   [
+    "./bin_app/src/main.rs#61:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#65:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#69:1",
+    "./bin_app/src/main.rs#65:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#6:1",
+    "./bin_app/src/main.rs#10:5",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs#6:1",
+    "./bin_app/src/main.rs#3:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#6:1",
+    "./bin_app/src/main.rs#7:5",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#16:5",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#26:5",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#31:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#47:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#51:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#69:1",
+    "references"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#7:5",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/util.rs#1:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "external::println",
+    "expands_to"
+   ],
+   [
+    "./bin_app/src/main.rs#7:5",
+    "./bin_app/src/main.rs#35:1",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#7:5",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/main.rs#84:1",
+    "./bin_app/src/main.rs#86:5",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs#84:1",
+    "./bin_app/src/main.rs#90:5",
+    "contains"
+   ],
+   [
+    "./bin_app/src/main.rs#86:5",
+    "./bin_app/src/main.rs#90:5",
+    "calls"
+   ],
+   [
+    "./bin_app/src/main.rs#86:5",
+    "attr::test",
+    "has_attribute"
+   ],
+   [
+    "./bin_app/src/main.rs#86:5",
+    "external::assert_eq",
+    "expands_to"
+   ],
+   [
+    "./bin_app/src/main.rs#90:5",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/util.rs",
+    "./bin_app/src/util.rs#1:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/util.rs",
+    "./bin_app/src/util.rs#3:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/util.rs",
+    "./bin_app/src/util.rs#5:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/util.rs",
+    "./bin_app/src/util.rs#9:1",
+    "contains"
+   ],
+   [
+    "./bin_app/src/util.rs#1:1",
+    "attr::pub_bin_only",
+    "has_attribute"
+   ],
+   [
+    "./bin_app/src/util.rs#5:1",
+    "attr::pub_bin_only",
+    "has_attribute"
+   ],
+   [
+    "./bin_app/src/util.rs#5:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./bin_app/src/util.rs#9:1",
+    "attr::pub_restricted",
+    "has_attribute"
+   ],
+   [
+    "./lib_crate/src/lib.rs",
+    "./lib_crate/src/lib.rs#13:1",
+    "contains"
+   ],
+   [
+    "./lib_crate/src/lib.rs",
+    "./lib_crate/src/lib.rs#17:1",
+    "contains"
+   ],
+   [
+    "./lib_crate/src/lib.rs",
+    "./lib_crate/src/lib.rs#1:1",
+    "contains"
+   ],
+   [
+    "./lib_crate/src/lib.rs",
+    "./lib_crate/src/lib.rs#21:1",
+    "contains"
+   ],
+   [
+    "./lib_crate/src/lib.rs",
+    "./lib_crate/src/lib.rs#5:1",
+    "contains"
+   ],
+   [
+    "./lib_crate/src/lib.rs",
+    "./lib_crate/src/lib.rs#9:1",
+    "contains"
+   ],
+   [
+    "./lib_crate/src/lib.rs#13:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./lib_crate/src/lib.rs#17:1",
+    "./lib_crate/src/lib.rs#21:1",
+    "calls"
+   ],
+   [
+    "./lib_crate/src/lib.rs#17:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./lib_crate/src/lib.rs#1:1",
+    "./lib_crate/src/lib.rs#5:1",
+    "calls"
+   ],
+   [
+    "./lib_crate/src/lib.rs#1:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./lib_crate/src/lib.rs#21:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./lib_crate/src/lib.rs#5:1",
+    "primitive::u32",
+    "owns"
+   ],
+   [
+    "./lib_crate/src/lib.rs#9:1",
+    "primitive::u32",
+    "owns"
+   ]
+  ],
+  "low": [
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#16:5"
+   ],
+   [
+    "./bin_app/src/main.rs#73:1",
+    "./bin_app/src/main.rs#7:5"
+   ]
+  ]
+ },
+ "cases": [
+  {
+   "restricted": true,
+   "bin_pub": true,
+   "roots": {
+    "./bin_app/src/main.rs": "file",
+    "./bin_app/src/main.rs#1:1": "module",
+    "./bin_app/src/main.rs#26:5": "trait_impl",
+    "./bin_app/src/main.rs#56:5": "trait_impl",
+    "./bin_app/src/main.rs#73:1": "main",
+    "./bin_app/src/main.rs#84:1": "module",
+    "./bin_app/src/main.rs#86:5": "test",
+    "./bin_app/src/util.rs": "file",
+    "./lib_crate/src/lib.rs": "file",
+    "./lib_crate/src/lib.rs#13:1": "pub",
+    "./lib_crate/src/lib.rs#17:1": "pub",
+    "./lib_crate/src/lib.rs#1:1": "pub"
+   },
+   "dead": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs#5:1",
+    "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "dead_strict": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/main.rs#7:5",
+    "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs#5:1",
+    "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "dead_rustc": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs#5:1",
+    "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "reach": {
+    "./bin_app/src/main.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#16:5": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     true,
+     "calls(low-confidence)@main"
+    ],
+    "./bin_app/src/main.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#26:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#31:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#35:1": [
+     "./bin_app/src/main.rs#31:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#47:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#51:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#56:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#61:1": [
+     "./bin_app/src/main.rs#56:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#65:1": [
+     "./bin_app/src/main.rs#69:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#69:1": [
+     "./bin_app/src/main.rs#73:1",
+     "references",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#73:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#7:5": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     true,
+     null
+    ],
+    "./bin_app/src/main.rs#84:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#86:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#90:5": [
+     "./bin_app/src/main.rs#86:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#1:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#13:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#17:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#21:1": [
+     "./lib_crate/src/lib.rs#17:1",
+     "calls",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#5:1": [
+     "./lib_crate/src/lib.rs#1:1",
+     "calls",
+     false,
+     null
+    ],
+    "external::Formatter": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::Result": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::assert_eq": [
+     "./bin_app/src/main.rs#86:5",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::println": [
+     "./bin_app/src/main.rs#73:1",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::write": [
+     "./bin_app/src/main.rs#56:5",
+     "expands_to",
+     false,
+     null
+    ]
+   },
+   "reach_strict": {
+    "./bin_app/src/main.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#26:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#31:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#35:1": [
+     "./bin_app/src/main.rs#31:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#47:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#51:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#56:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#61:1": [
+     "./bin_app/src/main.rs#56:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#65:1": [
+     "./bin_app/src/main.rs#69:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#69:1": [
+     "./bin_app/src/main.rs#73:1",
+     "references",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#73:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#84:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#86:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#90:5": [
+     "./bin_app/src/main.rs#86:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#1:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#13:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#17:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#21:1": [
+     "./lib_crate/src/lib.rs#17:1",
+     "calls",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#5:1": [
+     "./lib_crate/src/lib.rs#1:1",
+     "calls",
+     false,
+     null
+    ],
+    "external::Formatter": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::Result": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::assert_eq": [
+     "./bin_app/src/main.rs#86:5",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::println": [
+     "./bin_app/src/main.rs#73:1",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::write": [
+     "./bin_app/src/main.rs#56:5",
+     "expands_to",
+     false,
+     null
+    ]
+   },
+   "chains": {
+    "./bin_app/src/main.rs#16:5": [
+     [
+      "./bin_app/src/main.rs#16:5",
+      "calls(low)"
+     ],
+     [
+      "./bin_app/src/main.rs#73:1",
+      "root"
+     ]
+    ]
+   },
+   "map": {
+    "./bin_app/src/main.rs:10:dead_m": "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs:16:run": "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs:39:dead_c": "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs:43:dead_d": "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs:3:unused_helper": "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs:5:pub_dead": "./bin_app/src/util.rs#5:1",
+    "./bin_app/src/util.rs:9:crate_dead": "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs:9:lib_dead": "./lib_crate/src/lib.rs#9:1"
+   },
+   "trait_fns": []
+  },
+  {
+   "restricted": false,
+   "bin_pub": false,
+   "roots": {
+    "./bin_app/src/main.rs": "file",
+    "./bin_app/src/main.rs#1:1": "module",
+    "./bin_app/src/main.rs#26:5": "trait_impl",
+    "./bin_app/src/main.rs#56:5": "trait_impl",
+    "./bin_app/src/main.rs#73:1": "main",
+    "./bin_app/src/main.rs#84:1": "module",
+    "./bin_app/src/main.rs#86:5": "test",
+    "./bin_app/src/util.rs": "file",
+    "./bin_app/src/util.rs#1:1": "pub",
+    "./bin_app/src/util.rs#5:1": "pub",
+    "./bin_app/src/util.rs#9:1": "pub",
+    "./lib_crate/src/lib.rs": "file",
+    "./lib_crate/src/lib.rs#13:1": "pub",
+    "./lib_crate/src/lib.rs#17:1": "pub",
+    "./lib_crate/src/lib.rs#1:1": "pub"
+   },
+   "dead": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs#3:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "dead_strict": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/main.rs#7:5",
+    "./bin_app/src/util.rs#3:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "dead_rustc": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs#5:1",
+    "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "reach": {
+    "./bin_app/src/main.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#16:5": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     true,
+     "calls(low-confidence)@main"
+    ],
+    "./bin_app/src/main.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#26:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#31:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#35:1": [
+     "./bin_app/src/main.rs#31:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#47:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#51:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#56:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#61:1": [
+     "./bin_app/src/main.rs#56:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#65:1": [
+     "./bin_app/src/main.rs#69:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#69:1": [
+     "./bin_app/src/main.rs#73:1",
+     "references",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#73:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#7:5": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     true,
+     null
+    ],
+    "./bin_app/src/main.rs#84:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#86:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#90:5": [
+     "./bin_app/src/main.rs#86:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#5:1": [
+     null,
+     "root",
+     false,
+     "root:pub"
+    ],
+    "./bin_app/src/util.rs#9:1": [
+     null,
+     "root",
+     false,
+     "root:pub"
+    ],
+    "./lib_crate/src/lib.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#13:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#17:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#21:1": [
+     "./lib_crate/src/lib.rs#17:1",
+     "calls",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#5:1": [
+     "./lib_crate/src/lib.rs#1:1",
+     "calls",
+     false,
+     null
+    ],
+    "external::Formatter": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::Result": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::assert_eq": [
+     "./bin_app/src/main.rs#86:5",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::println": [
+     "./bin_app/src/main.rs#73:1",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::write": [
+     "./bin_app/src/main.rs#56:5",
+     "expands_to",
+     false,
+     null
+    ]
+   },
+   "reach_strict": {
+    "./bin_app/src/main.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#26:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#31:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#35:1": [
+     "./bin_app/src/main.rs#31:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#47:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#51:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#56:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#61:1": [
+     "./bin_app/src/main.rs#56:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#65:1": [
+     "./bin_app/src/main.rs#69:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#69:1": [
+     "./bin_app/src/main.rs#73:1",
+     "references",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#73:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#84:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#86:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#90:5": [
+     "./bin_app/src/main.rs#86:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#5:1": [
+     null,
+     "root",
+     false,
+     "root:pub"
+    ],
+    "./bin_app/src/util.rs#9:1": [
+     null,
+     "root",
+     false,
+     "root:pub"
+    ],
+    "./lib_crate/src/lib.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#13:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#17:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#21:1": [
+     "./lib_crate/src/lib.rs#17:1",
+     "calls",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#5:1": [
+     "./lib_crate/src/lib.rs#1:1",
+     "calls",
+     false,
+     null
+    ],
+    "external::Formatter": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::Result": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::assert_eq": [
+     "./bin_app/src/main.rs#86:5",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::println": [
+     "./bin_app/src/main.rs#73:1",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::write": [
+     "./bin_app/src/main.rs#56:5",
+     "expands_to",
+     false,
+     null
+    ]
+   },
+   "chains": {
+    "./bin_app/src/main.rs#16:5": [
+     [
+      "./bin_app/src/main.rs#16:5",
+      "calls(low)"
+     ],
+     [
+      "./bin_app/src/main.rs#73:1",
+      "root"
+     ]
+    ],
+    "./bin_app/src/util.rs#5:1": [
+     [
+      "./bin_app/src/util.rs#5:1",
+      "root"
+     ]
+    ],
+    "./bin_app/src/util.rs#9:1": [
+     [
+      "./bin_app/src/util.rs#9:1",
+      "root"
+     ]
+    ]
+   },
+   "map": {
+    "./bin_app/src/main.rs:10:dead_m": "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs:16:run": "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs:39:dead_c": "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs:43:dead_d": "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs:3:unused_helper": "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs:5:pub_dead": "./bin_app/src/util.rs#5:1",
+    "./bin_app/src/util.rs:9:crate_dead": "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs:9:lib_dead": "./lib_crate/src/lib.rs#9:1"
+   },
+   "trait_fns": []
+  },
+  {
+   "restricted": true,
+   "bin_pub": false,
+   "roots": {
+    "./bin_app/src/main.rs": "file",
+    "./bin_app/src/main.rs#1:1": "module",
+    "./bin_app/src/main.rs#26:5": "trait_impl",
+    "./bin_app/src/main.rs#56:5": "trait_impl",
+    "./bin_app/src/main.rs#73:1": "main",
+    "./bin_app/src/main.rs#84:1": "module",
+    "./bin_app/src/main.rs#86:5": "test",
+    "./bin_app/src/util.rs": "file",
+    "./bin_app/src/util.rs#1:1": "pub",
+    "./bin_app/src/util.rs#5:1": "pub",
+    "./lib_crate/src/lib.rs": "file",
+    "./lib_crate/src/lib.rs#13:1": "pub",
+    "./lib_crate/src/lib.rs#17:1": "pub",
+    "./lib_crate/src/lib.rs#1:1": "pub"
+   },
+   "dead": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "dead_strict": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/main.rs#7:5",
+    "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "dead_rustc": [
+    "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs#5:1",
+    "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs#9:1"
+   ],
+   "reach": {
+    "./bin_app/src/main.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#16:5": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     true,
+     "calls(low-confidence)@main"
+    ],
+    "./bin_app/src/main.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#26:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#31:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#35:1": [
+     "./bin_app/src/main.rs#31:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#47:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#51:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#56:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#61:1": [
+     "./bin_app/src/main.rs#56:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#65:1": [
+     "./bin_app/src/main.rs#69:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#69:1": [
+     "./bin_app/src/main.rs#73:1",
+     "references",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#73:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#7:5": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     true,
+     null
+    ],
+    "./bin_app/src/main.rs#84:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#86:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#90:5": [
+     "./bin_app/src/main.rs#86:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#5:1": [
+     null,
+     "root",
+     false,
+     "root:pub"
+    ],
+    "./lib_crate/src/lib.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#13:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#17:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#21:1": [
+     "./lib_crate/src/lib.rs#17:1",
+     "calls",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#5:1": [
+     "./lib_crate/src/lib.rs#1:1",
+     "calls",
+     false,
+     null
+    ],
+    "external::Formatter": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::Result": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::assert_eq": [
+     "./bin_app/src/main.rs#86:5",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::println": [
+     "./bin_app/src/main.rs#73:1",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::write": [
+     "./bin_app/src/main.rs#56:5",
+     "expands_to",
+     false,
+     null
+    ]
+   },
+   "reach_strict": {
+    "./bin_app/src/main.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#26:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#31:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#35:1": [
+     "./bin_app/src/main.rs#31:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#47:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#51:1": [
+     "./bin_app/src/main.rs#73:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#56:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#61:1": [
+     "./bin_app/src/main.rs#56:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#65:1": [
+     "./bin_app/src/main.rs#69:1",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#69:1": [
+     "./bin_app/src/main.rs#73:1",
+     "references",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#73:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#84:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#86:5": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/main.rs#90:5": [
+     "./bin_app/src/main.rs#86:5",
+     "calls",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./bin_app/src/util.rs#5:1": [
+     null,
+     "root",
+     false,
+     "root:pub"
+    ],
+    "./lib_crate/src/lib.rs": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#13:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#17:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#1:1": [
+     null,
+     "root",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#21:1": [
+     "./lib_crate/src/lib.rs#17:1",
+     "calls",
+     false,
+     null
+    ],
+    "./lib_crate/src/lib.rs#5:1": [
+     "./lib_crate/src/lib.rs#1:1",
+     "calls",
+     false,
+     null
+    ],
+    "external::Formatter": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::Result": [
+     "./bin_app/src/main.rs#56:5",
+     "references",
+     false,
+     null
+    ],
+    "external::assert_eq": [
+     "./bin_app/src/main.rs#86:5",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::println": [
+     "./bin_app/src/main.rs#73:1",
+     "expands_to",
+     false,
+     null
+    ],
+    "external::write": [
+     "./bin_app/src/main.rs#56:5",
+     "expands_to",
+     false,
+     null
+    ]
+   },
+   "chains": {
+    "./bin_app/src/main.rs#16:5": [
+     [
+      "./bin_app/src/main.rs#16:5",
+      "calls(low)"
+     ],
+     [
+      "./bin_app/src/main.rs#73:1",
+      "root"
+     ]
+    ],
+    "./bin_app/src/util.rs#5:1": [
+     [
+      "./bin_app/src/util.rs#5:1",
+      "root"
+     ]
+    ]
+   },
+   "map": {
+    "./bin_app/src/main.rs:10:dead_m": "./bin_app/src/main.rs#10:5",
+    "./bin_app/src/main.rs:16:run": "./bin_app/src/main.rs#16:5",
+    "./bin_app/src/main.rs:39:dead_c": "./bin_app/src/main.rs#39:1",
+    "./bin_app/src/main.rs:43:dead_d": "./bin_app/src/main.rs#43:1",
+    "./bin_app/src/util.rs:3:unused_helper": "./bin_app/src/util.rs#3:1",
+    "./bin_app/src/util.rs:5:pub_dead": "./bin_app/src/util.rs#5:1",
+    "./bin_app/src/util.rs:9:crate_dead": "./bin_app/src/util.rs#9:1",
+    "./lib_crate/src/lib.rs:9:lib_dead": "./lib_crate/src/lib.rs#9:1"
+   },
+   "trait_fns": []
+  }
+ ]
+}

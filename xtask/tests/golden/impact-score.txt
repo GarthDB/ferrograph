@@ -1,0 +1,12 @@
+default
+  depth<=1: precision 75.0% (21/28) [56.6-87.3]
+  depth<=2: precision 83.3% (35/42) [69.4-91.7]
+  depth<=3: precision 89.5% (60/67) [80.0-94.8]
+  depth==2 only: precision 100.0% (14/14) [78.5-100.0]
+  depth==3 only: precision 100.0% (25/25) [86.7-100.0]
+--exclude-low-confidence
+  depth<=1: precision 100.0% (21/21) [84.5-100.0]
+  depth<=2: precision 100.0% (35/35) [90.1-100.0]
+  depth<=3: precision 100.0% (60/60) [94.0-100.0]
+  depth==2 only: precision 100.0% (14/14) [78.5-100.0]
+  depth==3 only: precision 100.0% (25/25) [86.7-100.0]

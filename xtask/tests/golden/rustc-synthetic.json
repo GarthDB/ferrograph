@@ -1,0 +1,79 @@
+{
+ "items": [
+  [
+   "./bin_app/src/main.rs",
+   10,
+   "dead_m",
+   2,
+   "method",
+   false
+  ],
+  [
+   "./bin_app/src/main.rs",
+   16,
+   "run",
+   2,
+   "method",
+   false
+  ],
+  [
+   "./bin_app/src/main.rs",
+   39,
+   "dead_c",
+   2,
+   "function",
+   false
+  ],
+  [
+   "./bin_app/src/main.rs",
+   43,
+   "dead_d",
+   2,
+   "function",
+   false
+  ],
+  [
+   "./bin_app/src/util.rs",
+   3,
+   "unused_helper",
+   2,
+   "function",
+   false
+  ],
+  [
+   "./bin_app/src/util.rs",
+   5,
+   "pub_dead",
+   2,
+   "function",
+   false
+  ],
+  [
+   "./bin_app/src/util.rs",
+   9,
+   "crate_dead",
+   2,
+   "function",
+   false
+  ],
+  [
+   "./lib_crate/src/lib.rs",
+   9,
+   "lib_dead",
+   2,
+   "function",
+   false
+  ]
+ ],
+ "units": {
+  "./lib_crate/src/lib.rs": 2,
+  "./bin_app/src/util.rs": 2,
+  "./bin_app/src/main.rs": 2
+ },
+ "fclass": {
+  "./lib_crate/src/lib.rs": "lib",
+  "./bin_app/src/util.rs": "bin",
+  "./bin_app/src/main.rs": "bin"
+ },
+ "note": ""
+}
