@@ -160,12 +160,15 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
+    // shortcut: one bool per marker, group into an options struct when the next one lands.
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn compute_dead_functions_with_payload(
         store: &Store,
         strict: bool,
         extra_entries: &[String],
         restricted_vis_not_root: bool,
         bin_pub_not_root: bool,
+        lib_exported_only: bool,
     ) -> Result<Vec<NodeTriple>> {
         let ids = Self::compute_dead_functions_with(
             store,
@@ -173,6 +176,7 @@ impl Query {
             extra_entries,
             restricted_vis_not_root,
             bin_pub_not_root,
+            lib_exported_only,
         )?;
         if ids.is_empty() {
             return Ok(Vec::new());
@@ -222,7 +226,7 @@ impl Query {
     /// # Errors
     /// Fails if the store query fails.
     pub fn compute_dead_functions_opts(store: &Store, strict: bool) -> Result<Vec<String>> {
-        Self::compute_dead_functions_with(store, strict, &[], false, false)
+        Self::compute_dead_functions_with(store, strict, &[], false, false, false)
     }
 
     /// Like [`Self::compute_dead_functions_opts`], with extra entry-point node ids (roots).
@@ -230,15 +234,20 @@ impl Query {
     /// (bare `pub` still is); graphs indexed before the marker existed are unaffected by it.
     /// With `bin_pub_not_root`, bare `pub` functions in files compiled only by bin, test, example or
     /// bench units (marker `attr::pub_bin_only`, see `pipeline::modules::is_bin_only_file`) are not roots either.
+    /// With `lib_exported_only`, bare `pub` free functions that a library crate does not export (marker
+    /// `attr::pub_unexported`, see `pipeline::exported`) are not roots.
     ///
     /// # Errors
     /// Fails if the store query fails.
+    // shortcut: one bool per marker, group into an options struct when the next one lands.
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn compute_dead_functions_with(
         store: &Store,
         strict: bool,
         extra_entries: &[String],
         restricted_vis_not_root: bool,
         bin_pub_not_root: bool,
+        lib_exported_only: bool,
     ) -> Result<Vec<String>> {
         let not_low = if strict { ", not low[from, to]" } else { "" };
         let type_function = NodeType::Function.to_string();
@@ -270,6 +279,7 @@ impl Query {
         };
         let mut restricted = marked(restricted_vis_not_root, "pub_restricted")?;
         restricted.extend(marked(bin_pub_not_root, "pub_bin_only")?);
+        restricted.extend(marked(lib_exported_only, "pub_unexported")?);
         let entry_ids: Vec<DataValue> = all_fns
             .rows
             .iter()

@@ -126,6 +126,12 @@ pub enum Command {
         /// Keep bare `pub` functions in bin/test/example/bench-only files as entry points (overrides the config file).
         #[arg(long)]
         no_bin_pub_not_root: bool,
+        /// Do not treat bare `pub` free functions that a library crate does not export (private module, no `pub use` path) as entry points. Off by default.
+        #[arg(long, conflicts_with = "no_lib_exported_only")]
+        lib_exported_only: bool,
+        /// Keep unexported library `pub` functions as entry points (overrides the config file).
+        #[arg(long)]
+        no_lib_exported_only: bool,
         /// Extra entry point: file glob (`examples/**`) or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
@@ -172,6 +178,12 @@ pub enum Command {
         /// Keep bare `pub` functions in bin/test/example/bench-only files as entry points (overrides the config file).
         #[arg(long)]
         no_bin_pub_not_root: bool,
+        /// Do not treat bare `pub` free functions that a library crate does not export (private module, no `pub use` path) as entry points. Off by default.
+        #[arg(long, conflicts_with = "no_lib_exported_only")]
+        lib_exported_only: bool,
+        /// Keep unexported library `pub` functions as entry points (overrides the config file).
+        #[arg(long)]
+        no_lib_exported_only: bool,
         /// Extra entry point: file glob or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
@@ -193,6 +205,12 @@ pub enum Command {
         /// Exit with code 1 if more than N functions are newly dead.
         #[arg(long)]
         max_new_dead: Option<usize>,
+        /// Exit with code 1 if any function gained `unsafe` (an `unsafe fn` or an `unsafe` block; per function, not per block).
+        #[arg(long, conflicts_with = "max_new_unsafe")]
+        fail_on_new_unsafe: bool,
+        /// Exit with code 1 if more than N functions gained `unsafe`.
+        #[arg(long)]
+        max_new_unsafe: Option<usize>,
         /// Exit with code 1 if the combined blast radius (what the change depends on, not the impacted callers) has more than N nodes.
         #[arg(long)]
         max_blast: Option<usize>,
@@ -334,6 +352,8 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             no_restricted_vis_not_root,
             bin_pub_not_root,
             no_bin_pub_not_root,
+            lib_exported_only,
+            no_lib_exported_only,
             entry,
             ignore,
             fail_on_any,
@@ -346,6 +366,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 strict,
                 restricted_vis_not_root: flag(restricted_vis_not_root, no_restricted_vis_not_root),
                 bin_pub_not_root: flag(bin_pub_not_root, no_bin_pub_not_root),
+                lib_exported_only: flag(lib_exported_only, no_lib_exported_only),
                 entry,
                 ignore,
             },
@@ -362,6 +383,8 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             no_restricted_vis_not_root,
             bin_pub_not_root,
             no_bin_pub_not_root,
+            lib_exported_only,
+            no_lib_exported_only,
             entry,
             ignore,
             exclude_low_confidence,
@@ -369,6 +392,8 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             impact_depth,
             fail_on_new_dead,
             max_new_dead,
+            fail_on_new_unsafe,
+            max_new_unsafe,
             max_blast,
             max_impacted,
             out,
@@ -384,6 +409,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 strict,
                 restricted_vis_not_root: flag(restricted_vis_not_root, no_restricted_vis_not_root),
                 bin_pub_not_root: flag(bin_pub_not_root, no_bin_pub_not_root),
+                lib_exported_only: flag(lib_exported_only, no_lib_exported_only),
                 entry,
                 ignore,
                 exclude_low_confidence,
@@ -392,9 +418,12 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             };
             run_pr(
                 &opts,
-                fail_on_new_dead.then_some(0).or(max_new_dead),
-                max_blast,
-                max_impacted,
+                PrThresholds {
+                    new_dead: fail_on_new_dead.then_some(0).or(max_new_dead),
+                    new_unsafe: fail_on_new_unsafe.then_some(0).or(max_new_unsafe),
+                    blast: max_blast,
+                    impacted: max_impacted,
+                },
                 fmt.resolve(json)?,
                 &out,
                 to_stdout,
@@ -574,6 +603,9 @@ pub struct DeadConfig {
     /// Treat bare `pub` functions in bin/test/example/bench-only files as non-roots (default true, false with `--strict`).
     #[serde(default)]
     pub bin_pub_not_root: Option<bool>,
+    /// Treat bare `pub` free functions a library crate does not export as non-roots (default false).
+    #[serde(default)]
+    pub lib_exported_only: Option<bool>,
 }
 
 /// `--x` / `--no-x` pair to a tri-state: unset leaves the config file and the default in charge.
@@ -632,6 +664,7 @@ fn run_dead(
         .restricted_vis_not_root
         .or(cfg.dead.restricted_vis_not_root);
     opts.bin_pub_not_root = opts.bin_pub_not_root.or(cfg.dead.bin_pub_not_root);
+    opts.lib_exported_only = opts.lib_exported_only.or(cfg.dead.lib_exported_only);
     opts.entry.extend(cfg.dead.entry);
     opts.ignore.extend(cfg.dead.ignore);
     let result = crate::ops::dead_code(&store, file, &opts)?;
@@ -682,11 +715,18 @@ fn render_pr(r: &crate::ops::PrResult, format: Format, md_limit: usize) -> Resul
     })
 }
 
+/// `--max-*` limits of `pr`; exceeding one exits with code 1.
+#[derive(Clone, Copy)]
+struct PrThresholds {
+    new_dead: Option<usize>,
+    new_unsafe: Option<usize>,
+    blast: Option<usize>,
+    impacted: Option<usize>,
+}
+
 fn run_pr(
     opts: &crate::pr::PrOptions,
-    max_new_dead: Option<usize>,
-    max_blast: Option<usize>,
-    max_impacted: Option<usize>,
+    max: PrThresholds,
     (format, md_limit): (Format, usize),
     out: &[(Format, PathBuf)],
     to_stdout: bool,
@@ -713,9 +753,10 @@ fn run_pr(
     }
     let mut outcome = Outcome::Ok;
     for (label, count, max) in [
-        ("new dead", r.newly_dead_count, max_new_dead),
-        ("blast", r.blast.count, max_blast),
-        ("impacted", r.impacted.count, max_impacted),
+        ("new dead", r.newly_dead_count, max.new_dead),
+        ("new unsafe", r.unsafe_gained_count, max.new_unsafe),
+        ("blast", r.blast.count, max.blast),
+        ("impacted", r.impacted.count, max.impacted),
     ] {
         if let Some(m) = max.filter(|&m| count > m) {
             eprintln!("threshold exceeded: {label} {count} > {m}");
@@ -740,6 +781,12 @@ fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
     emit!("\nNewly dead functions: {}", r.newly_dead_count);
     for f in &r.newly_dead {
         emit!("  {}\t{}\t{}", f.id, f.name, f.status);
+    }
+    if !r.unsafe_gained.is_empty() || !r.unsafe_lost.is_empty() {
+        emit!("\nFunctions that gained unsafe: {}", r.unsafe_gained_count);
+        for f in r.unsafe_gained.iter().chain(&r.unsafe_lost) {
+            emit!("  {}\t{}\t{}", f.id, f.name, f.status);
+        }
     }
     let i = &r.impacted;
     emit!(

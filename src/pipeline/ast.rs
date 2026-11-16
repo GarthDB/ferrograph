@@ -370,7 +370,7 @@ fn is_trait_impl_method(node: &tree_sitter::Node) -> bool {
 
 /// Attributes that leave an `impl` as written; any other outer attribute is a proc macro (`#[zbus::interface]`)
 /// whose generated code may call the methods (#102).
-const PLAIN_IMPL_ATTRS: [&str; 11] = [
+const PLAIN_IMPL_ATTRS: [&str; 13] = [
     "cfg",
     "cfg_attr",
     "allow",
@@ -381,6 +381,8 @@ const PLAIN_IMPL_ATTRS: [&str; 11] = [
     "doc",
     "deprecated",
     "must_use",
+    "track_caller",
+    "cold",
     "rustfmt::skip",
 ];
 
@@ -524,6 +526,21 @@ fn has_restricted_visibility(node: &tree_sitter::Node, source: &str) -> bool {
     node.child(0).is_some_and(|c| {
         c.kind() == "visibility_modifier" && source.get(c.byte_range()) != Some("pub")
     })
+}
+
+/// A bare `pub` function that is not a test, bench or `main` and carries no attribute macro
+/// (`#[wasm_bindgen]`, `#[pyfunction]`, `#[tauri::command]` register it outside the module tree):
+/// the only kind [`PUB_UNEXPORTED_ATTR`](super::exported::PUB_UNEXPORTED_ATTR) can demote.
+pub(super) fn is_unexported_candidate(node: &tree_sitter::Node, source: &str) -> bool {
+    !has_restricted_visibility(node, source)
+        && attribute_names(node, source)
+            .iter()
+            .all(|n| PLAIN_IMPL_ATTRS.contains(&n.as_str()))
+        && function_payload(node, source)
+            .and_then(|p| p.strip_prefix("pub::").map(str::to_string))
+            .is_some_and(|rest| {
+                !rest.starts_with("test::") && !rest.starts_with("bench::") && rest != "main"
+            })
 }
 
 /// Payload for a function node: "`pub::name`" if public, "`test::name`" if test, "`bench::name`" if bench, else "name". Used for dead-code entry point detection.

@@ -775,6 +775,7 @@ fn pipeline_restricted_visibility_fns_are_not_roots() {
             &[],
             restricted,
             false,
+            false,
         )
         .unwrap();
         let mut names: Vec<String> = dead_names_of(&store, &ids)
@@ -811,6 +812,7 @@ fn pipeline_bin_only_bare_pub_fns_are_not_roots() {
             &[],
             restricted,
             bin_pub,
+            false,
         )
         .unwrap();
         let mut names: Vec<String> = dead_names_of(&store, &ids)
@@ -826,6 +828,42 @@ fn pipeline_bin_only_bare_pub_fns_are_not_roots() {
     assert_eq!(
         dead(true, true),
         ["bin_unused", "crate_unused", "unused_support"]
+    );
+}
+
+/// Opt-in `lib_exported_only`: bare `pub` free fns a library crate does not export (private module, no `pub use`
+/// path) are not roots. Re-exports by name, rename, glob, chain and `pub(crate)` module keep their targets alive.
+#[test]
+fn pipeline_lib_exported_only_demotes_unexported_pub_fns() {
+    let store = run_fixture("lib_exported");
+    let dead = |lib_exported| {
+        let ids = ferrograph::graph::Query::compute_dead_functions_with(
+            &store,
+            false,
+            &[],
+            false,
+            false,
+            lib_exported,
+        )
+        .unwrap();
+        let mut names: Vec<String> = dead_names_of(&store, &ids)
+            .iter()
+            .map(|n| n.trim_start_matches("pub::").to_string())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(dead(false), Vec::<String>::new());
+    assert_eq!(
+        dead(true),
+        [
+            "chain_a_dead",
+            "crate_mod_dead",
+            "hidden_dead",
+            "inner_dead",
+            "path_hidden_dead",
+            "reexp_sibling_dead"
+        ]
     );
 }
 
@@ -1506,6 +1544,7 @@ fn pipeline_underscore_prefixed_fns_are_roots() {
                 &[],
                 restricted,
                 bin_pub,
+                false,
             )
             .unwrap();
             let lines: Vec<usize> = ids

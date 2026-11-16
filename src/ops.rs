@@ -143,6 +143,19 @@ pub struct NewlyDeadFunction {
     pub status: &'static str,
 }
 
+/// A function that gained or lost `unsafe` (an `unsafe fn` or an `unsafe` block in its body) in the change.
+#[derive(Debug, Serialize)]
+pub struct UnsafeChange {
+    /// Node id at head (`gained`, `added`) or at base (`lost`, `removed`).
+    pub id: String,
+    pub file: String,
+    pub name: String,
+    pub line: u32,
+    /// `gained` (existed without unsafe at base), `added` (new unsafe function), `lost` (still exists
+    /// without unsafe) or `removed` (the function is gone).
+    pub status: &'static str,
+}
+
 /// A function containing changed lines, with its own blast radius size.
 #[derive(Debug, Serialize)]
 pub struct ChangedFunction {
@@ -254,6 +267,11 @@ pub struct PrResult {
     pub changed_files: Vec<String>,
     pub newly_dead: Vec<NewlyDeadFunction>,
     pub newly_dead_count: usize,
+    /// Functions that have `unsafe` at head but not at base. Per function, not per block.
+    pub unsafe_gained: Vec<UnsafeChange>,
+    pub unsafe_gained_count: usize,
+    /// Functions that had `unsafe` at base but not at head.
+    pub unsafe_lost: Vec<UnsafeChange>,
     pub changed_functions: Vec<ChangedFunction>,
     pub changed_without_function: Vec<ChangedItems>,
     /// Forward closure ("depends on"), not impact; see `impacted`.
@@ -311,6 +329,8 @@ pub struct DeadOptions {
     pub restricted_vis_not_root: Option<bool>,
     /// Bare `pub` functions in files compiled only by bin/test/example/bench units are not roots. `None`: true, false with `strict`.
     pub bin_pub_not_root: Option<bool>,
+    /// Bare `pub` free functions that a library crate does not export are not roots. `None`: false.
+    pub lib_exported_only: Option<bool>,
     /// Extra entry points: file globs (`examples/**`) or attributes (`#[no_mangle]`).
     pub entry: Vec<String>,
     /// File globs whose functions are never reported.
@@ -374,7 +394,8 @@ pub fn dead_code(
     // positives there (#91, #92), so strict keeps its old meaning unless one is asked for.
     let restricted = opts.restricted_vis_not_root.unwrap_or(!opts.strict);
     let bin_pub = opts.bin_pub_not_root.unwrap_or(!opts.strict);
-    let custom = opts.strict || restricted || bin_pub || !opts.entry.is_empty();
+    let lib_exported = opts.lib_exported_only.unwrap_or(false);
+    let custom = opts.strict || restricted || bin_pub || lib_exported || !opts.entry.is_empty();
     let mut triples = if custom {
         Vec::new()
     } else {
@@ -388,6 +409,7 @@ pub fn dead_code(
             &entries,
             restricted,
             bin_pub,
+            lib_exported,
         )?;
         "computed"
     } else {

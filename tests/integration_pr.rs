@@ -764,3 +764,131 @@ fn exclude_low_confidence_drops_trait_dispatch_callers() {
     let x = json(&pr(d.path(), &["--json", "--exclude-low-confidence"]));
     assert!(names(&x["impacted"]["nodes"]).is_empty(), "{x}");
 }
+
+const UNSAFE_BASE: &str =
+    "fn main() {\n    moved();\n    second();\n    plain();\n    drops();\n    old_name();\n}\n\
+fn moved() {\n    unsafe { 1; }\n    let _a = 1;\n}\n\
+fn second() {\n    unsafe { 1; }\n}\n\
+fn plain() {}\n\
+fn drops() {\n    unsafe { 1; }\n}\n\
+fn old_name() {\n    unsafe { 1; }\n}\n";
+
+fn unsafe_names<'a>(v: &'a serde_json::Value, key: &str) -> Vec<(&'a str, &'a str)> {
+    let mut out: Vec<_> = v[key]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| (f["name"].as_str().unwrap(), f["status"].as_str().unwrap()))
+        .collect();
+    out.sort_unstable();
+    out
+}
+
+#[test]
+fn pr_reports_functions_that_gained_or_lost_unsafe() {
+    let Some(d) = repo() else { return };
+    write(d.path(), "src/main.rs", UNSAFE_BASE);
+    commit(d.path(), "unsafe base");
+    git(d.path(), &["checkout", "-q", "main"]);
+    git(d.path(), &["merge", "-q", "--ff-only", "feature"]);
+    git(d.path(), &["checkout", "-q", "-b", "feature2"]);
+    let head = "fn main() {\n    moved();\n    second();\n    plain();\n    drops();\n    new_name();\n    fresh();\n}\n\
+fn moved() {\n    let _a = 1;\n    unsafe { 1; }\n}\n\
+fn second() {\n    unsafe { 1; }\n    unsafe { 2; }\n}\n\
+fn plain() {\n    unsafe { 1; }\n}\n\
+fn drops() {\n    1;\n}\n\
+fn new_name() {\n    unsafe { 1; }\n}\n\
+unsafe fn fresh() {}\n";
+    write(d.path(), "src/main.rs", head);
+    commit(d.path(), "change unsafe");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert_eq!(
+        unsafe_names(&v, "unsafe_gained"),
+        [
+            ("fresh", "added"),
+            ("new_name", "added"),
+            ("plain", "gained")
+        ],
+        "a moved block and a second block are no change"
+    );
+    assert_eq!(v["unsafe_gained_count"], 3);
+    assert_eq!(
+        unsafe_names(&v, "unsafe_lost"),
+        [("drops", "lost"), ("old_name", "removed")]
+    );
+    let sarif = json(&pr(d.path(), &["--format", "sarif"]));
+    let rules: Vec<_> = sarif["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["ruleId"] == "ferrograph/new-unsafe")
+        .collect();
+    assert_eq!(rules.len(), 3);
+    let md = String::from_utf8_lossy(&pr(d.path(), &["--format", "markdown"]).stdout).into_owned();
+    assert!(
+        md.contains("**Unsafe changes**") && md.contains("| plain |"),
+        "{md}"
+    );
+
+    assert_eq!(
+        pr(d.path(), &["--max-new-unsafe", "3"]).status.code(),
+        Some(0)
+    );
+    assert_eq!(
+        pr(d.path(), &["--max-new-unsafe", "2"]).status.code(),
+        Some(1)
+    );
+    assert_eq!(
+        pr(d.path(), &["--fail-on-new-unsafe"]).status.code(),
+        Some(1)
+    );
+    write(
+        d.path(),
+        ".ferrograph.toml",
+        "[dead]\nignore = [\"src/**\"]\n",
+    );
+    commit(d.path(), "ignore");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert_eq!(
+        v["unsafe_gained_count"], 0,
+        "ignore applies to unsafe changes"
+    );
+}
+
+#[test]
+fn pr_without_unsafe_changes_has_no_unsafe_section() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "src/main.rs",
+        &BASE.replace("fn used() {}", "fn used() { 1; }"),
+    );
+    commit(d.path(), "no unsafe");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert_eq!(v["unsafe_gained_count"], 0);
+    let md = String::from_utf8_lossy(&pr(d.path(), &["--format", "markdown"]).stdout).into_owned();
+    assert!(!md.contains("Unsafe changes"), "{md}");
+}
+
+/// `pub_unexported` is absent from a graph with nothing to demote, so only one side having it is not a stale graph.
+#[test]
+fn lib_exported_only_does_not_warn_when_only_the_head_has_unexported_fns() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "Cargo.toml",
+        "[package]\nname = \"p\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(d.path(), "src/lib.rs", "pub fn api() {}\n");
+    commit(d.path(), "lib");
+    git(d.path(), &["checkout", "-q", "main"]);
+    git(d.path(), &["merge", "-q", "--ff-only", "feature"]);
+    git(d.path(), &["checkout", "-q", "-b", "feature2"]);
+    write(d.path(), "src/lib.rs", "mod hidden;\npub fn api() {}\n");
+    write(d.path(), "src/hidden.rs", "pub fn unexported() {}\n");
+    commit(d.path(), "add hidden");
+    let v = json(&pr(d.path(), &["--json", "--lib-exported-only"]));
+    let warnings = v["warnings"].to_string();
+    assert!(!warnings.contains("lib_exported"), "{warnings}");
+    assert_eq!(names(&v["newly_dead"]), ["unexported"]);
+}
