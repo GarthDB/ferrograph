@@ -63,11 +63,15 @@ pub fn prepare(c: &Corpus, work: &Path) -> Result<Prepared> {
     if let Some(url) = &c.url {
         if !dest.exists() {
             std::fs::create_dir_all(dest.parent().expect("has parent"))?;
-            // Do not leave a half-initialised checkout behind: a later run would reuse it.
-            if let Err(e) = clone(&dest, url, c.git_ref.as_deref().unwrap_or("HEAD")) {
-                std::fs::remove_dir_all(&dest).ok();
+            // Clone beside `dest` and rename on success, so a failure or kill mid-clone never leaves a
+            // half-initialised `dest` for a later run to reuse.
+            let tmp = dest.with_file_name(format!(".{}.partial", c.group()));
+            std::fs::remove_dir_all(&tmp).ok();
+            if let Err(e) = clone(&tmp, url, c.git_ref.as_deref().unwrap_or("HEAD")) {
+                std::fs::remove_dir_all(&tmp).ok();
                 return Err(e);
             }
+            std::fs::rename(&tmp, &dest)?;
         }
         return Ok(Prepared {
             sha: git_head(&dest),
@@ -180,6 +184,7 @@ mod tests {
         let work = t.path().join("work");
         assert!(prepare(&c, &work).is_err());
         assert!(!work.join("corpora/t").exists());
+        assert!(!work.join("corpora/.t.partial").exists());
     }
 
     #[test]
