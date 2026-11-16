@@ -1,4 +1,4 @@
-# Corpora for groundtruth.py / mutation.py.
+# Corpora for `cargo xtask groundtruth` / `mutation`.
 #   url (shallow-cloned at `ref`, a branch, tag or full SHA) or path (copied, never modified)
 #   optional: group (share copy + target dir), index_path (subdir to index, default "."),
 #             heldout (true = not used while tuning; reported separately), cargo_args (default: --workspace --all-targets --all-features; the runner falls back
@@ -96,7 +96,7 @@ url = "https://github.com/GarthDB/spectrum-rune"
 ref = "e4e4371d6c0f413256c90271256721c886719780"
 
 # Second held-out set (cohort "held-out-2"): picked AFTER the changes it is used to evaluate were designed, by scanning
-# 113 public crates (scan.py; 80 built with the active toolchain) for ones where rustc reports >= 5 dead fns with --force-warn dead_code. Pinned to the
+# 113 public crates (`cargo xtask scan`; 80 built with the active toolchain) for ones where rustc reports >= 5 dead fns with --force-warn dead_code. Pinned to the
 # default-branch HEAD at scan time (2026-11-13). Report separately from the original and the first held-out set.
 
 [[corpus]]

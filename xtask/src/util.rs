@@ -29,10 +29,6 @@ impl Counter {
         self.0.iter().find(|(x, _)| x == k).map_or(0, |e| e.1)
     }
 
-    pub fn total(&self) -> u64 {
-        self.0.iter().map(|e| e.1).sum()
-    }
-
     /// `k: v, k: v` in first-seen order, or `none`.
     pub fn joined(&self) -> String {
         if self.0.is_empty() {

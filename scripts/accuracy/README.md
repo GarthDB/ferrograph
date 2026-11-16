@@ -2,63 +2,65 @@
 
 Measures **recall** and **precision** of `ferrograph dead` (default and `--strict`) and the
 "newly dead" part of `ferrograph pr` using rustc's `dead_code` lint as the oracle instead of
-hand classification. Not run in CI (it needs external corpora and minutes of compile time).
-Only `test_harness.py`, which uses the built-in synthetic corpus, is meant for CI.
+hand classification. The runs are not part of CI (they need external corpora and minutes of compile time);
+the self-tests on the built-in synthetic corpus are (`cargo test -p xtask`).
 
-Python 3.11+ (uses `tomllib`), standard library only. Needs `cargo`, `git` and a ferrograph binary.
+The harness is the `xtask` crate in this repository: `cargo xtask <command>` (see `.cargo/config.toml`), so it needs
+only the Rust toolchain, `git` and a ferrograph binary. `cargo xtask --help` lists the commands; each takes the same options as
+the Python script it replaced.
 
 ## Run
 
 ```bash
 # 1. Static ground truth (Part A). Corpora come from corpora.toml.
-python3 scripts/accuracy/groundtruth.py --ferrograph /path/to/ferrograph \
+cargo xtask groundtruth --ferrograph /path/to/ferrograph \
     --work /tmp/fg-acc --only clap,ripgrep,fd \
     --out-md groundtruth-report.md --out-json groundtruth-data.json
 
 # 2. `pr` mutation test (Part B), one corpus.
-python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph \
+cargo xtask mutation --ferrograph /path/to/ferrograph \
     --work /tmp/fg-acc --corpus clap --n 30 \
     --out-md mutation-report.md --out-json mutation-data.json
 
-# 2b. Same, with an option under test (the python model of `dead` follows --restricted-vis-not-root).
-#     (`--bin-pub-not-root` is followed by the model too). Use the `=` form: argparse reads a bare `--extra-args --flag` as two options.
-python3 scripts/accuracy/groundtruth.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
+# 2b. Same, with an option under test (the harness's model of `dead` follows --restricted-vis-not-root).
+#     (`--bin-pub-not-root` is followed by the model too).
+cargo xtask groundtruth --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
     --extra-args=--restricted-vis-not-root
-python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc --corpus clap \
+cargo xtask mutation --ferrograph /path/to/ferrograph --work /tmp/fg-acc --corpus clap \
     --extra-args=--restricted-vis-not-root
 
 # 2c. Replay: false-alarm rate of `pr` on the last N (default 50) real commits of url corpora.
-python3 scripts/accuracy/replay.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
+cargo xtask replay --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
     --only clap,ripgrep --n 50 --extra-args=--restricted-vis-not-root
 
 # 2d. Replay on commits that delete call sites (instead of the last N): the N most recent commits within the
 #     last 10*N whose diff removes a line calling/referencing a fn defined in the repo.
-python3 scripts/accuracy/replay.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
+cargo xtask replay --ferrograph /path/to/ferrograph --work /tmp/fg-acc \
     --only clap,ripgrep --n 50 --select calls --depth 600
 
 # 2e. More mutation families (default is `call` only); --n applies per family.
-python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc --corpus clap \
+cargo xtask mutation --ferrograph /path/to/ferrograph --work /tmp/fg-acc --corpus clap \
     --family all --n 15
 
 # 2f. Paired comparison of two groundtruth runs (default vs an option): recall with Wilson intervals,
 #     items found by only one arm (exact McNemar), extra reports by rustc verdict, sample size for a 5-point effect.
-python3 scripts/accuracy/compare.py groundtruth-default.json groundtruth-variant.json
+cargo xtask compare groundtruth-default.json groundtruth-variant.json
 
 # 2f2. Precision of the `pr` impacted set by depth (spectrum-rune #47/#49/#50, ferrograph 6.1.0). In a worktree of each PR head:
 #      ferrograph pr --base <base> --index-head --impact-depth {1,2,3} [--exclude-low-confidence] --blast-limit 100000 --json > pr<N>-d<D>[-x].json
 #      (bases: 47 e4e4371, 49 488cdf5, 50 34c8e90). Then bucket, hand-label the `label` column (TP/FP), and score:
-python3 scripts/accuracy/impact_sample.py bucket scripts/accuracy/impact 47 49 50 > labels.csv
-python3 scripts/accuracy/impact_sample.py score scripts/accuracy/impact/labels.csv
+cargo xtask impact-sample bucket scripts/accuracy/impact 47 49 50 > labels.csv
+cargo xtask impact-sample score scripts/accuracy/impact/labels.csv
 
 # 2g. Find corpus candidates: shallow-clones HEAD, runs the oracle, prints rustc-dead fn counts (deletes the target dir).
-python3 scripts/accuracy/scan.py --work /tmp/fg-scan owner/repo another/repo
+cargo xtask scan --work /tmp/fg-scan owner/repo another/repo
 
 # 2h. Whole matrix (all url corpora x arms), one corpus at a time with target dirs deleted afterwards:
-python3 scripts/accuracy/run_matrix.py --ferrograph /path/to/ferrograph --work /tmp/fg-acc --out /tmp/fg-out \
+cargo xtask run-matrix --ferrograph /path/to/ferrograph --work /tmp/fg-acc --out /tmp/fg-out \
     --arms default,restricted,binpub,both     # arms: default, restricted, binpub, both
 
-# 3. Self-test of the harness on the built-in synthetic corpus (~2 s, no network).
-python3 scripts/accuracy/test_harness.py       # uses $FERROGRAPH or target/{debug,release}/ferrograph
+# 3. Self-tests of the harness on the built-in synthetic corpus (seconds, no network).
+cargo build && cargo test -p xtask   # uses $FERROGRAPH or target/{debug,release}/ferrograph
 ```
 
 Use a released, checksum-verified binary for numbers you intend to quote
@@ -72,11 +74,20 @@ Expected cost (Apple M-series, release binary): clap/ripgrep/fd/topgrade a few m
 first builds, ~2-4 GB of `target/` in total for the supplementary set; a 17k-function workspace
 (rune) indexes in ~2.5 min. Mutation test on clap: roughly 1 cargo check (~5-15 s) + 1 `pr` run per mutation.
 
+## Differences from the earlier Python harness
+
+The harness was ported from Python (`scripts/accuracy/*.py`, removed). `groundtruth`, `compare` and `impact-sample` produce the
+same Markdown byte for byte and the same JSON values (compared on the synthetic corpus and on clap, default and
+`--restricted-vis-not-root` arms, with the same release binary; the one exception is the order of the `text_refs` hints, below), so the numbers quoted in the README stay reproducible. Known differences: the `platform:` line of
+the reports is `<os>-<arch>`; JSON files are pretty-printed with two spaces and sorted keys; `mutation` samples candidates with
+`rand`'s `StdRng` seeded from `--seed`, so the same seed picks different candidates than the Python version did (no published
+number depends on it); the `text_refs` lines in the JSON (hand-check aids) come in sorted file order instead of filesystem order.
+
 ## corpora.toml
 
 `[[corpus]]` entries: `name`, `url` + `ref` (branch, tag or SHA) or `path`; optional `index_path`,
 `group`, `cargo_args`. Pooling cohorts used so far: `original` (first nine), `held-out` (bat, hyperfine, zoxide, dust, eza, spectrum-rune) and `held-out-2`
-(chosen by `scan.py` for >= 5 rustc-dead fns). `scan.py` sets `RUSTUP_TOOLCHAIN=stable` so a repo's `rust-toolchain` file cannot make rustup
+(chosen by `cargo xtask scan` for >= 5 rustc-dead fns). `cargo xtask scan` sets `RUSTUP_TOOLCHAIN=stable` so a repo's `rust-toolchain` file cannot make rustup
 download another toolchain; the benchmark scripts do not, so a corpus with a pinned toolchain builds with it.
 
 The runner tries `cargo check --workspace --all-targets --all-features`, then without
@@ -89,7 +100,7 @@ so later additions are never mixed with corpora that were already measured. Reca
 
 ## What is measured
 
-**Ground truth** (`groundtruth.py`): `RUSTFLAGS="--force-warn dead_code" cargo check ... --message-format=json`.
+**Ground truth** (`cargo xtask groundtruth`): `RUSTFLAGS="--force-warn dead_code" cargo check ... --message-format=json`.
 `--force-warn` defeats in-source `#![allow(dead_code)]`. Diagnostics are kept when the primary span is a
 `fn` inside the corpus root (dependencies dropped; structs, fields, variants, consts skipped). Because `--all-targets`
 compiles a file once per unit (lib, bin, each test, example, ...), an item counts as dead (set **R**) only if it is
@@ -107,14 +118,14 @@ unit compiles it, otherwise `bin`; test/example/bench units count as `bin`):
   as roots by policy (`pub` items, trait impls, test/bench/main, `#[no_mangle]` etc.), i.e. what it could find at all.
 - *precision raw* = |F∩R| / |F|. *precision judgeable* removes F items rustc cannot judge: the file is compiled by no unit, or the
   fn is under a `#[cfg]` (text heuristic: own attributes, enclosing `mod`/`impl`/`trait`, or its `mod x;` declaration).
-- False negatives (R minus F) are bucketed by a BFS over the graph that replicates `dead`'s reachability (the script
+- False negatives (R minus F) are bucketed by a BFS over the graph that replicates `dead`'s reachability (the harness
   asserts its model equals the CLI output: "Self-check ... diff=0"). The bucket is how the item first became reachable:
   a `pub`/trait-impl/test/attribute root, a low-confidence call edge, a macro (`expands_to`) edge, or a call/reference edge
   from a root item or from non-root code; "collateral" means it inherits the cause of another rustc-dead node.
 - False positives not in R: not judgeable (above), live in some unit, or "genuine disagreement" (the list to hand-check;
   the JSON carries source lines that mention each name).
 
-**`pr` mutation test** (`mutation.py`): in a throwaway git repo, one commit per mutation, always starting from the pristine
+**`pr` mutation test** (`cargo xtask mutation`): in a throwaway git repo, one commit per mutation, always starting from the pristine
 base tree. Oracle: rustc's dead set after minus before. System under test: `ferrograph pr --base HEAD~1 --index-head --format json`.
 Reports TP/FN/FP per mutation, per family and pooled, FN buckets (graph replay on the mutated tree), FP kinds, `pr` wall time,
 and the `git worktree list` afterwards. `--family` selects families (default `call`; `all`); `--n` compiling mutations per family.
@@ -127,7 +138,7 @@ Edits blank or replace lines in place, so line numbers never shift; mutations th
 | `impl` | a whole `impl Trait for T { .. }` block, with its attributes, is blanked | helper fn whose only caller is a method of that impl |
 | `caller` | a whole fn (with attributes) that nothing calls or references is blanked | such a fn that is the only caller of some helper |
 
-**Replay** (`replay.py`): for each of the last N first-parent commits that change a `.rs` file, check out the commit in its
+**Replay** (`cargo xtask replay`): for each of the last N first-parent commits that change a `.rs` file, check out the commit in its
 own history-carrying clone, run `ferrograph pr --base <parent> --index-head`, and compare the newly-dead fns with rustc's
 (dead-in-all-units at the commit minus at the parent; rustc answers are cached on disk per commit). Reports the
 false-alarm commit rate (commits with an unconfirmed, judgeable report), report precision and recall. Commits that do
@@ -156,4 +167,4 @@ the first `--n` hits are measured); the default `--select last` keeps the last-N
   graph, so it overselects (deleted comments aside, renamed callees and moved lines count); it only raises the share of commits that
   can orphan something. Read the `commits with rustc newly dead` column for the real denominator.
 
-Note: since 5.0 `--bin-pub-not-root` is on by default. The python model (`fgacc.py`) follows it, and the `default` and `restricted` arms of `run_matrix.py` pass `--no-bin-pub-not-root` to keep measuring the old baseline; with a pre-5.0 binary that flag is unknown, so drop it there.
+Note: since 5.0 `--bin-pub-not-root` is on by default. The harness's model of `dead` (`xtask/src/graph.rs`) follows it, and the `default` and `restricted` arms of `run-matrix` pass `--no-bin-pub-not-root` to keep measuring the old baseline; with a pre-5.0 binary that flag is unknown, so drop it there.

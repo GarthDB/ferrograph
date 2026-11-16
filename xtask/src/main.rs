@@ -1,7 +1,5 @@
 //! Accuracy harness for ferrograph (replaces `scripts/accuracy/*.py`). Run with `cargo xtask <cmd>`.
 
-#![allow(dead_code)] // shared helpers are wired up by later commands (#192-#194)
-
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
