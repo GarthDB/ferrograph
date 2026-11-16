@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.2.1](https://github.com/GarthDB/ferrograph/compare/v6.2.0...v6.2.1) - 2026-11-16
+
+### Other
+
+- *(skill)* point at the README for accuracy figures instead of quoting them
+- action @v2 in the CI example, release and harness notes, current recall in the skill
+- keep release tags and names as vX.Y.Z now that the workspace has two packages
+
 ## [6.2.0](https://github.com/GarthDB/ferrograph/compare/v6.1.1...v6.2.0) - 2026-11-16
 
 ### Added
