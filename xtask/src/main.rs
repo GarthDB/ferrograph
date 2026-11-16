@@ -12,6 +12,7 @@ mod groundtruth;
 mod impact_sample;
 mod matrix;
 mod miss_cfg;
+mod mutation;
 mod replay;
 mod run;
 mod rustc;
@@ -131,6 +132,37 @@ enum Cmd {
         #[arg(long, default_value = "replay-data.json")]
         out_json: PathBuf,
     },
+    /// Mutation test of `ferrograph pr` against rustc.
+    Mutation {
+        #[arg(long, default_value = "scripts/accuracy/corpora.toml")]
+        config: PathBuf,
+        #[arg(long, default_value = "clap")]
+        corpus: String,
+        #[arg(long)]
+        ferrograph: String,
+        #[arg(long)]
+        work: Option<PathBuf>,
+        /// Number of compiling mutations to run (per family).
+        #[arg(long, default_value_t = 30)]
+        n: usize,
+        /// Candidates generated per family.
+        #[arg(long, default_value_t = 90)]
+        max_attempts: usize,
+        /// Comma-separated mutation families (call, ref, impl, caller) or `all`.
+        #[arg(long, default_value = "call")]
+        family: String,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 1800)]
+        timeout: u64,
+        /// Extra args for `ferrograph pr`/`dead`, e.g. `--restricted-vis-not-root`.
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        extra_args: String,
+        #[arg(long, default_value = "mutation-report.md")]
+        out_md: PathBuf,
+        #[arg(long, default_value = "mutation-data.json")]
+        out_json: PathBuf,
+    },
     /// Paired comparison of two `groundtruth` JSON runs.
     Compare {
         base: PathBuf,
@@ -247,6 +279,35 @@ fn main() -> anyhow::Result<()> {
                 depth,
                 extra_args,
                 timeout_secs: timeout,
+                out_md,
+                out_json,
+            })?;
+        }
+        Cmd::Mutation {
+            config,
+            corpus,
+            ferrograph,
+            work,
+            n,
+            max_attempts,
+            family,
+            seed,
+            timeout,
+            extra_args,
+            out_md,
+            out_json,
+        } => {
+            mutation::main(&mutation::Args {
+                config,
+                corpus,
+                ferrograph,
+                work,
+                n,
+                max_attempts,
+                family,
+                seed,
+                timeout_secs: timeout,
+                extra_args,
                 out_md,
                 out_json,
             })?;
