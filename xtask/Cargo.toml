@@ -10,13 +10,14 @@ description = "Accuracy harness for ferrograph (cargo xtask)"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 csv = "1"
+rand = "0.8"
 regex = "1"
+sha2 = "0.10"
+shlex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
-
-[dev-dependencies]
 tempfile = "3"
+toml = "0.8"
 
 [lints.rust]
 unsafe_code = "forbid"

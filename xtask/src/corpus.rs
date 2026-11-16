@@ -130,7 +130,7 @@ fn expand_home(p: &str) -> PathBuf {
 }
 
 /// Copy a tree keeping symlinks, skipping `target`, `.git`, `node_modules` and `.ferrograph*`.
-fn copy_tree(src: &Path, dest: &Path) -> Result<()> {
+pub fn copy_tree(src: &Path, dest: &Path) -> Result<()> {
     std::fs::create_dir_all(dest)?;
     for e in std::fs::read_dir(src)? {
         let e = e?;

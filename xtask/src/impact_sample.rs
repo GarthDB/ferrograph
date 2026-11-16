@@ -80,7 +80,6 @@ pub fn bucket(dir: &Path, prs: &[String]) -> Result<String> {
 }
 
 struct Row {
-    id: String,
     depth: u32,
     confident: bool,
     tp: bool,
@@ -108,7 +107,6 @@ fn read_labels(path: &Path) -> Result<Vec<Row>> {
             bad.push(rec.get(i_id).unwrap_or("").to_string());
         }
         rows.push(Row {
-            id: rec.get(i_id).unwrap_or("").to_string(),
             depth: rec.get(i_depth).unwrap_or("").parse()?,
             confident: rec.get(i_conf) == Some("1"),
             tp: label == "TP",
