@@ -708,6 +708,8 @@ pub struct Args {
     pub render_json: Option<PathBuf>,
     pub out_md: PathBuf,
     pub out_json: PathBuf,
+    /// Print the Markdown report to stdout.
+    pub print_report: bool,
 }
 
 /// Measure every selected corpus; one that cannot be measured is reported, not fatal.
@@ -779,7 +781,9 @@ pub fn main(a: &Args) -> Result<()> {
         &a.out_json,
         serde_json::to_string_pretty(&Data { meta, results })?,
     )?;
-    println!("{md}");
+    if a.print_report {
+        println!("{md}");
+    }
     Ok(())
 }
 

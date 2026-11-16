@@ -10,8 +10,11 @@ mod corpus;
 mod graph;
 mod groundtruth;
 mod impact_sample;
+mod matrix;
+mod miss_cfg;
 mod run;
 mod rustc;
+mod scan;
 mod source;
 mod stats;
 #[cfg(test)]
@@ -59,6 +62,43 @@ enum Cmd {
         out_md: PathBuf,
         #[arg(long, default_value = "groundtruth-data.json")]
         out_json: PathBuf,
+    },
+    /// How many misses are kept alive only through cfg-gated callers.
+    MissCfg {
+        json: PathBuf,
+        #[arg(long)]
+        work: PathBuf,
+        #[arg(long, default_value = "default")]
+        mode: String,
+    },
+    /// Scan candidate repos for rustc dead-code ground truth.
+    Scan {
+        #[arg(required = true)]
+        repos: Vec<String>,
+        #[arg(long)]
+        work: PathBuf,
+        #[arg(long, default_value_t = 1500)]
+        timeout: u64,
+        #[arg(long, default_value = "scan.tsv")]
+        out: PathBuf,
+    },
+    /// Run `groundtruth` for every url corpus under several arms and merge per arm.
+    RunMatrix {
+        #[arg(long)]
+        ferrograph: String,
+        #[arg(long)]
+        work: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value = "scripts/accuracy/corpora.toml")]
+        config: PathBuf,
+        #[arg(long, default_value = "")]
+        only: String,
+        /// Comma-separated, from default, restricted, binpub, both.
+        #[arg(long, default_value = "default,restricted")]
+        arms: String,
+        #[arg(long)]
+        keep_targets: bool,
     },
     /// Paired comparison of two `groundtruth` JSON runs.
     Compare {
@@ -114,7 +154,37 @@ fn main() -> anyhow::Result<()> {
                 render_json,
                 out_md,
                 out_json,
+                print_report: true,
             })?;
+        }
+        Cmd::MissCfg { json, work, mode } => miss_cfg::main(&json, &work, &mode)?,
+        Cmd::Scan {
+            repos,
+            work,
+            timeout,
+            out,
+        } => scan::main(&repos, &work, timeout, &out)?,
+        Cmd::RunMatrix {
+            ferrograph,
+            work,
+            out,
+            config,
+            only,
+            arms,
+            keep_targets,
+        } => {
+            let missing = matrix::main(&matrix::Args {
+                ferrograph,
+                work,
+                out,
+                config,
+                only,
+                arms,
+                keep_targets,
+            })?;
+            if !missing.is_empty() {
+                std::process::exit(1);
+            }
         }
         Cmd::Compare {
             base,
