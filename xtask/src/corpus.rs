@@ -63,25 +63,11 @@ pub fn prepare(c: &Corpus, work: &Path) -> Result<Prepared> {
     if let Some(url) = &c.url {
         if !dest.exists() {
             std::fs::create_dir_all(dest.parent().expect("has parent"))?;
-            let d = dest.to_str().context("non-utf8 path")?;
-            run(&["git", "init", "-q", d], None, &[], T, true)?;
-            run(
-                &["git", "remote", "add", "origin", url],
-                Some(&dest),
-                &[],
-                T,
-                true,
-            )?;
-            let r = c.git_ref.as_deref().unwrap_or("HEAD");
-            let fetch = ["git", "fetch", "-q", "--depth", "1", "origin", r];
-            run(&fetch, Some(&dest), &[], Duration::from_secs(600), true)?;
-            run(
-                &["git", "checkout", "-q", "FETCH_HEAD"],
-                Some(&dest),
-                &[],
-                T,
-                true,
-            )?;
+            // Do not leave a half-initialised checkout behind: a later run would reuse it.
+            if let Err(e) = clone(&dest, url, c.git_ref.as_deref().unwrap_or("HEAD")) {
+                std::fs::remove_dir_all(&dest).ok();
+                return Err(e);
+            }
         }
         return Ok(Prepared {
             sha: git_head(&dest),
@@ -103,8 +89,36 @@ pub fn prepare(c: &Corpus, work: &Path) -> Result<Prepared> {
     })
 }
 
+fn clone(dest: &Path, url: &str, git_ref: &str) -> Result<()> {
+    let d = dest.to_str().context("non-utf8 path")?;
+    run(&["git", "init", "-q", d], None, &[], T, true)?;
+    run(
+        &["git", "remote", "add", "origin", url],
+        Some(dest),
+        &[],
+        T,
+        true,
+    )?;
+    let fetch = ["git", "fetch", "-q", "--depth", "1", "origin", git_ref];
+    run(&fetch, Some(dest), &[], Duration::from_secs(600), true)?;
+    run(
+        &["git", "checkout", "-q", "FETCH_HEAD"],
+        Some(dest),
+        &[],
+        T,
+        true,
+    )?;
+    Ok(())
+}
+
 fn expand_home(p: &str) -> PathBuf {
-    match (p.strip_prefix("~/"), std::env::var_os("HOME")) {
+    // `~user` is not expanded.
+    let rest = if p == "~" {
+        Some("")
+    } else {
+        p.strip_prefix("~/")
+    };
+    match (rest, std::env::var_os("HOME")) {
         (Some(rest), Some(h)) => PathBuf::from(h).join(rest),
         _ => PathBuf::from(p),
     }
@@ -147,6 +161,25 @@ mod tests {
         assert_eq!(cs[0].cohort(), "original");
         assert!(cs.iter().any(|c| c.cohort() == "held-out"));
         assert!(cs.iter().any(|c| c.cargo_args.is_some()));
+    }
+
+    #[test]
+    fn failed_clone_leaves_no_directory() {
+        let t = tempfile::tempdir().unwrap();
+        let c = Corpus {
+            name: "t".into(),
+            url: Some(t.path().join("missing").to_str().unwrap().into()),
+            git_ref: None,
+            path: None,
+            index_path: None,
+            group: None,
+            heldout: false,
+            cohort: None,
+            cargo_args: None,
+        };
+        let work = t.path().join("work");
+        assert!(prepare(&c, &work).is_err());
+        assert!(!work.join("corpora/t").exists());
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -37,34 +38,53 @@ pub fn run(
     let mut out = child.stdout.take().expect("piped");
     let mut err = child.stderr.take().expect("piped");
     // Drain both pipes concurrently so a chatty child cannot block on a full pipe.
-    let to = thread::spawn(move || {
+    let (tx, rx) = mpsc::channel();
+    let tx2 = tx.clone();
+    thread::spawn(move || {
         let mut s = Vec::new();
         out.read_to_end(&mut s).ok();
-        s
+        tx.send((false, s)).ok();
     });
-    let te = thread::spawn(move || {
+    thread::spawn(move || {
         let mut s = Vec::new();
         err.read_to_end(&mut s).ok();
-        s
+        tx2.send((true, s)).ok();
     });
     let start = Instant::now();
+    let kill = |child: &mut std::process::Child| {
+        // shortcut: shells out to `kill` to signal the group (no libc dep, unsafe is forbidden); fine on unix.
+        Command::new("kill")
+            .args(["-9", &format!("-{}", child.id())])
+            .status()
+            .ok();
+        child.wait().ok();
+    };
+    let timed_out = || anyhow::anyhow!("timeout after {}s: {}", timeout.as_secs(), cmd.join(" "));
     let status = loop {
         if let Some(s) = child.try_wait()? {
             break s;
         }
         if start.elapsed() > timeout {
-            // shortcut: shells out to `kill` to signal the group (no libc dep, unsafe is forbidden); fine on unix.
-            Command::new("kill")
-                .args(["-9", &format!("-{}", child.id())])
-                .status()
-                .ok();
-            child.wait().ok();
-            bail!("timeout after {}s: {}", timeout.as_secs(), cmd.join(" "));
+            kill(&mut child);
+            return Err(timed_out());
         }
         thread::sleep(Duration::from_millis(20));
     };
-    let stdout = String::from_utf8_lossy(&to.join().unwrap_or_default()).into_owned();
-    let stderr = String::from_utf8_lossy(&te.join().unwrap_or_default()).into_owned();
+    // A grandchild may keep the pipes open after the child exits; the deadline covers that too.
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    for _ in 0..2 {
+        let left = timeout.saturating_sub(start.elapsed());
+        match rx.recv_timeout(left) {
+            Ok((false, s)) => stdout = s,
+            Ok((true, s)) => stderr = s,
+            Err(_) => {
+                kill(&mut child);
+                return Err(timed_out());
+            }
+        }
+    }
+    let stdout = String::from_utf8_lossy(&stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr).into_owned();
     let code = status.code().unwrap_or(-1);
     if check && code != 0 {
         let tail: String = stderr
@@ -104,6 +124,21 @@ mod tests {
                 .code,
             3
         );
+    }
+
+    #[test]
+    fn timeout_covers_background_process_holding_pipes() {
+        let t = Instant::now();
+        let e = run(
+            &["sh", "-c", "sleep 30 &"],
+            None,
+            &[],
+            Duration::from_millis(500),
+            true,
+        )
+        .unwrap_err();
+        assert!(e.to_string().starts_with("timeout after"), "{e}");
+        assert!(t.elapsed() < Duration::from_secs(10));
     }
 
     #[test]

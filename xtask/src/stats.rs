@@ -59,15 +59,19 @@ pub fn mcnemar_p(b: u64, c: u64) -> f64 {
     if n == 0 {
         return 1.0;
     }
-    // Sum of C(n, i) / 2^n for i <= min(b, c), accumulated in f64 via the running binomial ratio
-    // (exact enough for the sample sizes here; Python used integers).
+    // tail = sum_{i<=k} C(n, i) / 2^n. Terms grow up to k <= n/2, so sum relative to the largest
+    // (i = k) and finish in log space; plain f64 would underflow 2^-n once n > ~1074.
     let k = b.min(c);
-    let mut term = 0.5f64.powi(i32::try_from(n).unwrap_or(i32::MAX));
-    let mut tail = term;
+    let mut ln_c = 0.0; // ln C(n, k)
     for i in 1..=k {
-        term *= (n - i + 1) as f64 / i as f64;
-        tail += term;
+        ln_c += ((n - i + 1) as f64 / i as f64).ln();
     }
+    let (mut rel, mut sum) = (1.0, 1.0);
+    for i in (1..=k).rev() {
+        rel *= i as f64 / (n - i + 1) as f64;
+        sum += rel;
+    }
+    let tail = (sum.ln() + ln_c - n as f64 * std::f64::consts::LN_2).exp();
     (2.0 * tail).min(1.0)
 }
 
@@ -102,6 +106,8 @@ mod tests {
         assert!(close(mcnemar_p(0, 0), 1.0));
         assert!(close(mcnemar_p(5, 5), 1.0));
         assert!(close(mcnemar_p(0, 10), 2.0 / 1024.0));
+        assert!((mcnemar_p(600, 600) - 1.0).abs() < 1e-9);
+        assert!(mcnemar_p(0, 2000) < 1e-300 && mcnemar_p(0, 2000) >= 0.0);
         assert!(close(mcnemar_p(1, 9), 0.021_484_375));
         assert!((mcnemar_p(30, 70) / 7.850_139_645_593_67e-5 - 1.0).abs() < 1e-9);
     }
