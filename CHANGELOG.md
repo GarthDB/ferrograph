@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.2.0](https://github.com/GarthDB/ferrograph/compare/ferrograph-v6.1.1...ferrograph-v6.2.0) - 2026-11-16
+
+### Added
+
+- *(xtask)* port miss_cfg, scan and run_matrix ([#194](https://github.com/GarthDB/ferrograph/pull/194))
+- *(xtask)* port groundtruth and the synthetic self-test to cargo test ([#193](https://github.com/GarthDB/ferrograph/pull/193))
+- *(xtask)* port fgacc graph model, rustc oracle and source heuristics ([#192](https://github.com/GarthDB/ferrograph/pull/192))
+- *(xtask)* port impact_sample and compare with golden tests ([#191](https://github.com/GarthDB/ferrograph/pull/191))
+- *(xtask)* workspace skeleton with stats, subprocess and corpus helpers ([#190](https://github.com/GarthDB/ferrograph/pull/190))
+
+### Other
+
+- compare impacted names order-insensitively ([#187](https://github.com/GarthDB/ferrograph/pull/187))
+- pin trait-dispatch recall loss; per-row labels and sharper caveat ([#187](https://github.com/GarthDB/ferrograph/pull/187))
+- keep --exclude-low-confidence opt-in, record recall loss and second sample ([#187](https://github.com/GarthDB/ferrograph/pull/187))
+- measure precision of the pr impacted set by depth ([#184](https://github.com/GarthDB/ferrograph/pull/184))
+
 ## [6.1.1](https://github.com/GarthDB/ferrograph/compare/v6.1.0...v6.1.1) - 2026-11-16
 
 ### Other
