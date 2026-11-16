@@ -453,7 +453,8 @@ fn warn_stale_markers(
     for (enabled, attr, option) in [
         (restricted, "pub_restricted", "restricted_vis_not_root"),
         (bin_pub, "pub_bin_only", "bin_pub_not_root"),
-        (lib_exported, "pub_unexported", "lib_exported_only"),
+        // `pub_unexported` is sparse (absent when nothing is demoted); `lib_exported_indexed` is always written.
+        (lib_exported, "lib_exported_indexed", "lib_exported_only"),
     ] {
         if enabled && has_marker(head, attr) != has_marker(base, attr) {
             warnings.push(format!(
