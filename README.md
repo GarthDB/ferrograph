@@ -22,6 +22,8 @@ cargo test
 cargo clippy -- -D warnings
 ```
 
+The repository is a Cargo workspace; plain `cargo build`/`test`/`clippy` cover the `ferrograph` crate only. The accuracy harness behind the figures in [Accuracy and limitations](#accuracy-and-limitations) is the `xtask` crate (`cargo xtask --help`, `cargo test -p xtask`; see [`scripts/accuracy/README.md`](scripts/accuracy/README.md)). It is not published.
+
 ## Usage
 
 ```bash
@@ -255,7 +257,7 @@ Node IDs use the format `./path/to/file.rs#line:col` (relative to the project ro
 
 ## CI
 
-[`GarthDB/ferrograph-action`](https://github.com/GarthDB/ferrograph-action) runs `ferrograph pr` on pull requests and posts a sticky comment with newly dead functions and blast radius. Advisory mode is the recommended default today, because dead-code detection has known false positives and negatives (see [Accuracy and limitations](#accuracy-and-limitations)). The action is advisory by default (it fails only if you set `fail-on-new-dead`, `max-new-dead` or `max-blast`) and can upload SARIF to code scanning. Requires ferrograph v4.0.0 or later (the first release with `ferrograph pr`); the 5.0 defaults and `pr --out` need v5.0.0.
+[`GarthDB/ferrograph-action`](https://github.com/GarthDB/ferrograph-action) runs `ferrograph pr` on pull requests and posts a sticky comment with newly dead functions and blast radius. Advisory mode is the recommended default today, because dead-code detection has known false positives and negatives (see [Accuracy and limitations](#accuracy-and-limitations)). The action is advisory by default (it fails only if you set `fail-on-new-dead`, `max-new-dead` or `max-blast`) and can upload SARIF to code scanning. `@v2` needs ferrograph v5.0.0 or later (`pr --out`, one run for every report; the 5.0 defaults); `pr` itself exists since v4.0.0, which only the older `@v1` still supports.
 
 ```yaml
 name: ferrograph
@@ -270,7 +272,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # required: the base ref must exist
-      - uses: GarthDB/ferrograph-action@v1
+      - uses: GarthDB/ferrograph-action@v2
 ```
 
 Without `pull-requests: write`, and on pull requests from forks (read-only token), the report goes to the job summary instead of a comment; the job still passes. See the action's README for inputs, thresholds and SARIF.
@@ -333,7 +335,7 @@ Dead-code and blast-radius results are a review aid, not proof.
 
 ## Publishing
 
-Published to [crates.io](https://crates.io/crates/ferrograph). `Cargo.toml` pins rayon to `>=1.5, <1.11` because cozo's transitive `graph_builder` 0.4.1 is incompatible with rayon 1.11+. This pin does not affect end users.
+Published to [crates.io](https://crates.io/crates/ferrograph). Releases are cut by [release-plz](https://release-plz.dev): merging its release PR publishes the crate, tags `vX.Y.Z` and attaches the binaries (`ferrograph-<target>.tar.gz`, `SHA256SUMS`) to the GitHub release. `Cargo.toml` pins rayon to `>=1.5, <1.11` because cozo's transitive `graph_builder` 0.4.1 is incompatible with rayon 1.11+. This pin does not affect end users.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 

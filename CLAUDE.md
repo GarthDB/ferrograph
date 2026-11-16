@@ -25,6 +25,8 @@ Run in order before every commit:
 
 All three must pass before creating a commit.
 
+The repository is a workspace and these commands cover the `ferrograph` crate only. When a change touches `xtask/`, also run `cargo clippy -p xtask --all-targets -- -D warnings` and `cargo test -p xtask` (CI does both; the tests need a ferrograph binary, so run `cargo build` first).
+
 ## Commit Messages
 
 All commits must follow [Conventional Commits](https://www.conventionalcommits.org/):
