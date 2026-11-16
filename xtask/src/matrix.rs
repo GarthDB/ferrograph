@@ -55,15 +55,11 @@ fn load(p: &Path) -> Result<Data> {
 
 /// Returns the names that are missing or failed (non-empty means exit status 1).
 pub fn main(a: &Args) -> Result<Vec<String>> {
+    std::fs::create_dir_all(a.out.join("parts"))?;
+    std::fs::create_dir_all(&a.work)?;
     let (out, work) = (
-        std::fs::canonicalize({
-            std::fs::create_dir_all(a.out.join("parts"))?;
-            &a.out
-        })?,
-        {
-            std::fs::create_dir_all(&a.work)?;
-            std::fs::canonicalize(&a.work)?
-        },
+        std::fs::canonicalize(&a.out)?,
+        std::fs::canonicalize(&a.work)?,
     );
     let only: Vec<&str> = a.only.split(',').filter(|s| !s.is_empty()).collect();
     let corpora: Vec<Corpus> = corpus::load(&a.config)?

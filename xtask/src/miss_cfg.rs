@@ -62,7 +62,7 @@ pub fn main(json: &Path, work: &Path, mode: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groundtruth::{CorpusResult, Miss, ModeResult};
+    use crate::groundtruth::{CorpusResult, Meta, Miss, ModeResult};
 
     fn miss(bucket: &str, chain: &[&str]) -> Miss {
         Miss {
@@ -121,7 +121,7 @@ mod tests {
             ..CorpusResult::default()
         };
         let data = Data {
-            meta: Default::default(),
+            meta: Meta::default(),
             results: vec![r, skipped],
         };
         assert_eq!(
