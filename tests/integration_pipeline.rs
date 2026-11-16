@@ -861,7 +861,9 @@ fn pipeline_lib_exported_only_demotes_unexported_pub_fns() {
             "crate_mod_dead",
             "hidden_dead",
             "inner_dead",
+            "other_dead",
             "path_hidden_dead",
+            "platform_dead",
             "reexp_sibling_dead"
         ]
     );
