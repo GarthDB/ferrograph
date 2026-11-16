@@ -269,14 +269,10 @@ impl Crate<'_> {
         st.reach.insert(0);
         loop {
             let before = (st.reach.len(), st.names.len(), st.unresolved.len());
-            for i in 0..self.mods.len() {
-                if i != 0
-                    && !(self.mods[i].is_pub
-                        && self.mods[i].parent.is_some_and(|p| st.reach.contains(&p)))
-                {
-                    continue;
+            for (i, m) in self.mods.iter().enumerate() {
+                if i == 0 || (m.is_pub && m.parent.is_some_and(|p| st.reach.contains(&p))) {
+                    st.reach.insert(i);
                 }
-                st.reach.insert(i);
             }
             let reached: Vec<usize> = st.reach.iter().copied().collect();
             for m in reached {
