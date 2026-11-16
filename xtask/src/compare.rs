@@ -27,7 +27,7 @@ struct Item {
     #[serde(default)]
     classes: HashMap<String, serde_json::Value>,
     #[serde(default)]
-    modes: HashMap<String, Mode>,
+    modes: HashMap<String, serde_json::Value>, // parsed per requested mode only
 }
 
 #[derive(Deserialize)]
@@ -56,14 +56,16 @@ impl Item {
             .unwrap_or(if self.heldout { "held-out" } else { "original" })
     }
 
-    fn mode(&self, mode: &str) -> Result<&Mode> {
-        self.modes
+    fn mode(&self, mode: &str) -> Result<Mode> {
+        let v = self
+            .modes
             .get(mode)
-            .with_context(|| format!("{}: no mode {mode}", self.name))
+            .with_context(|| format!("{}: no mode {mode}", self.name))?;
+        Mode::deserialize(v).with_context(|| format!("{}: mode {mode}", self.name))
     }
 
     fn verdict(&self, mode: &str, nid: &str) -> Result<&'static str> {
-        let fp = &self.mode(mode)?.fp;
+        let fp = self.mode(mode)?.fp;
         for k in VERDICTS {
             let hit = fp
                 .get(k)
@@ -126,7 +128,8 @@ pub fn render(base: &Path, variant: &Path, mode: &str) -> Result<String> {
         for n in names {
             let (rb, rv) = (&base[*n], &var[*n]);
             let rset: HashSet<&str> = rb.classes.keys().map(String::as_str).collect();
-            let (fb, fv) = (set(&rb.mode(mode)?.found), set(&rv.mode(mode)?.found));
+            let (mb, mv) = (rb.mode(mode)?, rv.mode(mode)?);
+            let (fb, fv) = (set(&mb.found), set(&mv.found));
             r += rset.len() as u64;
             hb += fb.intersection(&rset).count() as u64;
             hv += fv.intersection(&rset).count() as u64;
@@ -194,6 +197,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(got, include_str!("../tests/golden/compare.md"));
+    }
+
+    #[test]
+    fn unused_modes_need_not_be_well_formed() {
+        let d = tempfile::tempdir().unwrap();
+        let item = r#"{"results": [{"name": "a", "ok": true, "classes": {"x": 1},
+            "modes": {"default": {"F": ["x"], "fp": {"not_judgeable_file": [], "not_judgeable_cfg": [],
+            "rustc_live_some_unit": [], "disagree": []}}, "future": {"other": 1}}}]}"#;
+        let p = d.path().join("r.json");
+        std::fs::write(&p, item).unwrap();
+        assert!(render(&p, &p, "default").is_ok());
+        assert!(render(&p, &p, "future").is_err());
     }
 
     #[test]

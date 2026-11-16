@@ -87,7 +87,10 @@ struct Row {
 }
 
 fn read_labels(path: &Path) -> Result<Vec<Row>> {
-    let mut rd = csv::Reader::from_path(path).with_context(|| path.display().to_string())?;
+    let mut rd = csv::ReaderBuilder::new()
+        .flexible(true) // Python's DictReader tolerates ragged rows
+        .from_path(path)
+        .with_context(|| path.display().to_string())?;
     let h = rd.headers()?.clone();
     let col = |n: &str| {
         h.iter()
@@ -170,6 +173,20 @@ mod tests {
     fn score_matches_python_byte_for_byte() {
         let got = score(&root().join("labels.csv")).unwrap();
         assert_eq!(got, include_str!("../tests/golden/impact-score.txt"));
+    }
+
+    #[test]
+    fn score_tolerates_ragged_rows() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("l.csv");
+        std::fs::write(
+            &p,
+            "pr,id,name,group,depth,confident,label,note\n47,x,,g,1,1,TP,,stray\n47,y,,g,1,1,FP\n",
+        )
+        .unwrap();
+        assert!(score(&p)
+            .unwrap()
+            .contains("depth<=1: precision 50.0% (1/2)"));
     }
 
     #[test]
