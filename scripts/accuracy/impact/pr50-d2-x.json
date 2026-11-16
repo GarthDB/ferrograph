@@ -1,0 +1,153 @@
+{
+  "base": "34c8e90",
+  "merge_base": "34c8e90b393e72c42d3de32f329b896a7f016bc6",
+  "head": "f49dcf5c006bd1dbfd4733db335d499bfdb5a7f5",
+  "changed_files": [
+    "crates/spectrum-rune/examples/gallery/stories.rs",
+    "crates/spectrum-rune/src/badge.rs",
+    "crates/spectrum-rune/src/lib.rs",
+    "crates/spectrum-rune/src/status_light.rs",
+    "crates/spectrum-rune/tests/status_light.rs"
+  ],
+  "newly_dead": [],
+  "newly_dead_count": 0,
+  "changed_functions": [
+    {
+      "id": "./crates/spectrum-rune/examples/gallery/stories.rs#502:1",
+      "file": "crates/spectrum-rune/examples/gallery/stories.rs",
+      "name": "status_light",
+      "start_line": 502,
+      "end_line": 530,
+      "blast_count": 0,
+      "kind": "example",
+      "impacted": {
+        "count": 1,
+        "tests": 0,
+        "examples": 1,
+        "library": 0
+      }
+    },
+    {
+      "id": "./crates/spectrum-rune/tests/status_light.rs#15:1",
+      "file": "crates/spectrum-rune/tests/status_light.rs",
+      "name": "view",
+      "start_line": 15,
+      "end_line": 45,
+      "blast_count": 0,
+      "kind": "helper",
+      "impacted": {
+        "count": 1,
+        "tests": 1,
+        "examples": 0,
+        "library": 0
+      }
+    },
+    {
+      "id": "./crates/spectrum-rune/tests/status_light.rs#72:1",
+      "file": "crates/spectrum-rune/tests/status_light.rs",
+      "name": "matches_oracle_scene",
+      "start_line": 72,
+      "end_line": 129,
+      "blast_count": 0,
+      "kind": "test"
+    }
+  ],
+  "changed_without_function": [
+    {
+      "file": "crates/spectrum-rune/examples/gallery/stories.rs",
+      "lines": [
+        [
+          16,
+          16
+        ],
+        [
+          48,
+          48
+        ],
+        [
+          531,
+          531
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/src/badge.rs",
+      "lines": [
+        [
+          26,
+          26
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/src/lib.rs",
+      "lines": [
+        [
+          3,
+          16
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/src/status_light.rs",
+      "lines": [
+        [
+          37,
+          37
+        ],
+        [
+          42,
+          42
+        ],
+        [
+          46,
+          73
+        ]
+      ]
+    },
+    {
+      "file": "crates/spectrum-rune/tests/status_light.rs",
+      "lines": [
+        [
+          14,
+          14
+        ]
+      ]
+    }
+  ],
+  "blast": {
+    "count": 0,
+    "shown": 0,
+    "nodes": []
+  },
+  "impacted": {
+    "depth": 2,
+    "count": 1,
+    "shown": 1,
+    "tests": {
+      "count": 0,
+      "files": []
+    },
+    "examples": {
+      "count": 1,
+      "files": [
+        {
+          "file": "crates/spectrum-rune/examples/gallery/stories.rs",
+          "count": 1
+        }
+      ]
+    },
+    "library": {
+      "count": 0,
+      "files": []
+    },
+    "nodes": [
+      {
+        "id": "./crates/spectrum-rune/examples/gallery/stories.rs",
+        "name": "",
+        "group": "examples"
+      }
+    ]
+  },
+  "warnings": []
+}

@@ -44,6 +44,12 @@ python3 scripts/accuracy/mutation.py --ferrograph /path/to/ferrograph --work /tm
 #     items found by only one arm (exact McNemar), extra reports by rustc verdict, sample size for a 5-point effect.
 python3 scripts/accuracy/compare.py groundtruth-default.json groundtruth-variant.json
 
+# 2f2. Precision of the `pr` impacted set by depth (spectrum-rune #47/#49/#50, ferrograph 6.1.0). In a worktree of each PR head:
+#      ferrograph pr --base <base> --index-head --impact-depth {1,2,3} [--exclude-low-confidence] --blast-limit 100000 --json > pr<N>-d<D>[-x].json
+#      (bases: 47 e4e4371, 49 488cdf5, 50 34c8e90). Then bucket, hand-label the `label` column (TP/FP), and score:
+python3 scripts/accuracy/impact_sample.py bucket scripts/accuracy/impact 47 49 50 > labels.csv
+python3 scripts/accuracy/impact_sample.py score scripts/accuracy/impact/labels.csv
+
 # 2g. Find corpus candidates: shallow-clones HEAD, runs the oracle, prints rustc-dead fn counts (deletes the target dir).
 python3 scripts/accuracy/scan.py --work /tmp/fg-scan owner/repo another/repo
 
