@@ -8,6 +8,7 @@ use crate::run::run;
 use crate::rustc::{collect_ground_truth, run_rustc};
 use crate::source::{cfg_gated, text_refs, visibility};
 use crate::stats::{frac, frac_ci};
+use crate::util::{head, pyf, round1, tail, Counter};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -200,7 +201,7 @@ fn bucket(cause: Option<&str>) -> String {
 }
 
 /// `bucket` plus, for pub roots, the source-level visibility of the root that kept `nid` alive.
-fn miss_bucket(
+pub fn miss_bucket(
     g: &Graph,
     info: &HashMap<String, Info>,
     nid: &str,
@@ -417,10 +418,6 @@ fn analyse(c: &Corpus, fg: &Fg, work: &Path, opts: &Opts) -> Result<CorpusResult
     Ok(res)
 }
 
-fn round1(x: f64) -> f64 {
-    (x * 10.0).round() / 10.0
-}
-
 // ---------------------------------------------------------------- report
 
 #[derive(Default)]
@@ -464,41 +461,6 @@ fn metrics(results: &[&CorpusResult], cls: &str, mode: &str) -> Metrics {
         m.f_not_judgeable += fc.intersection(&nj).count() as u64;
     }
     m
-}
-
-/// Python's `Counter`: keys in first-seen order, `most_common` stable on ties.
-struct Counter(Vec<(String, u64)>);
-
-impl Counter {
-    fn new<'a>(keys: impl IntoIterator<Item = &'a str>) -> Self {
-        let mut v: Vec<(String, u64)> = Vec::new();
-        for k in keys {
-            match v.iter_mut().find(|(x, _)| x == k) {
-                Some(e) => e.1 += 1,
-                None => v.push((k.to_string(), 1)),
-            }
-        }
-        Counter(v)
-    }
-
-    fn most_common(&self) -> Vec<(String, u64)> {
-        let mut v = self.0.clone();
-        v.sort_by_key(|e| std::cmp::Reverse(e.1)); // stable, like Python's reverse sort
-        v
-    }
-
-    fn get(&self, k: &str) -> u64 {
-        self.0.iter().find(|(x, _)| x == k).map_or(0, |e| e.1)
-    }
-}
-
-/// Python's `repr` of a float (`12.0`, not `12`).
-fn pyf(x: f64) -> String {
-    format!("{x:?}")
-}
-
-fn head(s: &str, n: usize) -> String {
-    s.chars().take(n).collect()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -748,11 +710,6 @@ pub struct Args {
     pub out_json: PathBuf,
 }
 
-fn tail(s: &str, n: usize) -> String {
-    let skip = s.chars().count().saturating_sub(n);
-    s.chars().skip(skip).collect()
-}
-
 /// Measure every selected corpus; one that cannot be measured is reported, not fatal.
 pub fn measure(
     corpora: &[Corpus],
@@ -866,21 +823,6 @@ mod tests {
         assert_eq!(
             bucket(Some("references@pub")),
             "references edge from root item"
-        );
-    }
-
-    #[test]
-    fn counter_orders_like_python() {
-        let c = Counter::new(["b", "a", "b", "c", "a", "d"]);
-        let mc: Vec<_> = c.most_common().into_iter().map(|(k, _)| k).collect();
-        assert_eq!(mc, ["b", "a", "c", "d"]); // ties keep first-seen order
-    }
-
-    #[test]
-    fn python_float_repr() {
-        assert_eq!(
-            (pyf(12.0), pyf(0.25), pyf(round1(0.34))),
-            ("12.0".into(), "0.25".into(), "0.3".into())
         );
     }
 

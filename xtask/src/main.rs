@@ -16,6 +16,7 @@ mod source;
 mod stats;
 #[cfg(test)]
 mod testutil;
+mod util;
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "Ferrograph accuracy harness")]
