@@ -130,7 +130,7 @@ fn custom_root_dir<'a>(dir: &Path, rel: &'a Path) -> Option<&'a Path> {
 }
 
 /// Extract the use tree text from a `use_declaration` node, without `pub`/`pub(..)` and `use`.
-fn use_path_from_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
+pub(super) fn use_path_from_node(node: &tree_sitter::Node, source: &str) -> Option<String> {
     let arg = node.child_by_field_name("argument")?;
     let s = source.get(arg.byte_range())?.trim();
     if s.is_empty() {
@@ -142,7 +142,7 @@ fn use_path_from_node(node: &tree_sitter::Node, source: &str) -> Option<String> 
 
 /// Expand brace groups into one path per leaf: `a::{b, c::d}` -> `a::b`, `a::c::d`.
 /// A `self` leaf stays as `a::self`; renames and globs are kept (`a::b as c`, `a::*`).
-fn expand_use(path: &str) -> Vec<String> {
+pub(super) fn expand_use(path: &str) -> Vec<String> {
     let path = path.trim();
     let Some(open) = path.find('{') else {
         return vec![path.to_string()];

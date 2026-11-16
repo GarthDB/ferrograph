@@ -44,6 +44,8 @@ pub struct PrOptions {
     pub restricted_vis_not_root: Option<bool>,
     /// Applied to base and head alike; `None` falls back to `bin_pub_not_root` in `[dead]` of the HEAD config, then true (false with `strict`).
     pub bin_pub_not_root: Option<bool>,
+    /// Applied to base and head alike; `None` falls back to `lib_exported_only` in `[dead]` of the HEAD config, then false.
+    pub lib_exported_only: Option<bool>,
     pub entry: Vec<String>,
     pub ignore: Vec<String>,
     pub exclude_low_confidence: bool,
@@ -374,6 +376,7 @@ fn dead_state(
     ignore: &[String],
     restricted_vis_not_root: bool,
     bin_pub_not_root: bool,
+    lib_exported_only: bool,
 ) -> Result<DeadState> {
     let rows = store.run_query(
         &format!(
@@ -414,6 +417,7 @@ fn dead_state(
         &entries,
         restricted_vis_not_root,
         bin_pub_not_root,
+        lib_exported_only,
     )?
     .into_iter()
     .filter(|id| !pats.iter().any(|p| crate::ops::path_matches(p, id)))
@@ -443,11 +447,13 @@ fn warn_stale_markers(
     base: &Store,
     restricted: bool,
     bin_pub: bool,
+    lib_exported: bool,
     warnings: &mut Vec<String>,
 ) {
     for (enabled, attr, option) in [
         (restricted, "pub_restricted", "restricted_vis_not_root"),
         (bin_pub, "pub_bin_only", "bin_pub_not_root"),
+        (lib_exported, "pub_unexported", "lib_exported_only"),
     ] {
         if enabled && has_marker(head, attr) != has_marker(base, attr) {
             warnings.push(format!(
@@ -758,6 +764,7 @@ fn diff_files(root: &Path, merge_base: &str, head: &str) -> Result<Vec<FileDiff>
 /// # Errors
 /// Fails if git is unavailable, a ref cannot be resolved (shallow clone, unknown ref), a graph is
 /// missing or stale, or analysis fails.
+#[allow(clippy::too_many_lines)]
 pub fn run(opts: &PrOptions) -> Result<PrResult> {
     let root = opts.root.canonicalize()?;
     if opts.base.starts_with('-') {
@@ -821,11 +828,23 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
         .bin_pub_not_root
         .or(cfg.dead.bin_pub_not_root)
         .unwrap_or(!opts.strict);
+    let lib_exported = opts
+        .lib_exported_only
+        .or(cfg.dead.lib_exported_only)
+        .unwrap_or(false);
 
     let diffs = diff_files(&root, &merge_base, &head)?;
 
     let head_store = open_head(opts, &root, &prefix, &head, &mut warnings)?;
-    let head_state = dead_state(&head_store, opts, &entry, &ignore, restricted, bin_pub)?;
+    let head_state = dead_state(
+        &head_store,
+        opts,
+        &entry,
+        &ignore,
+        restricted,
+        bin_pub,
+        lib_exported,
+    )?;
     let base_store = if let Some(p) = &opts.base_db {
         warnings.push(format!(
             "using --base-db {}: it is assumed to be indexed from the merge base {merge_base:.8}",
@@ -838,8 +857,23 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
         run_pipeline(&s, &wt.dir.join(&prefix), &PipelineConfig::default())?;
         s
     };
-    warn_stale_markers(&head_store, &base_store, restricted, bin_pub, &mut warnings);
-    let base_state = dead_state(&base_store, opts, &entry, &ignore, restricted, bin_pub)?;
+    warn_stale_markers(
+        &head_store,
+        &base_store,
+        restricted,
+        bin_pub,
+        lib_exported,
+        &mut warnings,
+    );
+    let base_state = dead_state(
+        &base_store,
+        opts,
+        &entry,
+        &ignore,
+        restricted,
+        bin_pub,
+        lib_exported,
+    )?;
 
     let newly_dead = newly_dead(&head_state, &base_state, &diffs);
     let (changed_functions, changed_without_function, blast, impacted) = map_changes(

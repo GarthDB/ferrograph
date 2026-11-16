@@ -526,6 +526,16 @@ fn has_restricted_visibility(node: &tree_sitter::Node, source: &str) -> bool {
     })
 }
 
+/// A bare `pub` function that is not a test, bench or `main`: the only kind [`PUB_UNEXPORTED_ATTR`](super::exported::PUB_UNEXPORTED_ATTR) can demote.
+pub(super) fn is_unexported_candidate(node: &tree_sitter::Node, source: &str) -> bool {
+    !has_restricted_visibility(node, source)
+        && function_payload(node, source)
+            .and_then(|p| p.strip_prefix("pub::").map(str::to_string))
+            .is_some_and(|rest| {
+                !rest.starts_with("test::") && !rest.starts_with("bench::") && rest != "main"
+            })
+}
+
 /// Payload for a function node: "`pub::name`" if public, "`test::name`" if test, "`bench::name`" if bench, else "name". Used for dead-code entry point detection.
 ///
 /// Note: `test` detection recurses into `#[cfg(test)]` token trees, but `bench`

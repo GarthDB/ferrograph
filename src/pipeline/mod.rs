@@ -6,6 +6,7 @@ mod calls;
 mod dead_code;
 mod discovery;
 mod expands;
+mod exported;
 mod git_coupling;
 mod lifetimes;
 mod modules;
@@ -119,6 +120,7 @@ pub fn run_pipeline(store: &Store, root: &Path, config: &PipelineConfig) -> Resu
     for (path, content) in &files {
         extract_ast(store, path, content, root)?;
     }
+    exported::mark_pub_unexported(store, root, &files)?;
     primitives::create_primitive_nodes(store)?;
     resolve_modules(store, root)?; // Imports edges must exist before call resolution
     build_call_graph_in(store, Some(&units::Units::load(root)))?;

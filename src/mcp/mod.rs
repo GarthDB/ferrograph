@@ -50,6 +50,11 @@ fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
                 "description": "Do not treat bare pub functions in files compiled only by bin/test/example/bench targets as entry points (default true, false with strict; pass false to keep them as entry points)",
                 "default": true
             },
+            "lib_exported_only": {
+                "type": "boolean",
+                "description": "Do not treat bare pub free functions that a library crate does not export (private module, no pub use path) as entry points (default false)",
+                "default": false
+            },
             "restricted_vis_not_root": {
                 "type": "boolean",
                 "description": "Do not treat pub(crate)/pub(super)/pub(in ..) functions as entry points; bare pub still is (default true, false with strict; pass false to keep them as entry points)",
@@ -572,7 +577,8 @@ impl FerrographMcp {
         };
         let restricted = arg("restricted_vis_not_root").unwrap_or(!strict);
         let bin_pub = arg("bin_pub_not_root").unwrap_or(!strict);
-        let mut ids = if strict || restricted || bin_pub {
+        let lib_exported = arg("lib_exported_only").unwrap_or(false);
+        let mut ids = if strict || restricted || bin_pub || lib_exported {
             Vec::new()
         } else {
             crate::graph::Query::stored_dead_functions(store).map_err(|e| {
@@ -586,6 +592,7 @@ impl FerrographMcp {
                 &[],
                 restricted,
                 bin_pub,
+                lib_exported,
             )
             .map_err(|e| {
                 rmcp::ErrorData::internal_error(format!("Dead code (live) query failed: {e}"), None)

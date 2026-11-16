@@ -126,6 +126,12 @@ pub enum Command {
         /// Keep bare `pub` functions in bin/test/example/bench-only files as entry points (overrides the config file).
         #[arg(long)]
         no_bin_pub_not_root: bool,
+        /// Do not treat bare `pub` free functions that a library crate does not export (private module, no `pub use` path) as entry points. Off by default.
+        #[arg(long, conflicts_with = "no_lib_exported_only")]
+        lib_exported_only: bool,
+        /// Keep unexported library `pub` functions as entry points (overrides the config file).
+        #[arg(long)]
+        no_lib_exported_only: bool,
         /// Extra entry point: file glob (`examples/**`) or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
@@ -172,6 +178,12 @@ pub enum Command {
         /// Keep bare `pub` functions in bin/test/example/bench-only files as entry points (overrides the config file).
         #[arg(long)]
         no_bin_pub_not_root: bool,
+        /// Do not treat bare `pub` free functions that a library crate does not export (private module, no `pub use` path) as entry points. Off by default.
+        #[arg(long, conflicts_with = "no_lib_exported_only")]
+        lib_exported_only: bool,
+        /// Keep unexported library `pub` functions as entry points (overrides the config file).
+        #[arg(long)]
+        no_lib_exported_only: bool,
         /// Extra entry point: file glob or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
@@ -334,6 +346,8 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             no_restricted_vis_not_root,
             bin_pub_not_root,
             no_bin_pub_not_root,
+            lib_exported_only,
+            no_lib_exported_only,
             entry,
             ignore,
             fail_on_any,
@@ -346,6 +360,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 strict,
                 restricted_vis_not_root: flag(restricted_vis_not_root, no_restricted_vis_not_root),
                 bin_pub_not_root: flag(bin_pub_not_root, no_bin_pub_not_root),
+                lib_exported_only: flag(lib_exported_only, no_lib_exported_only),
                 entry,
                 ignore,
             },
@@ -362,6 +377,8 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             no_restricted_vis_not_root,
             bin_pub_not_root,
             no_bin_pub_not_root,
+            lib_exported_only,
+            no_lib_exported_only,
             entry,
             ignore,
             exclude_low_confidence,
@@ -384,6 +401,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 strict,
                 restricted_vis_not_root: flag(restricted_vis_not_root, no_restricted_vis_not_root),
                 bin_pub_not_root: flag(bin_pub_not_root, no_bin_pub_not_root),
+                lib_exported_only: flag(lib_exported_only, no_lib_exported_only),
                 entry,
                 ignore,
                 exclude_low_confidence,
@@ -574,6 +592,9 @@ pub struct DeadConfig {
     /// Treat bare `pub` functions in bin/test/example/bench-only files as non-roots (default true, false with `--strict`).
     #[serde(default)]
     pub bin_pub_not_root: Option<bool>,
+    /// Treat bare `pub` free functions a library crate does not export as non-roots (default false).
+    #[serde(default)]
+    pub lib_exported_only: Option<bool>,
 }
 
 /// `--x` / `--no-x` pair to a tri-state: unset leaves the config file and the default in charge.
@@ -632,6 +653,7 @@ fn run_dead(
         .restricted_vis_not_root
         .or(cfg.dead.restricted_vis_not_root);
     opts.bin_pub_not_root = opts.bin_pub_not_root.or(cfg.dead.bin_pub_not_root);
+    opts.lib_exported_only = opts.lib_exported_only.or(cfg.dead.lib_exported_only);
     opts.entry.extend(cfg.dead.entry);
     opts.ignore.extend(cfg.dead.ignore);
     let result = crate::ops::dead_code(&store, file, &opts)?;

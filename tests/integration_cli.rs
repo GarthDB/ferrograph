@@ -1171,6 +1171,53 @@ fn cli_dead_bin_pub_not_root() {
     }
 }
 
+fn dead_lib_exported(config: Option<&str>, extra: &[&str]) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"p\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/lib.rs"), "mod hidden;\npub fn api() {}\n").unwrap();
+    std::fs::write(root.join("src/hidden.rs"), "pub fn unexported() {}\n").unwrap();
+    if let Some(c) = config {
+        std::fs::write(root.join(".ferrograph.toml"), c).unwrap();
+    }
+    let db = root.join(".ferrograph");
+    assert!(run(&["index", "--output", s(&db), s(root)])
+        .status
+        .success());
+    let out = run(&["dead", "--db", s(&db)]
+        .iter()
+        .chain(extra)
+        .copied()
+        .collect::<Vec<_>>());
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn cli_dead_lib_exported_only_is_opt_in() {
+    for out in [
+        dead_lib_exported(None, &[]),
+        dead_lib_exported(None, &["--no-lib-exported-only"]),
+        dead_lib_exported(
+            Some("[dead]\nlib_exported_only = true\n"),
+            &["--no-lib-exported-only"],
+        ),
+    ] {
+        assert!(!out.contains("unexported"), "root by default: {out}");
+    }
+    for out in [
+        dead_lib_exported(None, &["--lib-exported-only"]),
+        dead_lib_exported(Some("[dead]\nlib_exported_only = true\n"), &[]),
+    ] {
+        assert!(out.contains("unexported") && !out.contains("api"), "{out}");
+    }
+}
+
 #[test]
 fn cli_dead_strict_keeps_the_visibility_options_off_unless_asked() {
     let out = dead_restricted(None, &["--strict"]);
