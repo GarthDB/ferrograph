@@ -58,6 +58,7 @@ pub struct Prepared {
 }
 
 /// Materialise a corpus copy under `work` and return its root. Originals are never written.
+/// Not safe to call concurrently for corpora sharing a `group` (same `dest` and `.partial` dir).
 pub fn prepare(c: &Corpus, work: &Path) -> Result<Prepared> {
     let dest = work.join("corpora").join(c.group());
     if let Some(url) = &c.url {
@@ -194,7 +195,14 @@ mod tests {
         std::fs::create_dir_all(&origin).unwrap();
         std::fs::write(origin.join("a.rs"), "fn a() {}").unwrap();
         let g = |args: &[&str]| {
-            let mut a = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
+            let mut a = vec![
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ];
             a.extend(args);
             run(
                 &[&["git"], a.as_slice()].concat(),
