@@ -370,7 +370,7 @@ fn is_trait_impl_method(node: &tree_sitter::Node) -> bool {
 
 /// Attributes that leave an `impl` as written; any other outer attribute is a proc macro (`#[zbus::interface]`)
 /// whose generated code may call the methods (#102).
-const PLAIN_IMPL_ATTRS: [&str; 11] = [
+const PLAIN_IMPL_ATTRS: [&str; 13] = [
     "cfg",
     "cfg_attr",
     "allow",
@@ -381,6 +381,8 @@ const PLAIN_IMPL_ATTRS: [&str; 11] = [
     "doc",
     "deprecated",
     "must_use",
+    "track_caller",
+    "cold",
     "rustfmt::skip",
 ];
 
