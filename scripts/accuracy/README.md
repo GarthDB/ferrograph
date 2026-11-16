@@ -147,6 +147,32 @@ how many commits had a rustc newly-dead fn at all (the real denominator for reca
 those whose diff removes a line that calls or references a fn defined in the repo (`--depth` first-parent commits are scanned,
 the first `--n` hits are measured); the default `--select last` keeps the last-N behaviour.
 
+## UI-toolkit cohort (`ui`, #210)
+
+Five toolkits (ratatui, egui, iced, xilem, cursive; see `corpora.toml`) whose code is closures in fields, message handlers, builders and
+callbacks. `cargo xtask groundtruth --only ratatui,egui,iced,xilem,cursive`, ferrograph 6.2.1 (the release binary built from `main`
+at `fe9ef0d`), rustc 1.99.1, macOS arm64, 2026-11-16, `cargo check --workspace --all-targets --all-features` (cursive without
+`--all-features`). The harness's model of `dead` matched the CLI on all five (diff = 0). Wilson 95% intervals.
+
+| | R (rustc-dead) | F | F in R | recall | precision (judgeable) | genuine disagreements |
+|---|---|---|---|---|---|---|
+| default | 35 | 54 | 10 | 28.5% (10/35) [16.3-45.1] | 22.2% (10/45) [12.5-36.3] | 35 |
+| `--strict` | 35 | 157 | 11 | 31.4% (11/35) [18.6-48.0] | 10.5% (11/104) [6.0-18.0] | 112 |
+
+Genuine disagreements per corpus (default): ratatui 0, egui 12, iced 18, xilem 1, cursive 4. For comparison, the 22 older corpora have 5 unconfirmed
+among 75 judgeable default reports (93.3% precision, see the main README): live code is reported dead far more often in UI code. R is small
+(these crates are CI-clean), so recall has wide intervals, and the genuine-disagreement list is a candidate list, not a verdict: I
+read the source for these and confirmed them, **not** the rest:
+
+- **egui, 8 of 12:** `assert_send_sync`, a `const fn` declared and called inside `const _: () = { .. };`. Reproduced on a 6-line fixture, in default and `--strict` (#218).
+- **cursive, 2 of 4:** `find_closest_pair` in `backends/curses/mod.rs`, called as `super::find_closest_pair(..)` from a same-named wrapper in the child module `n.rs`; `find_closest` is dead as a consequence. Reproduced on a fixture (#219).
+- **iced, 12 of 18:** methods of `Content` and `TitleBar` (`layout`, `operate`, `overlay`, `update`, `diff`, `mouse_interaction`, `grid_interaction`) called as `content.layout(..)` on a receiver bound by a closure or zip/tuple pattern. A minimal fixture with the same shapes did **not** reproduce it, so the cause is not known (#220).
+- **iced, 1:** `error_list`, called inside a `#[error("..", error_list(.0))]` attribute (a call in derive-helper arguments).
+- **Not looked at:** `id`, `point`, `update`/`draw` (iced examples), `id`, `ui`, `begin_pass`, `set_options` (egui), `as_mut` (xilem), `layout`/`draw` (cursive).
+
+Reproduce: `cargo xtask groundtruth --ferrograph <binary> --work <dir> --only ratatui,egui,iced,xilem,cursive --out-md ui.md --out-json ui.json`
+(about 5 minutes with warm clones; each crate needs 1-3 GB of `target/` while it runs).
+
 ## What is not measured / limitations
 
 - `RUSTFLAGS` is set to `--force-warn dead_code`, which makes cargo ignore `build.rustflags`/`target.*.rustflags` from a corpus's `.cargo/config.toml`. In the pinned corpora those are Windows-only (fd, ripgrep), so nothing changes on macOS/Linux; check before adding a corpus that needs e.g. `--cfg tokio_unstable`.
