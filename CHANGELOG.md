@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.1](https://github.com/GarthDB/ferrograph/compare/v6.1.0...v6.1.1) - 2026-11-16
+
+### Other
+
+- *(calls)* assert batch has its own edges so the hole check cannot pass on an empty list ([#166](https://github.com/GarthDB/ferrograph/pull/166))
+- *(calls)* a hint that does not evaluate keeps the same-file method, with the fd execute_batch shape ([#166](https://github.com/GarthDB/ferrograph/pull/166))
+- *(readme)* say why topgrade's call-edge misses are kept alive
+- *(readme)* the accuracy figures were measured on v6.1.0
+
 ## [6.1.0](https://github.com/GarthDB/ferrograph/compare/v6.0.0...v6.1.0) - 2026-11-15
 
 ### Added
