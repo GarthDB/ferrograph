@@ -11,6 +11,11 @@ keywords = ["rust", "code-analysis", "mcp", "knowledge-graph", "tree-sitter"]
 categories = ["development-tools"]
 exclude = [".ferrograph", "tests/fixtures/", "scripts/"]
 
+[workspace]
+members = [".", "xtask"]
+# Plain `cargo build/test` (and the MSRV job) stay root-only; use `-p xtask` or `--workspace` for the harness.
+default-members = ["."]
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 # Without cozo's default "requests" feature (minreq + rustls 0.21), which only lets the
