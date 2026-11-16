@@ -12,6 +12,7 @@ mod groundtruth;
 mod impact_sample;
 mod matrix;
 mod miss_cfg;
+mod replay;
 mod run;
 mod rustc;
 mod scan;
@@ -100,6 +101,36 @@ enum Cmd {
         #[arg(long)]
         keep_targets: bool,
     },
+    /// False-alarm rate of `ferrograph pr` on real commits.
+    Replay {
+        #[arg(long, default_value = "scripts/accuracy/corpora.toml")]
+        config: PathBuf,
+        #[arg(long)]
+        ferrograph: String,
+        #[arg(long)]
+        work: Option<PathBuf>,
+        /// Comma-separated corpus names (url corpora only).
+        #[arg(long, default_value = "")]
+        only: String,
+        /// Recent first-parent commits per corpus.
+        #[arg(long, default_value_t = 50)]
+        n: usize,
+        /// `last`: the last N commits; `calls`: the N most recent commits (within --depth) whose diff removes a call/reference to a repo fn.
+        #[arg(long, value_enum, default_value = "last")]
+        select: Select,
+        /// First-parent commits to scan (default N for `last`, 10*N for `calls`).
+        #[arg(long)]
+        depth: Option<usize>,
+        /// Extra args for `ferrograph pr`, e.g. `--restricted-vis-not-root`.
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        extra_args: String,
+        #[arg(long, default_value_t = 1800)]
+        timeout: u64,
+        #[arg(long, default_value = "replay-report.md")]
+        out_md: PathBuf,
+        #[arg(long, default_value = "replay-data.json")]
+        out_json: PathBuf,
+    },
     /// Paired comparison of two `groundtruth` JSON runs.
     Compare {
         base: PathBuf,
@@ -116,6 +147,12 @@ enum Cmd {
     },
 }
 
+#[derive(Clone, clap::ValueEnum)]
+enum Select {
+    Last,
+    Calls,
+}
+
 #[derive(Subcommand)]
 enum ImpactCmd {
     /// CSV on stdout from `DIR/pr<N>-d{1,2,3}[-x].json`.
@@ -124,6 +161,7 @@ enum ImpactCmd {
     Score { labels: PathBuf },
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     match Cli::parse().cmd {
         Cmd::Corpora { config } => {
@@ -185,6 +223,33 @@ fn main() -> anyhow::Result<()> {
             if !missing.is_empty() {
                 std::process::exit(1);
             }
+        }
+        Cmd::Replay {
+            config,
+            ferrograph,
+            work,
+            only,
+            n,
+            select,
+            depth,
+            extra_args,
+            timeout,
+            out_md,
+            out_json,
+        } => {
+            replay::main(&replay::Args {
+                config,
+                ferrograph,
+                work,
+                only,
+                n,
+                calls: matches!(select, Select::Calls),
+                depth,
+                extra_args,
+                timeout_secs: timeout,
+                out_md,
+                out_json,
+            })?;
         }
         Cmd::Compare {
             base,

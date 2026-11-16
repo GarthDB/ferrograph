@@ -46,3 +46,55 @@ pub fn synthetic() -> Corpus {
         cargo_args: None,
     }
 }
+
+/// A git repo (`file://` url corpus) with three commits on top of the synthetic corpus: base, one that
+/// deletes the only call to `cleanup`, and a comment-only one.
+pub fn synthetic_history(dir: &Path) -> Corpus {
+    let origin = dir.join("origin");
+    crate::corpus::copy_tree(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/accuracy/synthetic"),
+        &origin,
+    )
+    .unwrap();
+    let git = |args: &[&str]| {
+        let mut v = vec![
+            "git",
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ];
+        v.extend(args);
+        crate::run::run(
+            &v,
+            Some(&origin),
+            &[],
+            std::time::Duration::from_secs(60),
+            true,
+        )
+        .unwrap();
+    };
+    let main = origin.join("bin_app/src/main.rs");
+    git(&["init", "-q"]);
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "base"]);
+    let src = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, src.replace("    cleanup();\n", "\n")).unwrap();
+    git(&["commit", "-qam", "drop cleanup call"]);
+    std::fs::write(
+        &main,
+        std::fs::read_to_string(&main)
+            .unwrap()
+            .replace("fn teardown() {", "// note\nfn teardown() {"),
+    )
+    .unwrap();
+    git(&["commit", "-qam", "comment"]);
+    Corpus {
+        name: "hist".into(),
+        url: Some(format!("file://{}", origin.display())),
+        path: None,
+        ..synthetic()
+    }
+}
