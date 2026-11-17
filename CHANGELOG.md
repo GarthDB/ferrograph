@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0](https://github.com/GarthDB/ferrograph/compare/v7.0.0...v8.0.0) - 2026-11-17
+
+### Added
+
+- *(dead)* `--lib-exported-only` also demotes bare `pub` methods of types a library crate does not export, and bare `pub` consts and statics ([#235](https://github.com/GarthDB/ferrograph/pull/235), [#232](https://github.com/GarthDB/ferrograph/pull/232))
+- *(dead)* `--bin-pub-not-root` demotes bare `pub` consts and statics in bin-only files; consts declared in an implemented trait are roots ([#232](https://github.com/GarthDB/ferrograph/pull/232))
+- *(mcp)* `dead_code` accepts `node_type` `const` or `static`; SARIF and Markdown for `dead` name the item kind, and `pr` SARIF lists newly dead consts and statics ([#231](https://github.com/GarthDB/ferrograph/pull/231))
+
+### Fixed
+
+- *(calls)* `a.zip(b)` (and `Option::zip`) is typed as pairs, so tuple patterns over it resolve their receivers; iced default dead reports 17 to 6 ([#236](https://github.com/GarthDB/ferrograph/pull/236))
+
+### Changed
+
+- *(dead)* `dead --type const` and `pr --include-consts` now treat bare `pub` consts and statics in bin-only files as non-roots by default, as `--bin-pub-not-root` already did for functions. Graphs indexed by an earlier version lack the new markers: re-index both sides before running `pr` ([#232](https://github.com/GarthDB/ferrograph/pull/232))
+- *(api)* `Query::compute_dead_consts_with` and `compute_dead_consts_with_payload` take two more arguments (`bin_pub_not_root`, `lib_exported_only`), which is the breaking change behind 8.0.0 ([#232](https://github.com/GarthDB/ferrograph/pull/232))
+
 ## [7.0.0](https://github.com/GarthDB/ferrograph/compare/v6.2.1...v7.0.0) - 2026-11-17
 
 ### Added
