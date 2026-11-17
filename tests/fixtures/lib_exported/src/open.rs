@@ -25,3 +25,5 @@ impl std::ops::Deref for Wrapper {
         &crate::hidden::Inner
     }
 }
+
+pub static TOKEN: crate::hidden::Token = crate::hidden::Token;

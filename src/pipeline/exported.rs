@@ -205,11 +205,12 @@ impl Crate<'_> {
                 "const_item" | "static_item" if is_bare_pub(&node, source) => {
                     let name = field_text(&node, "name", source);
                     let id = Some(node_id(&node, file_id));
-                    self.mods[idx].fns.push(Func {
-                        name,
-                        id,
-                        sig: vec![],
-                    });
+                    // The declared type is nameable through the item; the initializer is not.
+                    let mut sig = Vec::new();
+                    if let Some(ty) = node.child_by_field_name("type") {
+                        type_idents(&ty, source, &mut sig);
+                    }
+                    self.mods[idx].fns.push(Func { name, id, sig });
                 }
                 "struct_item" | "enum_item" | "union_item" | "trait_item" | "type_item" => {
                     let mut exposes = Vec::new();

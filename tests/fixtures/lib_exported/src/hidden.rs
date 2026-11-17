@@ -25,3 +25,8 @@ pub struct Inner;
 impl Inner {
     pub fn inner_method() {}
 }
+
+pub struct Token;
+impl Token {
+    pub fn token_method() {}
+}
