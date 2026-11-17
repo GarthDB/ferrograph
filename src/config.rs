@@ -138,6 +138,9 @@ pub enum Command {
         /// Never report functions in files matching this glob. Repeatable.
         #[arg(long)]
         ignore: Vec<String>,
+        /// What to report: dead functions (default), consts or statics. A const is live when a live function or a root item (bare `pub`, trait impl, `const _`) references it.
+        #[arg(long = "type", value_enum, default_value_t)]
+        item: crate::ops::DeadItem,
         /// Exit with code 1 if any dead function is reported (same as `--max 0`).
         #[arg(long, conflicts_with = "max")]
         fail_on_any: bool,
@@ -356,6 +359,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             no_lib_exported_only,
             entry,
             ignore,
+            item,
             fail_on_any,
             max,
             fmt,
@@ -369,6 +373,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 lib_exported_only: flag(lib_exported_only, no_lib_exported_only),
                 entry,
                 ignore,
+                item,
             },
             fail_on_any.then_some(0).or(max),
             fmt.resolve(json)?,
@@ -667,6 +672,7 @@ fn run_dead(
     opts.lib_exported_only = opts.lib_exported_only.or(cfg.dead.lib_exported_only);
     opts.entry.extend(cfg.dead.entry);
     opts.ignore.extend(cfg.dead.ignore);
+    let opts_item = opts.item;
     let result = crate::ops::dead_code(&store, file, &opts)?;
     if format == Format::Json {
         println!("{}", serde_json::to_string_pretty(&result)?);
@@ -687,6 +693,9 @@ fn run_dead(
             result.count, result.source
         );
         println!("\n{}", crate::ops::DEAD_CODE_CAVEAT);
+        if opts_item != crate::ops::DeadItem::Function {
+            println!("\nBare `pub` consts and statics are always roots, so a library crate's unused public items are not reported (#207).");
+        }
     }
     Ok(check_threshold(result.count, max))
 }

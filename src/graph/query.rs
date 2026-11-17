@@ -178,6 +178,34 @@ impl Query {
             bin_pub_not_root,
             lib_exported_only,
         )?;
+        Self::with_payload(store, ids)
+    }
+
+    /// [`Self::compute_dead_consts_with`] joined with the nodes table.
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    #[allow(clippy::fn_params_excessive_bools)]
+    pub fn compute_dead_consts_with_payload(
+        store: &Store,
+        strict: bool,
+        extra_entries: &[String],
+        restricted_vis_not_root: bool,
+        bin_pub_not_root: bool,
+        lib_exported_only: bool,
+    ) -> Result<Vec<NodeTriple>> {
+        let ids = Self::compute_dead_consts_with(
+            store,
+            strict,
+            extra_entries,
+            restricted_vis_not_root,
+            bin_pub_not_root,
+            lib_exported_only,
+        )?;
+        Self::with_payload(store, ids)
+    }
+
+    fn with_payload(store: &Store, ids: Vec<String>) -> Result<Vec<NodeTriple>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -249,6 +277,58 @@ impl Query {
         bin_pub_not_root: bool,
         lib_exported_only: bool,
     ) -> Result<Vec<String>> {
+        Self::compute_dead_ids(
+            store,
+            strict,
+            extra_entries,
+            restricted_vis_not_root,
+            bin_pub_not_root,
+            lib_exported_only,
+            &[NodeType::Function],
+        )
+    }
+
+    /// Const and static node ids that no root reaches: neither a live function nor a root item
+    /// (bare `pub`, trait impl, entry attribute, `const _`) references them. Same reachability and
+    /// options as [`Self::compute_dead_functions_with`].
+    ///
+    /// # Errors
+    /// Fails if the store query fails.
+    #[allow(clippy::fn_params_excessive_bools)]
+    pub fn compute_dead_consts_with(
+        store: &Store,
+        strict: bool,
+        extra_entries: &[String],
+        restricted_vis_not_root: bool,
+        bin_pub_not_root: bool,
+        lib_exported_only: bool,
+    ) -> Result<Vec<String>> {
+        Self::compute_dead_ids(
+            store,
+            strict,
+            extra_entries,
+            restricted_vis_not_root,
+            bin_pub_not_root,
+            lib_exported_only,
+            &[NodeType::Const, NodeType::Static],
+        )
+    }
+
+    #[allow(clippy::fn_params_excessive_bools, clippy::too_many_arguments)]
+    fn compute_dead_ids(
+        store: &Store,
+        strict: bool,
+        extra_entries: &[String],
+        restricted_vis_not_root: bool,
+        bin_pub_not_root: bool,
+        lib_exported_only: bool,
+        target_types: &[NodeType],
+    ) -> Result<Vec<String>> {
+        let targets = target_types
+            .iter()
+            .map(|t| format!("\"{t}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
         let not_low = if strict { ", not low[from, to]" } else { "" };
         let type_function = NodeType::Function.to_string();
         let edge_calls = EdgeType::Calls.to_string();
@@ -317,7 +397,7 @@ impl Query {
             reachable[to] := reachable[from], *edges[from, to, "{edge_calls}"]{not_low}
             reachable[to] := reachable[from], *edges[from, to, "{edge_refs}"]
             reachable[to] := reachable[from], *edges[from, to, "{edge_expands}"]
-            ?[id] := *nodes[id, type, _], type = "{type_function}", not reachable[id]
+            ?[id] := *nodes[id, type, _], type in [{targets}], not reachable[id]
             "#
         );
         let rows = store.run_query(script.trim(), params)?;

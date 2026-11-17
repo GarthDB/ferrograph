@@ -68,6 +68,7 @@ The positional form `status [PATH]` is deprecated (still works, prints a note on
 ```bash
 ferrograph dead --db .ferrograph --max 0      # same as --fail-on-any
 ferrograph dead --db .ferrograph --max 25     # allow up to 25 findings
+ferrograph dead --db .ferrograph --type const  # unused consts (or `static`); bare `pub` ones are roots, so library crates under-report until #207
 ferrograph blast --db .ferrograph --max 100 "<node id>"
 ```
 
