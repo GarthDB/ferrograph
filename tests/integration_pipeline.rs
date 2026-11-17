@@ -629,6 +629,18 @@ fn pipeline_variant_payload_receivers_resolve_to_their_type() {
     ]);
 }
 
+/// #240: fields bound by `Variant { f }`, `Self { f }` and `Struct { f: x }` patterns take the declared field type.
+#[test]
+fn pipeline_struct_pattern_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&[
+        "field_variant",
+        "field_bare",
+        "field_self",
+        "field_struct",
+        "field_renamed",
+    ]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);

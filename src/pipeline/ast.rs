@@ -1426,15 +1426,27 @@ fn push_field_type_edge(
     ) else {
         return;
     };
-    edges.push((
-        from.clone(),
-        NodeId::new(format!(
-            "{}::{name}{}{ty}",
-            file_id.as_str(),
-            super::calls::FIELD_MARK
-        )),
-        EdgeType::Calls,
-    ));
+    // Patterns (`V { f, .. }`, `S { f, .. }`) find the type by the name before the braces: key it
+    // `V#f` like tuple payloads (`V#i`). An enum's variant fields are not fields of the enum itself.
+    let owner = node.parent().and_then(|list| list.parent());
+    let in_variant = owner.is_some_and(|o| o.kind() == "enum_variant");
+    let pattern_key = owner
+        .and_then(|o| source.get(o.child_by_field_name("name")?.byte_range()))
+        .map(|o| format!("{o}#{name}"));
+    let keys = pattern_key
+        .into_iter()
+        .chain((!in_variant).then(|| name.to_string()));
+    for key in keys {
+        edges.push((
+            from.clone(),
+            NodeId::new(format!(
+                "{}::{key}{}{ty}",
+                file_id.as_str(),
+                super::calls::FIELD_MARK
+            )),
+            EdgeType::Calls,
+        ));
+    }
 }
 
 /// Temporary `Calls` edges from an enum or struct to `file::Variant#i@field:Type`, one per tuple
@@ -1721,6 +1733,33 @@ fn pattern_hint(
                 }),
             };
             pattern_hint(&arg, id, sub, source)
+        }
+        "struct_pattern" => {
+            let path = pat.child_by_field_name("type")?;
+            if path.kind() == "generic_type" {
+                return None;
+            }
+            let field = pat.named_children(&mut pat.walk()).find(|f| {
+                f.kind() == "field_pattern"
+                    && f.start_byte() <= id.start_byte()
+                    && id.end_byte() <= f.end_byte()
+            })?;
+            let name = source.get(field.child_by_field_name("name")?.byte_range())?;
+            let segs: Vec<&str> = source.get(path.byte_range())?.split("::").collect();
+            let last = *segs.last()?;
+            let sub = match segs.len().checked_sub(2).map(|k| segs[k]) {
+                Some(owner) if owner.starts_with(char::is_uppercase) => {
+                    format!("{owner}.{last}#{name}")
+                }
+                Some(_) => return None,
+                // `Self { a, .. }` is the enclosing type's own field; a bare `Variant { a }` is a variant.
+                None if last == "Self" => format!("Self.{name}"),
+                None => format!("%{last}#{name}"),
+            };
+            match field.child_by_field_name("pattern") {
+                Some(inner) => pattern_hint(&inner, id, Some(sub), source),
+                None => Some(sub),
+            }
         }
         "tuple_pattern" => {
             for (i, arg) in element_patterns(pat, None).into_iter().enumerate() {

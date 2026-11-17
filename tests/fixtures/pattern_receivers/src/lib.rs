@@ -17,6 +17,11 @@ impl A {
     fn variant_bare(&self) {} // live_a_variant_bare
     fn variant_struct(&self) {} // live_a_variant_struct
     fn variant_self(&self) {} // live_a_variant_self
+    fn field_variant(&self) {} // live_a_field_variant
+    fn field_bare(&self) {} // live_a_field_bare
+    fn field_self(&self) {} // live_a_field_self
+    fn field_struct(&self) {} // live_a_field_struct
+    fn field_renamed(&self) {} // live_a_field_renamed
     fn some_pattern(&self) {} // live_a_some_pattern
     fn while_let(&self) {} // live_a_while_let
     fn try_option(&self) {} // live_a_try_option
@@ -51,6 +56,11 @@ impl B {
     fn variant_bare(&self) {} // dead_b_variant_bare
     fn variant_struct(&self) {} // dead_b_variant_struct
     fn variant_self(&self) {} // dead_b_variant_self
+    fn field_variant(&self) {} // dead_b_field_variant
+    fn field_bare(&self) {} // dead_b_field_bare
+    fn field_self(&self) {} // dead_b_field_self
+    fn field_struct(&self) {} // dead_b_field_struct
+    fn field_renamed(&self) {} // dead_b_field_renamed
     fn some_pattern(&self) {} // dead_b_some_pattern
     fn while_let(&self) {} // dead_b_while_let
     fn try_option(&self) {} // dead_b_try_option
@@ -267,4 +277,30 @@ pub fn map_path(r: Result<String, ()>) -> Result<(), ()> {
     let a = r.map(A::make)?;
     a.map_path();
     Ok(())
+}
+
+// Struct-like patterns: `Variant { f }`, `Self { f }`, `Struct { f: x }`.
+pub enum Shape {
+    Named { first: A, second: B },
+}
+pub struct Pair {
+    left: A,
+    right: B,
+}
+impl Pair {
+    pub fn fields(&self, s: &Shape) {
+        let Shape::Named { first, .. } = s else { return };
+        first.field_variant();
+        let Self { left, .. } = self;
+        left.field_self();
+    }
+}
+pub fn field_patterns(p: &Pair) {
+    use Shape::*;
+    let Named { first, .. } = Shape::Named { first: A, second: B };
+    first.field_bare();
+    let Pair { left, .. } = p;
+    left.field_struct();
+    let Pair { left: l, .. } = p;
+    l.field_renamed();
 }
