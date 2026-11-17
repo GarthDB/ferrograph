@@ -9,17 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [8.0.0](https://github.com/GarthDB/ferrograph/compare/v7.0.0...v8.0.0) - 2026-11-17
 
-### Other
+### Added
 
-- drop zip debug output, type Option::zip, cover untyped and map zips
-- Merge branch 'main' into fix/closure-tuple-receivers
-- a const or static's declared type counts as exposed ([#217](https://github.com/GarthDB/ferrograph/pull/217))
-- type the pairs of a.zip(b) so tuple patterns over it resolve receivers ([#220](https://github.com/GarthDB/ferrograph/pull/220))
-- --lib-exported-only also demotes bare pub methods of unexported types ([#217](https://github.com/GarthDB/ferrograph/pull/217))
-- fix the const caveat for associated consts in bin-only files
-- pass the visibility options to the dead const query
-- demote bare pub consts/statics like functions; trait-declared consts are roots ([#208](https://github.com/GarthDB/ferrograph/pull/208))
-- const/static support in the MCP dead_code filter, SARIF and markdown ([#208](https://github.com/GarthDB/ferrograph/pull/208))
+- *(dead)* `--lib-exported-only` also demotes bare `pub` methods of types a library crate does not export, and bare `pub` consts and statics ([#235](https://github.com/GarthDB/ferrograph/pull/235), [#232](https://github.com/GarthDB/ferrograph/pull/232))
+- *(dead)* `--bin-pub-not-root` demotes bare `pub` consts and statics in bin-only files; consts declared in an implemented trait are roots ([#232](https://github.com/GarthDB/ferrograph/pull/232))
+- *(mcp)* `dead_code` accepts `node_type` `const` or `static`; SARIF and Markdown for `dead` name the item kind, and `pr` SARIF lists newly dead consts and statics ([#231](https://github.com/GarthDB/ferrograph/pull/231))
+
+### Fixed
+
+- *(calls)* `a.zip(b)` (and `Option::zip`) is typed as pairs, so tuple patterns over it resolve their receivers; iced default dead reports 17 to 6 ([#236](https://github.com/GarthDB/ferrograph/pull/236))
+
+### Changed
+
+- *(dead)* `dead --type const` and `pr --include-consts` now treat bare `pub` consts and statics in bin-only files as non-roots by default, as `--bin-pub-not-root` already did for functions. Graphs indexed by an earlier version lack the new markers: re-index both sides before running `pr` ([#232](https://github.com/GarthDB/ferrograph/pull/232))
+- *(api)* `Query::compute_dead_consts_with` and `compute_dead_consts_with_payload` take two more arguments (`bin_pub_not_root`, `lib_exported_only`), which is the breaking change behind 8.0.0 ([#232](https://github.com/GarthDB/ferrograph/pull/232))
 
 ## [7.0.0](https://github.com/GarthDB/ferrograph/compare/v6.2.1...v7.0.0) - 2026-11-17
 
