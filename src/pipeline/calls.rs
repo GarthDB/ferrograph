@@ -769,11 +769,14 @@ fn resolve_placeholder(
             let owner = path_part.rsplit("::").next().unwrap_or(path_part);
             // A lone same-file candidate only counts if the owner is relative (`crate`/`self`/`super`)
             // or names it: `HaystackBuilder::new()` must not bind to an unrelated `new` in this file.
+            // `super::f()` from `f` itself is the parent's `f`, not a self call (#219).
             if let ([one], true) = (
                 candidates.as_slice(),
                 matches!(owner, "crate" | "self" | "super"),
             ) {
-                return Resolution::One(one.clone());
+                if !(owner == "super" && one.as_str() == from) {
+                    return Resolution::One(one.clone());
+                }
             }
             let mut picked = pick_by_owner(owner, from, candidates, idx);
             // `use orig as owner;` renames a module or type declared in this file.
@@ -1039,6 +1042,36 @@ fn common_prefix_len(a: &str, b: &str) -> usize {
         .count()
 }
 
+/// The candidates a `super::f` call can mean: not the caller itself, and the ones in the parent module
+/// file when there are any. The parent of `a/n.rs` is `a/mod.rs` or `a.rs`; of `a/b/mod.rs` it is
+/// `a/mod.rs` or `a.rs` (or the crate root when `a` is `src`).
+fn narrow_to_super_parent(mut cands: Vec<NodeId>, from: &str, from_file: &str) -> Vec<NodeId> {
+    cands.retain(|c| c.as_str() != from);
+    let path = std::path::Path::new(from_file);
+    let is_mod_rs = path.file_name().is_some_and(|f| f == "mod.rs");
+    let base = path
+        .parent()
+        .and_then(|d| if is_mod_rs { d.parent() } else { Some(d) })
+        .and_then(|b| b.to_str());
+    let Some(base) = base else { return cands };
+    let parent = [
+        format!("{base}/mod.rs"),
+        format!("{base}.rs"),
+        format!("{base}/lib.rs"),
+        format!("{base}/main.rs"),
+    ];
+    let in_parent: Vec<NodeId> = cands
+        .iter()
+        .filter(|c| parent.iter().any(|p| file_of(c) == p))
+        .cloned()
+        .collect();
+    if in_parent.is_empty() {
+        cands
+    } else {
+        in_parent
+    }
+}
+
 /// Resolve a qualified call whose owner is not in the calling file (`Type::f`, `module::f`,
 /// `crate::f`, `super::f`, `self::f`) among the whole project. The owner (last path segment) picks
 /// an impl/trait/`mod` block by name or a module file by name; `crate`/`super`/`self` pick free
@@ -1097,6 +1130,9 @@ fn resolve_qualified_elsewhere(
             by_scope
         }
     };
+    if owner == "super" {
+        cands = narrow_to_super_parent(cands, from, from_file);
+    }
     let key = crate_key(from_file);
     let same_crate: Vec<NodeId> = cands
         .iter()

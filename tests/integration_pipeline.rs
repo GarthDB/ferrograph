@@ -1107,6 +1107,29 @@ fn pipeline_const_underscore_and_unit_consts_keep_callees_alive() {
     }
 }
 
+#[test]
+fn pipeline_super_call_from_same_named_child_fn_links_to_the_parent() {
+    let store = run_fixture("super_same_name");
+    for strict in [false, true] {
+        let dead = ferrograph::graph::Query::compute_dead_functions_with(
+            &store,
+            strict,
+            &[],
+            false,
+            true,
+            false,
+        )
+        .unwrap();
+        let mut files: Vec<_> = dead.iter().map(|d| d.split('#').next().unwrap()).collect();
+        files.sort_unstable();
+        assert_eq!(
+            files,
+            ["./src/alt/sibling.rs", "./src/sub/unused.rs"],
+            "only the unused same-named fns are dead (strict={strict}), dead: {dead:?}"
+        );
+    }
+}
+
 /// Targets of `calls` edges leaving the function `caller`, as (callee id, is low-confidence).
 fn call_targets(store: &Store, caller: &str) -> Vec<(String, bool)> {
     let run = |script: &str| -> Vec<String> {
