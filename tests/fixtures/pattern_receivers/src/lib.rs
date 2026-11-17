@@ -19,6 +19,7 @@ impl A {
     fn variant_self(&self) {} // live_a_variant_self
     fn if_value(&self) {} // live_a_if_value
     fn if_chain(&self) {} // live_a_if_chain
+    fn if_comment(&self) {} // live_a_if_comment
     fn field_variant(&self) {} // live_a_field_variant
     fn field_bare(&self) {} // live_a_field_bare
     fn field_self(&self) {} // live_a_field_self
@@ -62,6 +63,7 @@ impl B {
     fn variant_self(&self) {} // dead_b_variant_self
     fn if_value(&self) {} // dead_b_if_value
     fn if_chain(&self) {} // dead_b_if_chain
+    fn if_comment(&self) {} // dead_b_if_comment
     fn field_variant(&self) {} // dead_b_field_variant
     fn field_bare(&self) {} // dead_b_field_bare
     fn field_self(&self) {} // dead_b_field_self
@@ -345,4 +347,12 @@ pub fn if_chain(flag: bool, a: A) {
         a
     };
     a.if_chain();
+}
+pub fn if_comment(flag: bool, a: A) {
+    let a = if flag {
+        a /* the value, then a comment */
+    } else {
+        todo!()
+    };
+    a.if_comment();
 }

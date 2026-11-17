@@ -645,7 +645,7 @@ fn pipeline_struct_pattern_receivers_resolve_to_their_type() {
 /// #240: an `if` is typed by one of its branches.
 #[test]
 fn pipeline_if_value_receivers_resolve_to_their_type() {
-    assert_pattern_receivers_resolved(&["if_value", "if_chain"]);
+    assert_pattern_receivers_resolved(&["if_value", "if_chain", "if_comment"]);
 }
 
 #[test]
