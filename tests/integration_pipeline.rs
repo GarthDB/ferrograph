@@ -638,6 +638,7 @@ fn pipeline_struct_pattern_receivers_resolve_to_their_type() {
         "field_self",
         "field_struct",
         "field_renamed",
+        "field_twin",
     ]);
 }
 
