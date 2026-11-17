@@ -1142,6 +1142,44 @@ fn pipeline_fn_item_as_method_receiver_is_a_reference() {
     }
 }
 
+/// File and name of every const/static that has an incoming `references` edge.
+fn referenced_consts(store: &Store) -> Vec<String> {
+    let rows = store
+        .run_query(
+            "?[id, p] := *edges[_, id, 'references'], *nodes[id, t, p], is_in(t, ['const', 'static'])",
+            std::collections::BTreeMap::new(),
+        )
+        .unwrap();
+    let unquote = |v: &cozo::DataValue| v.to_string().trim_matches('"').to_string();
+    let mut out: Vec<String> = rows
+        .rows
+        .iter()
+        .map(|r| {
+            let (id, name) = (unquote(&r[0]), unquote(&r[1]));
+            let name = name.trim_start_matches("pub::").to_string();
+            format!("{}::{name}", id.split('#').next().unwrap())
+        })
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+#[test]
+fn pipeline_cross_file_const_paths_are_references() {
+    let store = run_fixture("const_paths");
+    assert_eq!(
+        referenced_consts(&store),
+        [
+            "./src/a.rs::DUP",
+            "./src/a.rs::REEXP",
+            "./src/b.rs::CRATE_QUAL",
+            "./src/b.rs::MAC",
+            "./src/b.rs::QUAL",
+        ]
+    );
+}
+
 /// Targets of `calls` edges leaving the function `caller`, as (callee id, is low-confidence).
 fn call_targets(store: &Store, caller: &str) -> Vec<(String, bool)> {
     let run = |script: &str| -> Vec<String> {

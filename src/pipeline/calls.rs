@@ -722,10 +722,65 @@ fn resolve_const(path_part: &str, name: &str, from: &str, idx: &Index) -> Option
             return Some(one.clone());
         }
     }
-    match idx.consts_by_name.get(name).map(Vec::as_slice) {
-        Some([one]) if !qualified => Some(one.clone()),
+    let all = idx.consts_by_name.get(name)?;
+    if let [one] = resolve_const_by_module(path_part, from, all, idx).as_slice() {
+        return Some(one.clone());
+    }
+    match all.as_slice() {
+        [one] if !qualified => Some(one.clone()),
         _ => None,
     }
+}
+
+/// Const/static (the candidates `all`) reached through a module path (`b::C`, `crate::b::C`, or a re-export
+/// `e::C`) or a `use` of the calling file: every candidate it can mean.
+fn resolve_const_by_module(
+    path_part: &str,
+    from: &str,
+    all: &[NodeId],
+    idx: &Index,
+) -> Vec<NodeId> {
+    let from_file = from.split('#').next().unwrap_or(from);
+    let key = crate_key(from_file);
+    let in_crate = |c: &&NodeId| key.is_none() || crate_key(file_of(c)) == key;
+    let unique = |mut v: Vec<NodeId>| {
+        v.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        v.dedup();
+        v
+    };
+    let owner = path_part.rsplit_once("::").map(|(_, o)| o);
+    let Some(owner) = owner else {
+        // A bare name imported by `use` (several consts may share it project-wide).
+        let Some(imported) = idx.imports_map.get(from_file) else {
+            return Vec::new();
+        };
+        return unique(
+            all.iter()
+                .filter(|c| imported.iter().any(|i| i == c.as_str()))
+                .cloned()
+                .collect(),
+        );
+    };
+    if matches!(owner, "crate" | "self" | "super") {
+        return unique(all.iter().filter(in_crate).cloned().collect());
+    }
+    let mut found: Vec<NodeId> = all
+        .iter()
+        .filter(in_crate)
+        .filter(|c| file_is_module(file_of(c), owner))
+        .cloned()
+        .collect();
+    // `pub use a::C;` in module `owner`.
+    for (file, targets) in &idx.imports_map {
+        if is_file_of_module(owner, file, idx) && (key.is_none() || crate_key(file) == key) {
+            found.extend(
+                all.iter()
+                    .filter(|c| targets.iter().any(|t| t == c.as_str()))
+                    .cloned(),
+            );
+        }
+    }
+    unique(found)
 }
 
 /// Outcome of resolving a call placeholder.
