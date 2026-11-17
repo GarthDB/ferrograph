@@ -1,3 +1,4 @@
+mod deep;
 mod n;
 mod unused;
 
@@ -7,4 +8,5 @@ pub fn find_closest_pair(p: u8, m: i16) -> (i16, i16) {
 
 pub fn wrapper(p: u8) {
     n::find_closest_pair(p);
+    deep::find_closest_pair();
 }

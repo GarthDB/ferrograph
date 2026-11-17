@@ -1120,12 +1120,13 @@ fn pipeline_super_call_from_same_named_child_fn_links_to_the_parent() {
             false,
         )
         .unwrap();
+        let mut files: Vec<_> = dead.iter().map(|d| d.split('#').next().unwrap()).collect();
+        files.sort_unstable();
         assert_eq!(
-            dead.len(),
-            1,
-            "only the unused child fn is dead (strict={strict}), dead: {dead:?}"
+            files,
+            ["./src/alt/sibling.rs", "./src/sub/unused.rs"],
+            "only the unused same-named fns are dead (strict={strict}), dead: {dead:?}"
         );
-        assert!(dead[0].contains("unused.rs"), "{dead:?}");
     }
 }
 
