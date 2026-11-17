@@ -280,6 +280,7 @@ pub struct PrResult {
     pub head: String,
     pub changed_files: Vec<String>,
     pub newly_dead: Vec<NewlyDeadFunction>,
+    /// Functions only. The `--fail-on-new-dead` / `--max-new-dead` gates count `newly_dead_count + newly_dead_items.len()`.
     pub newly_dead_count: usize,
     /// Consts and statics left dead; only with `--include-consts`, and counted by the new-dead thresholds.
     #[serde(skip_serializing_if = "Vec::is_empty")]

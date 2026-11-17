@@ -317,7 +317,7 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
     let i = &r.impacted;
     let mut out = format!(
         "{MARKER}\n### ferrograph: {} newly dead, {} impacted ({} tests, {} examples, {} library)\n\n",
-        r.newly_dead_count,
+        r.newly_dead_count + r.newly_dead_items.len(),
         count_label(i.count, i.truncated),
         i.tests.count,
         i.examples.count,

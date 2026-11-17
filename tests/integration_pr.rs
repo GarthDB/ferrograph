@@ -978,6 +978,10 @@ fn pr_include_consts_reports_newly_dead_consts_and_gates_on_them() {
     )
     .into_owned();
     assert!(md.contains("**Newly dead consts and statics**"), "{md}");
+    assert!(
+        md.contains("ferrograph: 2 newly dead"),
+        "headline counts items: {md}"
+    );
     assert_eq!(
         pr(d.path(), &["--include-consts", "--max-new-dead", "2"])
             .status
