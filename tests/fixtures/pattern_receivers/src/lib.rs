@@ -33,11 +33,15 @@ impl A {
     fn try_option(&self) {} // live_a_try_option
     fn try_result(&self) {} // live_a_try_result
     fn closure_map(&self) {} // live_a_closure_map
+    fn impl_iter(&self) {} // live_a_impl_iter
+    fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
+    fn impl_iter_next(&self) {} // live_a_impl_iter_next
     fn assoc_state(&self) {} // live_a_assoc_state
     fn enum_map(&self) {} // live_a_enum_map
     fn enum_for(&self) {} // live_a_enum_for
     fn inherent_first(&self) {} // live_a_inherent_first
     fn inherent_path(&self) {} // live_a_inherent_path
+    fn inherent_self(&self) {} // live_a_inherent_self
     fn closure_typed(&self) {} // live_a_closure_typed
     fn closure_option(&self) {} // live_a_closure_option
     fn closure_for_each(&self) {} // live_a_closure_for_each
@@ -83,11 +87,15 @@ impl B {
     fn try_option(&self) {} // dead_b_try_option
     fn try_result(&self) {} // dead_b_try_result
     fn closure_map(&self) {} // dead_b_closure_map
+    fn impl_iter(&self) {} // dead_b_impl_iter
+    fn impl_iter_adapter(&self) {} // dead_b_impl_iter_adapter
+    fn impl_iter_next(&self) {} // dead_b_impl_iter_next
     fn assoc_state(&self) {} // dead_b_assoc_state
     fn enum_map(&self) {} // dead_b_enum_map
     fn enum_for(&self) {} // dead_b_enum_for
     fn inherent_first(&self) {} // dead_b_inherent_first
     fn inherent_path(&self) {} // dead_b_inherent_path
+    fn inherent_self(&self) {} // dead_b_inherent_self
     fn closure_typed(&self) {} // dead_b_closure_typed
     fn closure_option(&self) {} // dead_b_closure_option
     fn closure_for_each(&self) {} // dead_b_closure_for_each
@@ -405,13 +413,91 @@ impl Program for Attach {
 pub trait Both {
     fn inherent_first(&self);
     fn inherent_path(&self);
+    fn inherent_self(&self);
 }
 impl Both for A {
     fn inherent_first(&self) {}
     fn inherent_path(&self) {
         A::inherent_path(self);
     }
+    fn inherent_self(&self) {
+        self.inherent_self();
+    }
 }
 pub fn inherent_calls(a: &A) {
     a.inherent_first();
+}
+
+// `impl Iterator<Item = (&A, u8)>` yields its item type.
+pub fn impl_iter(group: impl Iterator<Item = (&'static A, u8)>) {
+    for (a, _n) in group {
+        a.impl_iter();
+    }
+}
+
+// Adapters and `next` on an `impl Iterator` parameter keep its item type.
+pub fn impl_iter_adapters(group: impl Iterator<Item = &'static A>, mut more: impl Iterator<Item = &'static A>) {
+    group.filter(|a| a.is_some_flag()).for_each(|a| a.impl_iter_adapter());
+    if let Some(a) = more.next() {
+        a.impl_iter_next();
+    }
+}
+
+// The same type name in two modules: `Type::f()` is the one declared in the caller's module.
+pub struct Twin;
+impl Twin {
+    fn make() -> Twin { // live_a_twin_make
+        Twin
+    }
+}
+pub fn twin_in_file_module() {
+    let _ = Twin::make();
+}
+mod twin_mod {
+    pub struct Twin;
+    impl Twin {
+        fn make() -> Twin { // dead_b_twin_make
+            Twin
+        }
+    }
+}
+
+// A caller in a nested module sees the type of the nearest enclosing module that declares one;
+// sibling modules each have their own.
+mod outer_mod {
+    pub struct Twin;
+    impl Twin {
+        fn make() -> Twin { // live_a_twin_nested
+            Twin
+        }
+    }
+    pub fn call_outer() {
+        let _ = Twin::make();
+        inner_mod::call_inner();
+    }
+    mod inner_mod {
+        use super::Twin;
+        pub fn call_inner() {
+            let _ = Twin::make();
+        }
+    }
+}
+mod sibling_one {
+    pub struct Twin;
+    impl Twin {
+        fn make() -> Twin { // live_a_twin_sibling
+            Twin
+        }
+    }
+    pub fn call_one() {
+        let _ = Twin::make();
+    }
+}
+mod sibling_two {
+    pub struct Twin;
+    impl Twin {
+        fn make() -> Twin { // dead_b_twin_sibling
+            Twin
+        }
+    }
 }

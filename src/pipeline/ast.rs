@@ -1345,6 +1345,28 @@ fn type_repr(ty: &tree_sitter::Node, source: &str) -> Option<String> {
             let ret = type_repr(&ty.child_by_field_name("return_type")?, source)?;
             Some(format!("fn<{ret}>"))
         }
+        // `impl Iterator<Item = T>` is typed like a `Vec<T>`: iterating it yields `T`.
+        "abstract_type" => {
+            let tr = ty.child_by_field_name("trait")?;
+            let base = source.get(tr.child_by_field_name("type")?.byte_range())?;
+            if !matches!(
+                base,
+                "Iterator" | "IntoIterator" | "DoubleEndedIterator" | "ExactSizeIterator"
+            ) {
+                return None;
+            }
+            let args = tr.child_by_field_name("type_arguments")?;
+            let item = args.named_children(&mut args.walk()).find(|b| {
+                b.kind() == "type_binding"
+                    && b.child_by_field_name("name")
+                        .and_then(|n| source.get(n.byte_range()))
+                        == Some("Item")
+            })?;
+            Some(format!(
+                "Vec<{}>",
+                type_repr(&item.child_by_field_name("type")?, source)?
+            ))
+        }
         "generic_type" => {
             let base = plain_type_name(ty, source)?;
             if !KEPT_WRAPPERS.contains(&base.as_str()) {

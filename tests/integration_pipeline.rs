@@ -669,7 +669,23 @@ fn pipeline_self_assoc_type_receivers_resolve_to_their_type() {
 /// An inherent method wins over a same-named method of a trait the type implements.
 #[test]
 fn pipeline_inherent_methods_win_over_trait_methods() {
-    assert_pattern_receivers_resolved(&["inherent_first", "inherent_path"]);
+    assert_pattern_receivers_resolved(&["inherent_first", "inherent_path", "inherent_self"]);
+}
+
+/// `impl Iterator<Item = T>` parameters yield `T`.
+#[test]
+fn pipeline_impl_iterator_param_resolves_item_receivers() {
+    assert_pattern_receivers_resolved(&["impl_iter", "impl_iter_adapter", "impl_iter_next"]);
+}
+
+/// `Type::f()` picks the type declared in the caller's own module.
+#[test]
+fn pipeline_module_scoped_type_paths_resolve() {
+    assert_pattern_receivers_resolved(&["twin_make", "twin_sibling"]);
+    // `inner_mod` imports `super::Twin`: the enclosing module's type, which is not dead.
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    assert!(!dead_lines(&store, true, "src/lib.rs").contains(&tags["live_a_twin_nested"]));
 }
 
 #[test]
