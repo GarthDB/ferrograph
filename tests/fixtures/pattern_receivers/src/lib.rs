@@ -27,6 +27,7 @@ impl A {
     fn field_renamed(&self) {} // live_a_field_renamed
     fn field_twin(&self) {} // live_a_field_twin
     fn twin_bare(&self) {} // twin_bare_a
+    fn int_map(&self) {} // live_a_int_map
     fn some_pattern(&self) {} // live_a_some_pattern
     fn while_let(&self) {} // live_a_while_let
     fn try_option(&self) {} // live_a_try_option
@@ -71,6 +72,7 @@ impl B {
     fn field_renamed(&self) {} // dead_b_field_renamed
     fn field_twin(&self) {} // dead_b_field_twin
     fn twin_bare(&self) {} // twin_bare_b
+    fn int_map(&self) {} // dead_b_int_map
     fn some_pattern(&self) {} // dead_b_some_pattern
     fn while_let(&self) {} // dead_b_while_let
     fn try_option(&self) {} // dead_b_try_option
@@ -111,6 +113,7 @@ pub struct Holder {
     boxed: Vec<Box<A>>,
     shared: Rc<A>,
     by_name: HashMap<String, A>,
+    keyed: IntMap<u32, A>,
 }
 
 impl Holder {
@@ -210,6 +213,12 @@ impl Holder {
         }
         if let Some((_b, a)) = self.maybe_b.as_ref().zip(self.maybe.as_ref()) {
             a.zip_option();
+        }
+    }
+
+    pub fn int_maps(&mut self) {
+        for a in self.keyed.values_mut() {
+            a.int_map();
         }
     }
 

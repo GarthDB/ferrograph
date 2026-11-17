@@ -1178,7 +1178,7 @@ fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
 
 /// Standard containers whose element type is worth keeping (`Vec<A>`, `Option<A>`, ..); maps keep their
 /// value type. Smart pointers and lock guards are looked through by the calls phase.
-const KEPT_WRAPPERS: [&str; 23] = [
+const KEPT_WRAPPERS: [&str; 25] = [
     "Vec",
     "VecDeque",
     "HashSet",
@@ -1202,6 +1202,8 @@ const KEPT_WRAPPERS: [&str; 23] = [
     "BTreeMap",
     "IndexMap",
     "FxHashMap",
+    "IntMap",
+    "AHashMap",
 ];
 
 /// Per-file index of top-level `type` aliases (name to item byte range), built on first use, and the

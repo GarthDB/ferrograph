@@ -648,6 +648,12 @@ fn pipeline_if_value_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["if_value", "if_chain", "if_comment"]);
 }
 
+/// #240: `IntMap` (nohash) is a map: its values are typed like a `HashMap`'s.
+#[test]
+fn pipeline_int_map_values_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["int_map"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);
