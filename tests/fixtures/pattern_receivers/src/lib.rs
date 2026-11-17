@@ -33,6 +33,11 @@ impl A {
     fn try_option(&self) {} // live_a_try_option
     fn try_result(&self) {} // live_a_try_result
     fn closure_map(&self) {} // live_a_closure_map
+    fn assoc_state(&self) {} // live_a_assoc_state
+    fn enum_map(&self) {} // live_a_enum_map
+    fn enum_for(&self) {} // live_a_enum_for
+    fn inherent_first(&self) {} // live_a_inherent_first
+    fn inherent_path(&self) {} // live_a_inherent_path
     fn closure_typed(&self) {} // live_a_closure_typed
     fn closure_option(&self) {} // live_a_closure_option
     fn closure_for_each(&self) {} // live_a_closure_for_each
@@ -78,6 +83,11 @@ impl B {
     fn try_option(&self) {} // dead_b_try_option
     fn try_result(&self) {} // dead_b_try_result
     fn closure_map(&self) {} // dead_b_closure_map
+    fn assoc_state(&self) {} // dead_b_assoc_state
+    fn enum_map(&self) {} // dead_b_enum_map
+    fn enum_for(&self) {} // dead_b_enum_for
+    fn inherent_first(&self) {} // dead_b_inherent_first
+    fn inherent_path(&self) {} // dead_b_inherent_path
     fn closure_typed(&self) {} // dead_b_closure_typed
     fn closure_option(&self) {} // dead_b_closure_option
     fn closure_for_each(&self) {} // dead_b_closure_for_each
@@ -219,6 +229,19 @@ impl Holder {
     pub fn int_maps(&mut self) {
         for a in self.keyed.values_mut() {
             a.int_map();
+        }
+    }
+
+    pub fn enumerated(&self) {
+        let _: Vec<()> = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.is_some_flag())
+            .map(|(_i, a)| a.enum_map())
+            .collect();
+        for (_i, a) in self.items.iter().enumerate() {
+            a.enum_for();
         }
     }
 
@@ -364,4 +387,31 @@ pub fn if_comment(flag: bool, a: A) {
         todo!()
     };
     a.if_comment();
+}
+
+// `Self::State` is the `type State = A;` of the same impl.
+pub trait Program {
+    type State;
+    fn run(&self, state: &Self::State);
+}
+pub struct Attach;
+impl Program for Attach {
+    type State = A;
+    fn run(&self, state: &Self::State) {
+        state.assoc_state();
+    }
+}
+// `a.f()` and `A::f(..)` call the inherent `f` before a trait's `f` of the same name.
+pub trait Both {
+    fn inherent_first(&self);
+    fn inherent_path(&self);
+}
+impl Both for A {
+    fn inherent_first(&self) {}
+    fn inherent_path(&self) {
+        A::inherent_path(self);
+    }
+}
+pub fn inherent_calls(a: &A) {
+    a.inherent_first();
 }

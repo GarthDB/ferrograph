@@ -654,6 +654,24 @@ fn pipeline_int_map_values_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["int_map"]);
 }
 
+/// `v.iter().enumerate()` yields `(usize, T)` pairs, so tuple patterns over it type their bindings.
+#[test]
+fn pipeline_enumerate_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["enum_map", "enum_for"]);
+}
+
+/// `Self::State` in a trait impl names the impl's own `type State = ..;`.
+#[test]
+fn pipeline_self_assoc_type_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["assoc_state"]);
+}
+
+/// An inherent method wins over a same-named method of a trait the type implements.
+#[test]
+fn pipeline_inherent_methods_win_over_trait_methods() {
+    assert_pattern_receivers_resolved(&["inherent_first", "inherent_path"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);

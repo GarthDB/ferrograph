@@ -1219,6 +1219,28 @@ thread_local! {
     static ALIASES: RefCell<AliasCache> = RefCell::new(AliasCache::default());
 }
 
+/// `Self::State` in an `impl Trait for T`: the `type State = ..;` of that same impl.
+fn self_assoc_repr(ty: &tree_sitter::Node, source: &str) -> Option<String> {
+    if ty.kind() != "scoped_type_identifier"
+        || source.get(ty.child_by_field_name("path")?.byte_range())? != "Self"
+    {
+        return None;
+    }
+    let name = source.get(ty.child_by_field_name("name")?.byte_range())?;
+    let mut owner = ty.parent();
+    while let Some(n) = owner.filter(|n| n.kind() != "impl_item") {
+        owner = n.parent();
+    }
+    let body = owner?.child_by_field_name("body")?;
+    let assoc = body.named_children(&mut body.walk()).find(|c| {
+        c.kind() == "type_item"
+            && c.child_by_field_name("name")
+                .and_then(|n| source.get(n.byte_range()))
+                == Some(name)
+    })?;
+    type_repr(&assoc.child_by_field_name("type")?, source)
+}
+
 /// `type Access<S> = fn(&mut S) -> &mut T;` in the same file: the `type_repr` of the target for a use
 /// `Access<..>`, unless it mentions one of the alias's own parameters (arguments are not substituted)
 /// or names the alias itself.
@@ -1298,7 +1320,7 @@ fn alias_target_repr(alias: &tree_sitter::Node, name: &str, source: &str) -> Opt
 /// Like `plain_type_name`, but keeps the element type of the standard containers as `Name<Elem>`:
 /// `&[A]` and `[A; N]` become `Vec<A>`, `HashMap<K, V>` becomes `HashMap<V>`.
 fn type_repr(ty: &tree_sitter::Node, source: &str) -> Option<String> {
-    if let Some(repr) = alias_repr(ty, source) {
+    if let Some(repr) = alias_repr(ty, source).or_else(|| self_assoc_repr(ty, source)) {
         return Some(repr);
     }
     match ty.kind() {
