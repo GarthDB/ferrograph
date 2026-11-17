@@ -2080,6 +2080,15 @@ fn token_tree_starts_with_paren(node: &tree_sitter::Node, source: &str) -> bool 
         .is_some_and(|s| s.starts_with('('))
 }
 
+/// `( .field ..)`: a thiserror/derive_more format argument, so the identifier before it is a call
+/// (`#[error("..", fmt(.0))]`), unlike a keyword with options such as `ignore(case)`.
+fn token_tree_starts_with_dot_arg(node: &tree_sitter::Node, source: &str) -> bool {
+    source.get(node.byte_range()).is_some_and(|s| {
+        s.strip_prefix('(')
+            .is_some_and(|r| r.trim_start().starts_with('.'))
+    })
+}
+
 /// Scan a macro invocation's body for call-like patterns (identifier followed by `( ... )`).
 /// Creates placeholder call edges so the calls phase can resolve them.
 fn scan_macro_for_calls(
@@ -2182,7 +2191,10 @@ fn scan_attribute_tree(
                 if positional
                     && !in_expr
                     && prev_kind == ","
-                    && matches!(tt.child(i + 1).map(|n| n.kind()), None | Some("," | ")")) =>
+                    && (matches!(tt.child(i + 1).map(|n| n.kind()), None | Some("," | ")"))
+                        || tt.child(i + 1).is_some_and(|n| {
+                            n.kind() == "token_tree" && token_tree_starts_with_dot_arg(&n, source)
+                        })) =>
             {
                 push_attribute_ref(tt, i, &child, source, file_id, anchor, edges);
             }
