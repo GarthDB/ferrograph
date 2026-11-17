@@ -36,6 +36,8 @@ impl A {
     fn assoc_state(&self) {} // live_a_assoc_state
     fn enum_map(&self) {} // live_a_enum_map
     fn enum_for(&self) {} // live_a_enum_for
+    fn inherent_first(&self) {} // live_a_inherent_first
+    fn inherent_path(&self) {} // live_a_inherent_path
     fn closure_typed(&self) {} // live_a_closure_typed
     fn closure_option(&self) {} // live_a_closure_option
     fn closure_for_each(&self) {} // live_a_closure_for_each
@@ -84,6 +86,8 @@ impl B {
     fn assoc_state(&self) {} // dead_b_assoc_state
     fn enum_map(&self) {} // dead_b_enum_map
     fn enum_for(&self) {} // dead_b_enum_for
+    fn inherent_first(&self) {} // dead_b_inherent_first
+    fn inherent_path(&self) {} // dead_b_inherent_path
     fn closure_typed(&self) {} // dead_b_closure_typed
     fn closure_option(&self) {} // dead_b_closure_option
     fn closure_for_each(&self) {} // dead_b_closure_for_each
@@ -396,4 +400,18 @@ impl Program for Attach {
     fn run(&self, state: &Self::State) {
         state.assoc_state();
     }
+}
+// `a.f()` and `A::f(..)` call the inherent `f` before a trait's `f` of the same name.
+pub trait Both {
+    fn inherent_first(&self);
+    fn inherent_path(&self);
+}
+impl Both for A {
+    fn inherent_first(&self) {}
+    fn inherent_path(&self) {
+        A::inherent_path(self);
+    }
+}
+pub fn inherent_calls(a: &A) {
+    a.inherent_first();
 }

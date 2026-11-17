@@ -98,6 +98,8 @@ struct Index {
     global_by_name: HashMap<String, Vec<NodeId>>,
     /// Ids of functions defined directly inside an `impl` or `trait`.
     methods: HashSet<String>,
+    /// Ids of methods declared in an `impl Trait for T`.
+    trait_impl_fns: HashSet<String>,
     /// `contains` edges, child id -> parent id.
     parent: HashMap<String, String>,
     /// Consts and statics by (file, name).
@@ -174,7 +176,15 @@ fn pick_by_owner(owner: &str, from: &str, cands: &[NodeId], idx: &Index) -> Vec<
             .collect()
     };
     if owner != "Self" {
-        return of_scope(&|_, (_, name)| name == owner);
+        let mut named = of_scope(&|_, (_, name)| name == owner);
+        // `Type::f()` is the inherent `f` before a trait's.
+        if named
+            .iter()
+            .any(|c| !idx.trait_impl_fns.contains(c.as_str()))
+        {
+            named.retain(|c| !idx.trait_impl_fns.contains(c.as_str()));
+        }
+        return named;
     }
     let Some(ty) = idx
         .ancestors(from)
@@ -677,6 +687,13 @@ fn resolve_typed_method(
         return None;
     }
     let mut cands = methods_of_type(name, ty, idx);
+    // `x.f()` calls the inherent method before a trait's method of the same name.
+    if cands
+        .iter()
+        .any(|c| !idx.trait_impl_fns.contains(c.as_str()))
+    {
+        cands.retain(|c| !idx.trait_impl_fns.contains(c.as_str()));
+    }
     // Several types may share a name (one per example or test file): the one declared next to the
     // call is the likeliest.
     let prefix = format!("{from_file}#");
@@ -1610,6 +1627,18 @@ fn parse_target(raw_to: &str) -> (String, bool, bool, bool, Option<&str>) {
     (core.to_string(), value, self_method, method, hint)
 }
 
+/// Ids carrying the synthetic `trait_impl` attribute (methods of `impl Trait for T`).
+fn trait_impl_ids(edges: &cozo::NamedRows) -> HashSet<String> {
+    let has_attr = EdgeType::HasAttribute.to_string();
+    edges
+        .rows
+        .iter()
+        .filter(|r| r.get(2).map(unquote_datavalue).as_deref() == Some(has_attr.as_str()))
+        .filter(|r| r.get(1).map(unquote_datavalue).as_deref() == Some("attr::trait_impl"))
+        .filter_map(|r| r.first().map(unquote_datavalue))
+        .collect()
+}
+
 /// Functions no other package can call: `pub(crate)`/`pub(super)`/private free fns and inherent
 /// methods. Trait items and trait impl methods are as visible as the trait.
 fn private_fn_ids(
@@ -1725,6 +1754,7 @@ pub(crate) fn build_call_graph_in(store: &Store, units: Option<&Units>) -> Resul
     fill_imports(&mut idx, &edges);
     idx.methods = method_ids(&nodes, &edges);
     fill_scopes(&mut idx, &nodes, &edges);
+    idx.trait_impl_fns = trait_impl_ids(&edges);
     fill_consts(&mut idx, &nodes);
     fill_fields(store, &mut idx, &nodes, &edges)?;
     let private_fns = units.map_or_else(HashSet::new, |_| private_fn_ids(&idx, &nodes, &edges));
