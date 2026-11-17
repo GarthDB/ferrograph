@@ -135,16 +135,16 @@ pub enum Command {
         /// Extra entry point: file glob (`examples/**`) or attribute (`#[no_mangle]`). Repeatable.
         #[arg(long)]
         entry: Vec<String>,
-        /// Never report functions in files matching this glob. Repeatable.
+        /// Never report items in files matching this glob. Repeatable.
         #[arg(long)]
         ignore: Vec<String>,
         /// What to report: dead functions (default), consts or statics. A const is live when a live function or a root item (bare `pub`, trait impl, `const _`) references it.
         #[arg(long = "type", value_enum, default_value_t)]
         item: crate::ops::DeadItem,
-        /// Exit with code 1 if any dead function is reported (same as `--max 0`).
+        /// Exit with code 1 if any dead item is reported (same as `--max 0`).
         #[arg(long, conflicts_with = "max")]
         fail_on_any: bool,
-        /// Exit with code 1 if more than N dead functions are reported.
+        /// Exit with code 1 if more than N dead items are reported.
         #[arg(long)]
         max: Option<usize>,
         #[command(flatten)]
@@ -694,7 +694,7 @@ fn run_dead(
         );
         println!("\n{}", crate::ops::DEAD_CODE_CAVEAT);
         if opts_item != crate::ops::DeadItem::Function {
-            println!("\nBare `pub` consts and statics are always roots, so a library crate's unused public items are not reported (#207).");
+            println!("\nFor consts and statics: bare `pub` items are always roots (the `pub` demotions apply to functions only, also in bin crates), and an unused associated const with a trait default is reported (#207).");
         }
     }
     Ok(check_threshold(result.count, max))

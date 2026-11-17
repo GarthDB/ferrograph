@@ -1146,15 +1146,7 @@ fn pipeline_fn_item_as_method_receiver_is_a_reference() {
 fn pipeline_dead_consts_include_those_kept_alive_only_by_dead_functions() {
     let store = run_fixture("const_dead");
     for strict in [false, true] {
-        let ids = ferrograph::graph::Query::compute_dead_consts_with(
-            &store,
-            strict,
-            &[],
-            false,
-            true,
-            false,
-        )
-        .unwrap();
+        let ids = ferrograph::graph::Query::compute_dead_consts_with(&store, strict, &[]).unwrap();
         let mut names = dead_names_of(&store, &ids);
         names.sort_unstable();
         assert_eq!(

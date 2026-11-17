@@ -416,19 +416,18 @@ pub fn dead_code(
     };
     let source = if triples.is_empty() {
         let entries = resolve_entry_ids(store, &opts.entry)?;
-        let compute = if consts {
-            Query::compute_dead_consts_with_payload
+        triples = if consts {
+            Query::compute_dead_consts_with_payload(store, opts.strict, &entries)?
         } else {
-            Query::compute_dead_functions_with_payload
+            Query::compute_dead_functions_with_payload(
+                store,
+                opts.strict,
+                &entries,
+                restricted,
+                bin_pub,
+                lib_exported,
+            )?
         };
-        triples = compute(
-            store,
-            opts.strict,
-            &entries,
-            restricted,
-            bin_pub,
-            lib_exported,
-        )?;
         let wanted = match opts.item {
             DeadItem::Function => None,
             DeadItem::Const => Some("const"),

@@ -185,23 +185,12 @@ impl Query {
     ///
     /// # Errors
     /// Fails if the store query fails.
-    #[allow(clippy::fn_params_excessive_bools)]
     pub fn compute_dead_consts_with_payload(
         store: &Store,
         strict: bool,
         extra_entries: &[String],
-        restricted_vis_not_root: bool,
-        bin_pub_not_root: bool,
-        lib_exported_only: bool,
     ) -> Result<Vec<NodeTriple>> {
-        let ids = Self::compute_dead_consts_with(
-            store,
-            strict,
-            extra_entries,
-            restricted_vis_not_root,
-            bin_pub_not_root,
-            lib_exported_only,
-        )?;
+        let ids = Self::compute_dead_consts_with(store, strict, extra_entries)?;
         Self::with_payload(store, ids)
     }
 
@@ -289,27 +278,25 @@ impl Query {
     }
 
     /// Const and static node ids that no root reaches: neither a live function nor a root item
-    /// (bare `pub`, trait impl, entry attribute, `const _`) references them. Same reachability and
-    /// options as [`Self::compute_dead_functions_with`].
+    /// (bare `pub`, trait impl, entry attribute, `const _`) references them. Same reachability as
+    /// [`Self::compute_dead_functions_with`], but the visibility markers (`pub_restricted`,
+    /// `pub_bin_only`, `pub_unexported`) are only written for functions, so a bare `pub` const or
+    /// static is always a root, in bin crates too.
     ///
     /// # Errors
     /// Fails if the store query fails.
-    #[allow(clippy::fn_params_excessive_bools)]
     pub fn compute_dead_consts_with(
         store: &Store,
         strict: bool,
         extra_entries: &[String],
-        restricted_vis_not_root: bool,
-        bin_pub_not_root: bool,
-        lib_exported_only: bool,
     ) -> Result<Vec<String>> {
         Self::compute_dead_ids(
             store,
             strict,
             extra_entries,
-            restricted_vis_not_root,
-            bin_pub_not_root,
-            lib_exported_only,
+            false,
+            false,
+            false,
             &[NodeType::Const, NodeType::Static],
         )
     }
