@@ -2080,7 +2080,7 @@ fn token_tree_starts_with_paren(node: &tree_sitter::Node, source: &str) -> bool 
         .is_some_and(|s| s.starts_with('('))
 }
 
-/// `( .field ..)`: a thiserror/derive_more format argument, so the identifier before it is a call
+/// `( .field ..)`: a `thiserror`/`derive_more` format argument, so the identifier before it is a call
 /// (`#[error("..", fmt(.0))]`), unlike a keyword with options such as `ignore(case)`.
 fn token_tree_starts_with_dot_arg(node: &tree_sitter::Node, source: &str) -> bool {
     source.get(node.byte_range()).is_some_and(|s| {
