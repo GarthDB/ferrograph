@@ -660,6 +660,12 @@ fn pipeline_enumerate_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["enum_map", "enum_for"]);
 }
 
+/// `Self::State` in a trait impl names the impl's own `type State = ..;`.
+#[test]
+fn pipeline_self_assoc_type_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["assoc_state"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);

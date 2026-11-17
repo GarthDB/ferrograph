@@ -33,6 +33,7 @@ impl A {
     fn try_option(&self) {} // live_a_try_option
     fn try_result(&self) {} // live_a_try_result
     fn closure_map(&self) {} // live_a_closure_map
+    fn assoc_state(&self) {} // live_a_assoc_state
     fn enum_map(&self) {} // live_a_enum_map
     fn enum_for(&self) {} // live_a_enum_for
     fn closure_typed(&self) {} // live_a_closure_typed
@@ -80,6 +81,7 @@ impl B {
     fn try_option(&self) {} // dead_b_try_option
     fn try_result(&self) {} // dead_b_try_result
     fn closure_map(&self) {} // dead_b_closure_map
+    fn assoc_state(&self) {} // dead_b_assoc_state
     fn enum_map(&self) {} // dead_b_enum_map
     fn enum_for(&self) {} // dead_b_enum_for
     fn closure_typed(&self) {} // dead_b_closure_typed
@@ -381,4 +383,17 @@ pub fn if_comment(flag: bool, a: A) {
         todo!()
     };
     a.if_comment();
+}
+
+// `Self::State` is the `type State = A;` of the same impl.
+pub trait Program {
+    type State;
+    fn run(&self, state: &Self::State);
+}
+pub struct Attach;
+impl Program for Attach {
+    type State = A;
+    fn run(&self, state: &Self::State) {
+        state.assoc_state();
+    }
 }
