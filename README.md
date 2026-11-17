@@ -122,6 +122,7 @@ With `--out` and no `--format`/`--json`, nothing is printed to stdout; with eith
 ```bash
 ferrograph index --output .ferrograph
 ferrograph pr --base origin/main --fail-on-new-dead          # exit 1 if any function became dead
+ferrograph pr --base origin/main --include-consts --fail-on-new-dead  # also report newly dead consts/statics (`newly_dead_items`) and count them
 ferrograph pr --base origin/main --max-new-dead 2 --max-blast 300 --json
 ```
 

@@ -143,6 +143,20 @@ pub struct NewlyDeadFunction {
     pub status: &'static str,
 }
 
+/// A const or static that the change under review leaves dead (`pr --include-consts`).
+#[derive(Debug, Serialize)]
+pub struct NewlyDeadItem {
+    /// Node id at head.
+    pub id: String,
+    pub file: String,
+    pub name: String,
+    pub line: u32,
+    /// `const` or `static`.
+    pub item_type: String,
+    /// `became_dead` (existed and was live at base) or `added_dead` (new item, never used).
+    pub status: &'static str,
+}
+
 /// A function that gained or lost `unsafe` (an `unsafe fn` or an `unsafe` block in its body) in the change.
 #[derive(Debug, Serialize)]
 pub struct UnsafeChange {
@@ -266,7 +280,11 @@ pub struct PrResult {
     pub head: String,
     pub changed_files: Vec<String>,
     pub newly_dead: Vec<NewlyDeadFunction>,
+    /// Functions only. The `--fail-on-new-dead` / `--max-new-dead` gates count `newly_dead_count + newly_dead_items.len()`.
     pub newly_dead_count: usize,
+    /// Consts and statics left dead; only with `--include-consts`, and counted by the new-dead thresholds.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub newly_dead_items: Vec<NewlyDeadItem>,
     /// Functions that have `unsafe` at head but not at base. Per function, not per block.
     pub unsafe_gained: Vec<UnsafeChange>,
     pub unsafe_gained_count: usize,

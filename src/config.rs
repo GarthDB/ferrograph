@@ -196,6 +196,9 @@ pub enum Command {
         /// Ignore ambiguous (low-confidence) call edges in the impacted set and blast radius.
         #[arg(long)]
         exclude_low_confidence: bool,
+        /// Also report consts and statics the change leaves dead (`newly_dead_items`); they count toward `--fail-on-new-dead` and `--max-new-dead`.
+        #[arg(long)]
+        include_consts: bool,
         /// Maximum impacted and blast radius nodes listed (the full counts are always reported).
         #[arg(long, default_value = "200")]
         blast_limit: usize,
@@ -393,6 +396,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             entry,
             ignore,
             exclude_low_confidence,
+            include_consts,
             blast_limit,
             impact_depth,
             fail_on_new_dead,
@@ -418,6 +422,7 @@ pub fn run(cli: Cli) -> Result<Outcome> {
                 entry,
                 ignore,
                 exclude_low_confidence,
+                include_consts,
                 blast_limit,
                 impact_depth,
             };
@@ -762,7 +767,11 @@ fn run_pr(
     }
     let mut outcome = Outcome::Ok;
     for (label, count, max) in [
-        ("new dead", r.newly_dead_count, max.new_dead),
+        (
+            "new dead",
+            r.newly_dead_count + r.newly_dead_items.len(),
+            max.new_dead,
+        ),
         ("new unsafe", r.unsafe_gained_count, max.new_unsafe),
         ("blast", r.blast.count, max.blast),
         ("impacted", r.impacted.count, max.impacted),
@@ -773,6 +782,21 @@ fn run_pr(
         }
     }
     write_err.map_or(Ok(outcome), Err)
+}
+
+fn write_dead_items_text(out: &mut String, r: &crate::ops::PrResult) {
+    use std::fmt::Write as _;
+    if r.newly_dead_items.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "\nNewly dead consts and statics: {}",
+        r.newly_dead_items.len()
+    );
+    for f in &r.newly_dead_items {
+        let _ = writeln!(out, "  {}\t{}\t{}\t{}", f.id, f.name, f.item_type, f.status);
+    }
 }
 
 fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
@@ -791,6 +815,7 @@ fn write_pr_text(out: &mut String, r: &crate::ops::PrResult) {
     for f in &r.newly_dead {
         emit!("  {}\t{}\t{}", f.id, f.name, f.status);
     }
+    write_dead_items_text(out, r);
     if !r.unsafe_gained.is_empty() || !r.unsafe_lost.is_empty() {
         emit!("\nFunctions that gained unsafe: {}", r.unsafe_gained_count);
         for f in r.unsafe_gained.iter().chain(&r.unsafe_lost) {

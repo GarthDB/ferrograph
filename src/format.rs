@@ -271,6 +271,26 @@ pub fn impact_group_label(g: &ImpactGroup) -> String {
     format!("{} ({})", g.count, parts.join(", "))
 }
 
+fn dead_items_section(out: &mut String, r: &PrResult, limit: usize) {
+    if r.newly_dead_items.is_empty() {
+        return;
+    }
+    out.push_str("\n**Newly dead consts and statics**\n\n");
+    let rows: Vec<Vec<String>> = r
+        .newly_dead_items
+        .iter()
+        .map(|f| {
+            vec![
+                esc(&f.name),
+                esc(&format!("{}:{}", f.file, f.line)),
+                f.item_type.clone(),
+                f.status.to_string(),
+            ]
+        })
+        .collect();
+    table(out, &["Item", "Location", "Type", "Kind"], &rows, limit);
+}
+
 fn unsafe_section(out: &mut String, r: &PrResult, limit: usize) {
     if r.unsafe_gained.is_empty() && r.unsafe_lost.is_empty() {
         return;
@@ -297,7 +317,7 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
     let i = &r.impacted;
     let mut out = format!(
         "{MARKER}\n### ferrograph: {} newly dead, {} impacted ({} tests, {} examples, {} library)\n\n",
-        r.newly_dead_count,
+        r.newly_dead_count + r.newly_dead_items.len(),
         count_label(i.count, i.truncated),
         i.tests.count,
         i.examples.count,
@@ -316,6 +336,7 @@ pub fn markdown_pr(r: &PrResult, limit: usize) -> String {
         })
         .collect();
     table(&mut out, &["Function", "Location", "Kind"], &rows, limit);
+    dead_items_section(&mut out, r, limit);
     unsafe_section(&mut out, r, limit);
     let _ = write!(
         out,
@@ -503,6 +524,7 @@ mod tests {
                 status: "added_dead",
             }],
             newly_dead_count: 1,
+            newly_dead_items: vec![],
             unsafe_gained: vec![UnsafeChange {
                 id: "./src/a.rs#9:1".into(),
                 file: "src/a.rs".into(),

@@ -21,7 +21,7 @@ use crate::graph::query::Query;
 use crate::graph::{unquote_datavalue, Store};
 use crate::ops::{
     ChangedFunction, ChangedItems, CouplingHint, FnImpact, ImpactFile, ImpactGroup, ImpactedNode,
-    NewlyDeadFunction, NodeSummary, PrBlast, PrImpacted, PrResult, UnsafeChange,
+    NewlyDeadFunction, NewlyDeadItem, NodeSummary, PrBlast, PrImpacted, PrResult, UnsafeChange,
 };
 use crate::pipeline::{run_pipeline, PipelineConfig};
 
@@ -49,6 +49,8 @@ pub struct PrOptions {
     pub entry: Vec<String>,
     pub ignore: Vec<String>,
     pub exclude_low_confidence: bool,
+    /// Also report consts and statics the change leaves dead (`newly_dead_items`).
+    pub include_consts: bool,
     pub blast_limit: usize,
     /// Caller hops followed for the impacted set.
     pub impact_depth: u32,
@@ -369,15 +371,35 @@ struct DeadState {
     dead: BTreeSet<FnKey>,
     /// Functions with `unsafe` (an `unsafe fn` or an `unsafe` block in the body); not filtered by `ignore`.
     unsafe_fns: BTreeSet<FnKey>,
+    /// Consts and statics; only filled with `--include-consts`.
+    items: DeadItems,
+}
+
+#[derive(Default)]
+struct DeadItems {
+    all: BTreeMap<FnKey, String>,
+    dead: BTreeSet<FnKey>,
+    /// `const` or `static`, by id.
+    types: HashMap<String, String>,
 }
 
 /// Every function keyed by identity (file, name, nth same-named function in the file), and id -> key.
 fn fn_keys(store: &Store) -> Result<(BTreeMap<FnKey, String>, HashMap<String, FnKey>)> {
+    keys_of(store, &[crate::graph::schema::NodeType::Function])
+}
+
+/// Like [`fn_keys`] for nodes of the given types.
+fn keys_of(
+    store: &Store,
+    types: &[crate::graph::schema::NodeType],
+) -> Result<(BTreeMap<FnKey, String>, HashMap<String, FnKey>)> {
+    let list = types
+        .iter()
+        .map(|t| format!("\"{t}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let rows = store.run_query(
-        &format!(
-            "?[id, payload] := *nodes[id, type, payload], type = \"{}\"",
-            crate::graph::schema::NodeType::Function
-        ),
+        &format!("?[id, payload] := *nodes[id, type, payload], type in [{list}]"),
         BTreeMap::new(),
     )?;
     let mut fns: Vec<(String, u32, u32, String, String)> = rows
@@ -444,11 +466,42 @@ fn dead_state(
         .iter()
         .filter_map(|r| by_id.get(&unquote_datavalue(&r[0])).cloned())
         .collect();
+    let items = if opts.include_consts {
+        dead_items(store, opts, &entries, &pats)?
+    } else {
+        DeadItems::default()
+    };
     Ok(DeadState {
         all,
         dead,
         unsafe_fns,
+        items,
     })
+}
+
+fn dead_items(
+    store: &Store,
+    opts: &PrOptions,
+    entries: &[String],
+    ignore: &[glob::Pattern],
+) -> Result<DeadItems> {
+    use crate::graph::schema::NodeType;
+    let (all, by_id) = keys_of(store, &[NodeType::Const, NodeType::Static])?;
+    let dead = Query::compute_dead_consts_with(store, opts.strict, entries)?
+        .into_iter()
+        .filter(|id| !ignore.iter().any(|p| crate::ops::path_matches(p, id)))
+        .filter_map(|id| by_id.get(&id).cloned())
+        .collect();
+    let types = store
+        .run_query(
+            "?[id, t] := *nodes[id, t, _], is_in(t, [\"const\", \"static\"])",
+            BTreeMap::new(),
+        )?
+        .rows
+        .iter()
+        .map(|r| (unquote_datavalue(&r[0]), unquote_datavalue(&r[1])))
+        .collect();
+    Ok(DeadItems { all, dead, types })
 }
 
 /// Whether the graph has at least one `has_attribute` edge to `attr::{attr}`.
@@ -796,7 +849,12 @@ fn unsafe_changes(
     Ok((gained, lost))
 }
 
-fn newly_dead(head: &DeadState, base: &DeadState, diffs: &[FileDiff]) -> Vec<NewlyDeadFunction> {
+/// Keys dead at head that were not dead at base, with the head id and `became_dead` / `added_dead`.
+fn newly_dead_keys(
+    (head_all, head_dead): (&BTreeMap<FnKey, String>, &BTreeSet<FnKey>),
+    (base_all, base_dead): (&BTreeMap<FnKey, String>, &BTreeSet<FnKey>),
+    diffs: &[FileDiff],
+) -> Vec<(FnKey, String, &'static str)> {
     let renames: HashMap<&str, &str> = diffs
         .iter()
         .filter_map(|d| d.old_path.as_deref().map(|o| (o, d.path.as_str())))
@@ -805,25 +863,47 @@ fn newly_dead(head: &DeadState, base: &DeadState, diffs: &[FileDiff]) -> Vec<New
         let path = renames.get(k.0.as_str()).map_or(k.0.as_str(), |p| *p);
         (path.to_string(), k.1.clone(), k.2)
     };
-    let base_all: HashSet<FnKey> = base.all.keys().map(remap).collect();
-    let base_dead: HashSet<FnKey> = base.dead.iter().map(remap).collect();
+    let base_all: HashSet<FnKey> = base_all.keys().map(remap).collect();
+    let base_dead: HashSet<FnKey> = base_dead.iter().map(remap).collect();
 
-    head.dead
+    head_dead
         .iter()
         .filter(|k| !base_dead.contains(*k))
         .map(|k| {
-            let id = head.all[k].clone();
-            NewlyDeadFunction {
-                line: split_id(&id).1,
-                file: k.0.clone(),
-                name: k.1.clone(),
-                status: if base_all.contains(k) {
-                    "became_dead"
-                } else {
-                    "added_dead"
-                },
-                id,
-            }
+            let status = if base_all.contains(k) {
+                "became_dead"
+            } else {
+                "added_dead"
+            };
+            (k.clone(), head_all[k].clone(), status)
+        })
+        .collect()
+}
+
+fn newly_dead(head: &DeadState, base: &DeadState, diffs: &[FileDiff]) -> Vec<NewlyDeadFunction> {
+    newly_dead_keys((&head.all, &head.dead), (&base.all, &base.dead), diffs)
+        .into_iter()
+        .map(|(k, id, status)| NewlyDeadFunction {
+            line: split_id(&id).1,
+            file: k.0,
+            name: k.1,
+            status,
+            id,
+        })
+        .collect()
+}
+
+fn newly_dead_items(head: &DeadState, base: &DeadState, diffs: &[FileDiff]) -> Vec<NewlyDeadItem> {
+    let (h, b) = (&head.items, &base.items);
+    newly_dead_keys((&h.all, &h.dead), (&b.all, &b.dead), diffs)
+        .into_iter()
+        .map(|(k, id, status)| NewlyDeadItem {
+            line: split_id(&id).1,
+            file: k.0,
+            name: k.1,
+            item_type: h.types.get(&id).cloned().unwrap_or_default(),
+            status,
+            id,
         })
         .collect()
 }
@@ -966,6 +1046,7 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
     )?;
 
     let newly_dead = newly_dead(&head_state, &base_state, &diffs);
+    let newly_dead_items = newly_dead_items(&head_state, &base_state, &diffs);
     let (unsafe_gained, unsafe_lost) = unsafe_changes(&head_state, &base_state, &diffs, &ignore)?;
     let (changed_functions, changed_without_function, blast, impacted) = map_changes(
         opts,
@@ -984,6 +1065,7 @@ a graph given with --db is assumed to match HEAD (--index-head indexes the HEAD 
         changed_files: diffs.iter().map(|d| d.path.clone()).collect(),
         newly_dead_count: newly_dead.len(),
         newly_dead,
+        newly_dead_items,
         unsafe_gained_count: unsafe_gained.len(),
         unsafe_gained,
         unsafe_lost,
