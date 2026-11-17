@@ -34,6 +34,8 @@ impl A {
     fn try_result(&self) {} // live_a_try_result
     fn closure_map(&self) {} // live_a_closure_map
     fn impl_iter(&self) {} // live_a_impl_iter
+    fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
+    fn impl_iter_next(&self) {} // live_a_impl_iter_next
     fn assoc_state(&self) {} // live_a_assoc_state
     fn enum_map(&self) {} // live_a_enum_map
     fn enum_for(&self) {} // live_a_enum_for
@@ -86,6 +88,8 @@ impl B {
     fn try_result(&self) {} // dead_b_try_result
     fn closure_map(&self) {} // dead_b_closure_map
     fn impl_iter(&self) {} // dead_b_impl_iter
+    fn impl_iter_adapter(&self) {} // dead_b_impl_iter_adapter
+    fn impl_iter_next(&self) {} // dead_b_impl_iter_next
     fn assoc_state(&self) {} // dead_b_assoc_state
     fn enum_map(&self) {} // dead_b_enum_map
     fn enum_for(&self) {} // dead_b_enum_for
@@ -428,5 +432,13 @@ pub fn inherent_calls(a: &A) {
 pub fn impl_iter(group: impl Iterator<Item = (&'static A, u8)>) {
     for (a, _n) in group {
         a.impl_iter();
+    }
+}
+
+// Adapters and `next` on an `impl Iterator` parameter keep its item type.
+pub fn impl_iter_adapters(group: impl Iterator<Item = &'static A>, mut more: impl Iterator<Item = &'static A>) {
+    group.filter(|a| a.is_some_flag()).for_each(|a| a.impl_iter_adapter());
+    if let Some(a) = more.next() {
+        a.impl_iter_next();
     }
 }

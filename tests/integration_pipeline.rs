@@ -675,7 +675,7 @@ fn pipeline_inherent_methods_win_over_trait_methods() {
 /// `impl Iterator<Item = T>` parameters yield `T`.
 #[test]
 fn pipeline_impl_iterator_param_resolves_item_receivers() {
-    assert_pattern_receivers_resolved(&["impl_iter"]);
+    assert_pattern_receivers_resolved(&["impl_iter", "impl_iter_adapter", "impl_iter_next"]);
 }
 
 #[test]
