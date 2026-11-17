@@ -26,6 +26,9 @@ impl A {
     fn closure_option(&self) {} // live_a_closure_option
     fn closure_for_each(&self) {} // live_a_closure_for_each
     fn closure_fold(&self) {} // live_a_closure_fold
+    fn zip_closure(&self) {} // live_a_zip_closure
+    fn zip_for(&self) {} // live_a_zip_for
+    fn zip_nested(&self) {} // live_a_zip_nested
     fn index_chain(&self) {} // live_a_index_chain
     fn boxed(&self) {} // live_a_boxed
     fn map_values(&self) {} // live_a_map_values
@@ -53,6 +56,9 @@ impl B {
     fn closure_option(&self) {} // dead_b_closure_option
     fn closure_for_each(&self) {} // dead_b_closure_for_each
     fn closure_fold(&self) {} // dead_b_closure_fold
+    fn zip_closure(&self) {} // dead_b_zip_closure
+    fn zip_for(&self) {} // dead_b_zip_for
+    fn zip_nested(&self) {} // dead_b_zip_nested
     fn index_chain(&self) {} // dead_b_index_chain
     fn boxed(&self) {} // dead_b_boxed
     fn map_values(&self) {} // dead_b_map_values
@@ -71,6 +77,7 @@ use E::*;
 
 pub struct Holder {
     items: Vec<A>,
+    ids: Vec<u32>,
     maybe: Option<A>,
     boxed: Vec<Box<A>>,
     shared: Rc<A>,
@@ -147,6 +154,23 @@ impl Holder {
         });
     }
 
+    pub fn zips(&self) {
+        let _ = self
+            .ids
+            .iter()
+            .zip(&self.items)
+            .find_map(|(_id, a)| Some(a.zip_closure()));
+        for (_id, a) in self.ids.iter().zip(self.items.iter()) {
+            a.zip_for();
+        }
+        let _ = self
+            .ids
+            .iter()
+            .zip(&self.items)
+            .zip(unknown_iter())
+            .find_map(|((_id, a), _other)| Some(a.zip_nested()));
+    }
+
     pub fn chains(&self) {
         self.items[0].index_chain();
         for a in self.by_name.values() {
@@ -166,6 +190,10 @@ impl Holder {
         let a = unknown();
         a.shadowed();
     }
+}
+
+fn unknown_iter() -> std::vec::IntoIter<u8> {
+    Vec::new().into_iter()
 }
 
 fn unknown() -> impl Sized {

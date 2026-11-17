@@ -627,6 +627,13 @@ fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);
 }
 
+/// #220: `a.zip(b)` pairs the element types, so a tuple pattern over it types its bindings (the second
+/// `zip` argument cannot be typed and keeps its position as `_`).
+#[test]
+fn pipeline_zip_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["zip_closure", "zip_for", "zip_nested"]);
+}
+
 #[test]
 fn pipeline_closure_param_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&[

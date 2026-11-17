@@ -38,7 +38,7 @@ pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
 /// impl's type), `HINT.field`, `HINT.method()` or `=path::to::f()` (the result of a call). Further steps:
 /// `.[]` (element), `.?` (payload), `.#i` (tuple element), `.()` (call a `fn` pointer) and `.m(HINT)` (an
 /// `Option` adapter whose closure returns `HINT`); further starts: `@tuple(H0;H1)`,
-/// `@some(H)`, `@vec(H)` (a `Vec` of `H`), `@and_then(H)`.
+/// `@some(H)`, `@vec(H)` (a `Vec` of `H`), `@and_then(H)`, `@zip(A;B)` (pairs of the element types).
 pub(crate) const RECEIVER_MARK: &str = "@on:";
 /// Separator in the temporary struct-field placeholder `field@field:Type` (a `Calls` edge from the
 /// struct), consumed here to learn field types.
@@ -257,6 +257,26 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
             })
             .collect();
         format!("({})", elems.join(","))
+    } else if let Some(pair) = first.strip_prefix("@zip(") {
+        let mut sides = split_top(pair.strip_suffix(')')?, ';').map(|e| {
+            Some(e)
+                .filter(|e| !e.is_empty())
+                .and_then(|e| eval_hint(e, from, from_file, idx))
+        });
+        let (a, b) = (sides.next()?, sides.next()?);
+        // A project type with its own `zip` method keeps that method's result.
+        if let Some(own) = a
+            .as_deref()
+            .filter(|t| idx.type_names.contains(auto_deref(t, idx)))
+        {
+            step_type(own, "zip()", idx)?
+        } else {
+            let elem = |t: Option<String>| {
+                t.and_then(|t| step_type(&t, "[]", idx))
+                    .unwrap_or_else(|| "_".to_string())
+            };
+            format!("Vec<({},{})>", elem(a), elem(b))
+        }
     } else if let Some(inner) = first.strip_prefix("@some(") {
         format!(
             "Option<{}>",
@@ -1711,6 +1731,9 @@ pub(crate) fn build_call_graph_in(store: &Store, units: Option<&Units>) -> Resul
         let (to_str, value, self_method, method, hint) = parse_target(&raw_to);
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let (path_part, fn_name) = split_placeholder(&to_str, from_file);
+        if method && std::env::var("FG_DBG").is_ok_and(|v| fn_name.starts_with(&v)) {
+            eprintln!("DBG {from_str} {raw_to} hint={hint:?}");
+        }
         let resolution = if method {
             let own = if self_method {
                 resolve_self_method(fn_name, &from_str, &idx)
