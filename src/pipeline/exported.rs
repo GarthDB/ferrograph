@@ -1,9 +1,9 @@
-//! Marks bare `pub` free functions that a library crate does not export (`attr::pub_unexported`).
+//! Marks bare `pub` free functions, consts and statics that a library crate does not export (`attr::pub_unexported`).
 //!
 //! A function is exported when its module is reachable from the crate root through bare `pub mod`
 //! declarations, `pub use` globs and `pub use` of modules, or when a `pub use` in a reachable
 //! module names it (following re-export chains). Limits (all err towards "exported"): methods and
-//! types are not marked; a `pub use` path that does not resolve exports every function of that
+//! types are not marked (nor are associated consts); a `pub use` path that does not resolve exports every function of that
 //! name; macro-generated items are not seen; proc-macro crates are skipped.
 
 use std::collections::{BTreeMap, HashSet};
@@ -113,6 +113,18 @@ impl Crate<'_> {
         for node in body.children(&mut cursor) {
             match node.kind() {
                 "function_item" if super::ast::is_unexported_candidate(&node, source) => {
+                    let name = node
+                        .child_by_field_name("name")
+                        .and_then(|n| source.get(n.byte_range()))
+                        .unwrap_or_default();
+                    let id = NodeId::new(format!(
+                        "{file_id}#{}:{}",
+                        node.start_position().row + 1,
+                        node.start_position().column + 1
+                    ));
+                    self.mods[idx].fns.push((name.to_string(), id));
+                }
+                "const_item" | "static_item" if is_bare_pub(&node, source) => {
                     let name = node
                         .child_by_field_name("name")
                         .and_then(|n| source.get(n.byte_range()))

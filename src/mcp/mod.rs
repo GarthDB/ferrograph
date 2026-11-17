@@ -28,7 +28,7 @@ fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
             },
             "node_type": {
                 "type": "string",
-                "description": "Filter by node type (e.g. function, struct)"
+                "description": "Filter by node type: function (default), const or static. const and static report unused consts and statics instead of dead functions"
             },
             "limit": {
                 "type": "integer",
@@ -578,7 +578,8 @@ impl FerrographMcp {
         let restricted = arg("restricted_vis_not_root").unwrap_or(!strict);
         let bin_pub = arg("bin_pub_not_root").unwrap_or(!strict);
         let lib_exported = arg("lib_exported_only").unwrap_or(false);
-        let mut ids = if strict || restricted || bin_pub || lib_exported {
+        let consts = matches!(get_str_arg(request, "node_type"), Some("const" | "static"));
+        let mut ids = if consts || strict || restricted || bin_pub || lib_exported {
             Vec::new()
         } else {
             crate::graph::Query::stored_dead_functions(store).map_err(|e| {
@@ -586,15 +587,25 @@ impl FerrographMcp {
             })?
         };
         let source = if ids.is_empty() {
-            ids = crate::graph::Query::compute_dead_functions_with(
-                store,
-                strict,
-                &[],
-                restricted,
-                bin_pub,
-                lib_exported,
-            )
-            .map_err(|e| {
+            let computed = if consts {
+                crate::graph::Query::compute_dead_consts_with(
+                    store,
+                    strict,
+                    &[],
+                    bin_pub,
+                    lib_exported,
+                )
+            } else {
+                crate::graph::Query::compute_dead_functions_with(
+                    store,
+                    strict,
+                    &[],
+                    restricted,
+                    bin_pub,
+                    lib_exported,
+                )
+            };
+            ids = computed.map_err(|e| {
                 rmcp::ErrorData::internal_error(format!("Dead code (live) query failed: {e}"), None)
             })?;
             "computed"
@@ -1278,6 +1289,26 @@ mod tests {
             !ids.iter().any(|id| id.starts_with("tests/")),
             "tests/ helper should be filtered out"
         );
+    }
+
+    #[test]
+    fn handle_dead_code_node_type_const_reports_unused_consts() {
+        let store = Store::new_memory().unwrap();
+        for (id, ty, name) in [
+            ("./src/a.rs#1:1", NodeType::Const, "UNUSED"),
+            ("./src/a.rs#2:1", NodeType::Static, "S"),
+            ("./src/a.rs#3:1", NodeType::Function, "f"),
+        ] {
+            store
+                .put_node(&NodeId(id.to_string()), &ty, Some(name))
+                .unwrap();
+        }
+        let mut args = serde_json::Map::new();
+        args.insert("node_type".to_string(), serde_json::json!("const"));
+        let request = tool_request("dead_code", Some(args));
+        let json = result_json(FerrographMcp::handle_dead_code(&request, &store).unwrap());
+        assert_eq!(json["dead_node_ids"], serde_json::json!(["./src/a.rs#1:1"]));
+        assert_eq!(json["source"], "computed");
     }
 
     #[test]

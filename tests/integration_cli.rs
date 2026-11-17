@@ -1040,7 +1040,7 @@ fn cli_dead_sarif_and_markdown() {
     ]);
     let md = String::from_utf8(md.stdout).unwrap();
     assert!(md.starts_with("<!-- ferrograph -->\n"));
-    assert!(md.contains("| Function | Location |"));
+    assert!(md.contains("| Item | Location | Type |"));
     assert!(md.contains("more"), "{md}");
 }
 

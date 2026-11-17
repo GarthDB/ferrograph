@@ -435,7 +435,13 @@ pub fn dead_code(
     let source = if triples.is_empty() {
         let entries = resolve_entry_ids(store, &opts.entry)?;
         triples = if consts {
-            Query::compute_dead_consts_with_payload(store, opts.strict, &entries)?
+            Query::compute_dead_consts_with_payload(
+                store,
+                opts.strict,
+                &entries,
+                bin_pub,
+                lib_exported,
+            )?
         } else {
             Query::compute_dead_functions_with_payload(
                 store,

@@ -7,3 +7,4 @@ mod inner {
 pub mod deep {
     pub fn deep_fn() {}
 }
+pub const OPEN_CONST: u8 = 4;

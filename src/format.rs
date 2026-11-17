@@ -95,7 +95,7 @@ fn sarif(mut findings: Vec<Finding>) -> Value {
                 "rules": [{
                     "id": RULE_ID,
                     "name": "DeadCode",
-                    "shortDescription": { "text": "Function is not reachable from any entry point" },
+                    "shortDescription": { "text": "Item (function, const or static) is not reachable from any entry point" },
                     "defaultConfiguration": { "level": "warning" },
                     "helpUri": "https://github.com/GarthDB/ferrograph#dead-code-entry-points-and-ignores"
                 }, {
@@ -111,6 +111,13 @@ fn sarif(mut findings: Vec<Finding>) -> Value {
     })
 }
 
+/// `function` -> `Function`, `const` -> `Const`, `static` -> `Static`.
+fn kind_word(node_type: &str) -> String {
+    let mut c = node_type.chars();
+    c.next()
+        .map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
+}
+
 /// SARIF for `ferrograph dead`.
 #[must_use]
 pub fn sarif_dead(r: &DeadCodeResult) -> Value {
@@ -119,26 +126,45 @@ pub fn sarif_dead(r: &DeadCodeResult) -> Value {
             .iter()
             .map(|n| {
                 let name = n.payload.as_deref().map_or("<unknown>", bare_name);
+                let kind = kind_word(&n.node_type);
                 finding(
                     &n.id,
                     name,
-                    format!("Function `{name}` is dead code (unreachable from any entry point)"),
+                    format!("{kind} `{name}` is dead code (unreachable from any entry point)"),
                 )
             })
             .collect(),
     )
 }
 
-/// SARIF for `ferrograph pr`: the newly dead functions and the functions that gained `unsafe`.
+/// SARIF for `ferrograph pr`: the newly dead functions, consts and statics, and the functions that gained `unsafe`.
 #[must_use]
 pub fn sarif_pr(r: &PrResult) -> Value {
-    let dead = r.newly_dead.iter().map(|f| {
-        let why = if f.status == "added_dead" {
-            "added but never called"
+    let why = |status: &str, verb: &str| {
+        if status == "added_dead" {
+            format!("added but never {verb}")
         } else {
-            "no longer called after this change"
-        };
-        finding(&f.id, &f.name, format!("Function `{}` is {why}", f.name))
+            format!("no longer {verb} after this change")
+        }
+    };
+    let dead = r.newly_dead.iter().map(|f| {
+        finding(
+            &f.id,
+            &f.name,
+            format!("Function `{}` is {}", f.name, why(f.status, "called")),
+        )
+    });
+    let items = r.newly_dead_items.iter().map(|f| {
+        finding(
+            &f.id,
+            &f.name,
+            format!(
+                "{} `{}` is {}",
+                kind_word(&f.item_type),
+                f.name,
+                why(f.status, "used")
+            ),
+        )
     });
     let unsafe_fns = r.unsafe_gained.iter().map(|f| Finding {
         rule: UNSAFE_RULE_ID,
@@ -148,7 +174,7 @@ pub fn sarif_pr(r: &PrResult) -> Value {
             format!("Function `{}` gained unsafe code", f.name),
         )
     });
-    sarif(dead.chain(unsafe_fns).collect())
+    sarif(dead.chain(items).chain(unsafe_fns).collect())
 }
 
 /// Percent-encode a repo-relative path for a SARIF URI reference (keeps `/` and unreserved bytes).
@@ -238,9 +264,9 @@ pub fn markdown_dead(r: &DeadCodeResult, limit: usize) -> String {
     let rows: Vec<Vec<String>> = r
         .dead_nodes
         .iter()
-        .map(|n| vec![node_name(n), location(&n.id)])
+        .map(|n| vec![node_name(n), location(&n.id), esc(&n.node_type)])
         .collect();
-    table(&mut out, &["Function", "Location"], &rows, limit);
+    table(&mut out, &["Item", "Location", "Type"], &rows, limit);
     let _ = write!(out, "\n_{}_\n", r.caveat);
     finish(out)
 }
@@ -443,7 +469,9 @@ pub fn markdown_callers(r: &CallersResult, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::{ImpactGroup, NewlyDeadFunction, PrBlast, PrImpacted, UnsafeChange};
+    use crate::ops::{
+        ImpactGroup, NewlyDeadFunction, NewlyDeadItem, PrBlast, PrImpacted, UnsafeChange,
+    };
 
     fn node(id: &str, payload: &str) -> NodeSummary {
         NodeSummary {
@@ -524,7 +552,14 @@ mod tests {
                 status: "added_dead",
             }],
             newly_dead_count: 1,
-            newly_dead_items: vec![],
+            newly_dead_items: vec![NewlyDeadItem {
+                id: "./src/a.rs#1:1".into(),
+                file: "src/a.rs".into(),
+                name: "LIMIT".into(),
+                line: 1,
+                item_type: "const".into(),
+                status: "became_dead",
+            }],
             unsafe_gained: vec![UnsafeChange {
                 id: "./src/a.rs#9:1".into(),
                 file: "src/a.rs".into(),
@@ -557,18 +592,33 @@ mod tests {
         };
         let v = sarif_pr(&r);
         let results = v["runs"][0]["results"].as_array().unwrap();
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[1]["ruleId"], UNSAFE_RULE_ID);
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results[0]["message"]["text"],
+            "Const `LIMIT` is no longer used after this change"
+        );
+        assert_eq!(results[2]["ruleId"], UNSAFE_RULE_ID);
         let md = markdown_pr(&r, 50);
         assert!(md.starts_with(MARKER));
         assert!(
             md.contains(
-                "### ferrograph: 1 newly dead, 0 impacted (0 tests, 0 examples, 0 library)\n"
+                "### ferrograph: 2 newly dead, 0 impacted (0 tests, 0 examples, 0 library)\n"
             ),
             "{md}"
         );
         assert!(md.contains("| foo | src/a.rs:3 | added_dead |"));
         assert!(md.contains("| risky | src/a.rs:9 | gained |"), "{md}");
+    }
+
+    #[test]
+    fn sarif_dead_names_the_item_kind() {
+        let mut n = node("./src/a.rs#1:1", "LIMIT");
+        n.node_type = "const".into();
+        let v = sarif_dead(&dead(vec![n]));
+        let text = v["runs"][0]["results"][0]["message"]["text"]
+            .as_str()
+            .unwrap();
+        assert!(text.starts_with("Const `LIMIT` is dead code"), "{text}");
     }
 
     #[test]

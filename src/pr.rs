@@ -467,7 +467,14 @@ fn dead_state(
         .filter_map(|r| by_id.get(&unquote_datavalue(&r[0])).cloned())
         .collect();
     let items = if opts.include_consts {
-        dead_items(store, opts, &entries, &pats)?
+        dead_items(
+            store,
+            opts,
+            &entries,
+            &pats,
+            bin_pub_not_root,
+            lib_exported_only,
+        )?
     } else {
         DeadItems::default()
     };
@@ -484,14 +491,22 @@ fn dead_items(
     opts: &PrOptions,
     entries: &[String],
     ignore: &[glob::Pattern],
+    bin_pub_not_root: bool,
+    lib_exported_only: bool,
 ) -> Result<DeadItems> {
     use crate::graph::schema::NodeType;
     let (all, by_id) = keys_of(store, &[NodeType::Const, NodeType::Static])?;
-    let dead = Query::compute_dead_consts_with(store, opts.strict, entries)?
-        .into_iter()
-        .filter(|id| !ignore.iter().any(|p| crate::ops::path_matches(p, id)))
-        .filter_map(|id| by_id.get(&id).cloned())
-        .collect();
+    let dead = Query::compute_dead_consts_with(
+        store,
+        opts.strict,
+        entries,
+        bin_pub_not_root,
+        lib_exported_only,
+    )?
+    .into_iter()
+    .filter(|id| !ignore.iter().any(|p| crate::ops::path_matches(p, id)))
+    .filter_map(|id| by_id.get(&id).cloned())
+    .collect();
     let types = store
         .run_query(
             "?[id, t] := *nodes[id, t, _], is_in(t, [\"const\", \"static\"])",

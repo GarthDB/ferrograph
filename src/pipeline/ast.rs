@@ -325,7 +325,7 @@ const RESTRICTED_VIS_ATTR: &str = "pub_restricted";
 /// Marks a bare `pub` function in a file compiled only by bin/test/example/bench units (opt-in non-root, see `graph::query`).
 const PUB_BIN_ONLY_ATTR: &str = "pub_bin_only";
 
-/// Adds the [`PUB_BIN_ONLY_ATTR`] marker to every bare-`pub` function (not `pub(..)`, test, bench or `main`) of a bin-only file.
+/// Adds the [`PUB_BIN_ONLY_ATTR`] marker to every bare-`pub` function (not `pub(..)`, test, bench or `main`), const and static of a bin-only file.
 fn mark_bare_pub_in_bin_only(
     nodes: &[(NodeId, NodeType, Option<String>)],
     edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
@@ -336,19 +336,26 @@ fn mark_bare_pub_in_bin_only(
         .filter(|(_, t, e)| *t == restricted_marker && *e == EdgeType::HasAttribute)
         .map(|(f, _, _)| f.clone())
         .collect();
+    let pub_marker = NodeId::new("attr::pub");
+    let pub_items: std::collections::HashSet<NodeId> = edges
+        .iter()
+        .filter(|(_, t, e)| *t == pub_marker && *e == EdgeType::HasAttribute)
+        .map(|(f, _, _)| f.clone())
+        .collect();
     let demotable: Vec<NodeId> = nodes
         .iter()
         .filter(|(id, typ, payload)| {
-            *typ == NodeType::Function
-                && payload
-                    .as_deref()
-                    .and_then(|p| p.strip_prefix("pub::"))
-                    .is_some_and(|rest| {
-                        !rest.starts_with("test::")
-                            && !rest.starts_with("bench::")
-                            && rest != "main"
-                    })
-                && !restricted.contains(id)
+            (matches!(typ, NodeType::Const | NodeType::Static) && pub_items.contains(id))
+                || (*typ == NodeType::Function
+                    && payload
+                        .as_deref()
+                        .and_then(|p| p.strip_prefix("pub::"))
+                        .is_some_and(|rest| {
+                            !rest.starts_with("test::")
+                                && !rest.starts_with("bench::")
+                                && rest != "main"
+                        })
+                    && !restricted.contains(id))
         })
         .map(|(id, _, _)| id.clone())
         .collect();

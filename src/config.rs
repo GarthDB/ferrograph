@@ -699,7 +699,7 @@ fn run_dead(
         );
         println!("\n{}", crate::ops::DEAD_CODE_CAVEAT);
         if opts_item != crate::ops::DeadItem::Function {
-            println!("\nFor consts and statics: bare `pub` items are always roots (the `pub` demotions apply to functions only, also in bin crates), and an unused associated const with a trait default is reported (#207).");
+            println!("\nFor consts and statics: bare `pub` items are roots, except where `--bin-pub-not-root` or `--lib-exported-only` demotes them like functions. `--lib-exported-only` only covers module-level items; `--bin-pub-not-root` also demotes bare `pub` associated consts in bin-only files.");
         }
     }
     Ok(check_threshold(result.count, max))

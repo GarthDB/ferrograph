@@ -869,6 +869,34 @@ fn pipeline_lib_exported_only_demotes_unexported_pub_fns() {
     );
 }
 
+fn dead_const_names(store: &Store, bin_pub: bool, lib_exported: bool) -> Vec<String> {
+    let ids = ferrograph::graph::Query::compute_dead_consts_with(
+        store,
+        false,
+        &[],
+        bin_pub,
+        lib_exported,
+    )
+    .unwrap();
+    let mut names = dead_names_of(store, &ids);
+    names.sort();
+    names
+}
+
+/// `lib_exported_only` and `bin_pub_not_root` demote bare `pub` consts and statics like functions.
+#[test]
+fn pipeline_pub_consts_follow_the_visibility_demotions() {
+    let store = run_fixture("lib_exported");
+    assert_eq!(dead_const_names(&store, false, false), Vec::<String>::new());
+    assert_eq!(
+        dead_const_names(&store, false, true),
+        ["HIDDEN_CONST", "HIDDEN_STATIC"]
+    );
+    let store = run_fixture("bin_pub");
+    assert_eq!(dead_const_names(&store, false, false), Vec::<String>::new());
+    assert_eq!(dead_const_names(&store, true, false), ["BIN_UNUSED"]);
+}
+
 /// Line numbers (1-based) of fixture definitions, keyed by their trailing `// tag` or `/* tag */`.
 fn tagged_lines(fixture: &str, file: &str) -> std::collections::HashMap<String, usize> {
     let src = std::fs::read_to_string(fixture_path(fixture).join(file)).unwrap();
@@ -1146,7 +1174,9 @@ fn pipeline_fn_item_as_method_receiver_is_a_reference() {
 fn pipeline_dead_consts_include_those_kept_alive_only_by_dead_functions() {
     let store = run_fixture("const_dead");
     for strict in [false, true] {
-        let ids = ferrograph::graph::Query::compute_dead_consts_with(&store, strict, &[]).unwrap();
+        let ids =
+            ferrograph::graph::Query::compute_dead_consts_with(&store, strict, &[], false, false)
+                .unwrap();
         let mut names = dead_names_of(&store, &ids);
         names.sort_unstable();
         assert_eq!(
