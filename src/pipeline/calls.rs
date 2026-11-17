@@ -98,7 +98,7 @@ struct Index {
     global_by_name: HashMap<String, Vec<NodeId>>,
     /// Ids of functions defined directly inside an `impl` or `trait`.
     methods: HashSet<String>,
-    /// Ids of methods declared in an `impl Trait for T`.
+    /// Ids of methods carrying `attr::trait_impl`: those of `impl Trait for T`, and also of attribute-macro impls (`#[wasm_bindgen] impl T`), which only makes the inherent preference below filter less.
     trait_impl_fns: HashSet<String>,
     /// `contains` edges, child id -> parent id.
     parent: HashMap<String, String>,
@@ -177,7 +177,7 @@ fn pick_by_owner(owner: &str, from: &str, cands: &[NodeId], idx: &Index) -> Vec<
     };
     if owner != "Self" {
         let mut named = of_scope(&|_, (_, name)| name == owner);
-        // `Type::f()` is the inherent `f` before a trait's.
+        // `Type::f()` is the inherent `f` before a trait's. (`Self::f()` below keeps both: it only drops the caller itself.)
         if named
             .iter()
             .any(|c| !idx.trait_impl_fns.contains(c.as_str()))
@@ -688,6 +688,7 @@ fn resolve_typed_method(
     }
     let mut cands = methods_of_type(name, ty, idx);
     // `x.f()` calls the inherent method before a trait's method of the same name.
+    // shortcut: rustc probes by value, then `&`, then `&mut`, preferring inherent only within a step, so an inherent `f(&mut self)` next to a trait `f(&self)` resolves to the trait one; self kinds are not indexed, upgrade if that matters.
     if cands
         .iter()
         .any(|c| !idx.trait_impl_fns.contains(c.as_str()))
