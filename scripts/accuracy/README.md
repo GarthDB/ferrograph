@@ -147,6 +147,44 @@ how many commits had a rustc newly-dead fn at all (the real denominator for reca
 those whose diff removes a line that calls or references a fn defined in the repo (`--depth` first-parent commits are scanned,
 the first `--n` hits are measured); the default `--select last` keeps the last-N behaviour.
 
+## UI-toolkit cohort (`ui`, #210)
+
+Five toolkits (ratatui, egui, iced, xilem, cursive; see `corpora.toml`) whose code is closures in fields, message handlers, builders and
+callbacks. `cargo xtask groundtruth --only ratatui,egui,iced,xilem,cursive`, ferrograph 6.2.1 (the release binary built from `main`
+at `fe9ef0d`), rustc 1.99.1, macOS arm64, 2026-11-16, `cargo check --workspace --all-targets --all-features` (cursive without
+`--all-features`). The harness's model of `dead` matched the CLI on all five (diff = 0). Wilson 95% intervals; percentages are floored, as in the harness reports (11/104 is 10.58%). "Genuine disagreements" are F minus the confirmed items minus the ones rustc cannot judge (cfg-gated, file not compiled), so judgeable minus confirmed (45 - 10 = 35 in default mode; 104 - 11 = 93 under `--strict`).
+
+| | R (rustc-dead) | F | F in R | recall | precision (judgeable) | genuine disagreements |
+|---|---|---|---|---|---|---|
+| default | 35 | 54 | 10 | 28.5% (10/35) [16.3-45.1] | 22.2% (10/45) [12.5-36.3] | 35 |
+| `--strict` | 35 | 157 | 11 | 31.4% (11/35) [18.6-48.0] | 10.5% (11/104) [6.0-18.0] | 93 |
+
+Genuine disagreements per corpus (default): ratatui 0, egui 12, iced 18, xilem 1, cursive 4. For comparison, the 22 older corpora have 5 unconfirmed
+among 75 judgeable default reports (93.3% precision, see the main README): live code is reported dead far more often in UI code. R is small
+(these crates are CI-clean), so recall has wide intervals, and the genuine-disagreement list is a candidate list, not a verdict: I
+read the source for these and confirmed them, **not** the rest:
+
+- **egui, 8 of 12:** `assert_send_sync`, a `const fn` declared and called inside `const _: () = { .. };`. Reproduced on a 6-line fixture, in default and `--strict` (#218).
+- **cursive, 2 of 4:** `find_closest_pair` in `backends/curses/mod.rs`, called as `super::find_closest_pair(..)` from a same-named wrapper in the child module `n.rs`; `find_closest` is dead as a consequence. Reproduced on a fixture (#219).
+- **iced, 13 of 18:** methods of `Content` (7) and `TitleBar` (6) (`layout`, `operate`, `overlay`, `update`, `diff`, `mouse_interaction`, `grid_interaction`) called as `content.layout(..)` on a receiver bound by a closure or zip/tuple pattern. A minimal fixture with the same shapes did **not** reproduce it, so the cause is not known (#220).
+- **iced, 1:** `error_list`, called inside a `#[error("..", error_list(.0))]` attribute (a call in derive-helper arguments).
+- **Not looked at, 11 in all (default mode):** egui 4 (`id`, `ui`, `begin_pass`, `set_options`), iced 4 (`id`, `point`, and `update`/`draw` in the integration example), xilem 1 (`as_mut`), cursive 2 (`layout`, `draw`). Together with the 8 + 2 + 13 + 1 above, 35 in all.
+
+### `--lib-exported-only` on the same cohort (#207)
+
+The harness's model of `dead` follows `--lib-exported-only` (`attr::pub_unexported`, a `Graph::prepare_model` flag; `run-matrix` has an arm `lib` = `both` plus the flag). The self-check matched the CLI on all five corpora, default and `--strict` (diff = 0).
+`cargo xtask groundtruth ... --extra-args=--lib-exported-only`, same binary, date and corpora as above (default mode, the model's flags otherwise on):
+
+| | R | F | F in R | recall | precision (judgeable) | genuine disagreements |
+|---|---|---|---|---|---|---|
+| without the flag | 35 | 54 | 10 | 28.5% (10/35) [16.3-45.1] | 22.2% (10/45) [12.5-36.3] | 35 |
+| `--lib-exported-only` | 35 | 61 | 14 | 40.0% (14/35) [25.6-56.4] | 28.0% (14/50) [17.5-41.7] | 36 |
+
+The flag adds 7 reports, 4 of them confirmed by rustc (recall 10 to 14 of 35, all in library crates: 9 to 13 of 23). Of the other 3, two are in `#[cfg]` code (egui) and one is a genuine disagreement: iced `whitespace` in `test/src/instruction.rs`, whose only caller `point` is itself one of the pre-existing false positives (`point.map(Target::Point)` uses the fn item as a receiver value, a shape the indexer does not link; #222). So no new defect is attributable to the flag in this sample. Small sample, wide intervals; the intervals of the two rows overlap, so this shows the direction, not a significant gain. Not measured: the 22 older corpora (run `run-matrix --arms both,lib` to compare), and methods (#217).
+
+Reproduce: `cargo xtask groundtruth --ferrograph <binary> --work <dir> --only ratatui,egui,iced,xilem,cursive --out-md ui.md --out-json ui.json`
+(about 5 minutes with warm clones; each crate needs 1-3 GB of `target/` while it runs).
+
 ## What is not measured / limitations
 
 - `RUSTFLAGS` is set to `--force-warn dead_code`, which makes cargo ignore `build.rustflags`/`target.*.rustflags` from a corpus's `.cargo/config.toml`. In the pinned corpora those are Windows-only (fd, ripgrep), so nothing changes on macOS/Linux; check before adding a corpus that needs e.g. `--cfg tokio_unstable`.

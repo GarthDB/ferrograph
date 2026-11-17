@@ -261,8 +261,7 @@ fn analyse(c: &Corpus, fg: &Fg, work: &Path, opts: &Opts) -> Result<CorpusResult
     fg.index(&index_root, &db, Duration::from_secs(900))?;
     res.index_seconds = round1(t0.elapsed().as_secs_f64());
     let mut g = fg.load_graph(&db)?;
-    let (r0, b0) = fg.model_flags(false);
-    g.prepare_model(r0, b0);
+    g.prepare_model(fg.model_flags(false));
     let by_file = build_index(&g);
     res.fn_nodes = g.nodes.values().filter(|n| n.kind == "function").count() as u64;
 
@@ -318,8 +317,7 @@ fn analyse(c: &Corpus, fg: &Fg, work: &Path, opts: &Opts) -> Result<CorpusResult
         let strict = mode == "strict";
         let found = fg.dead(&db, strict)?;
         // `--strict` turns both root-demoting options off unless asked for, so the model's roots differ per mode.
-        let (r, b) = fg.model_flags(strict);
-        g.prepare_model(r, b);
+        g.prepare_model(fg.model_flags(strict));
         let mdead = model_dead(&g, strict);
         res.selfcheck.insert(
             mode.into(),

@@ -46,6 +46,8 @@ pub struct Fg {
     pub extra: Vec<String>,
     pub restricted: bool,
     pub bin_pub: bool,
+    /// `--lib-exported-only` (off by default, also under `--strict`).
+    pub lib_exported: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -84,16 +86,18 @@ impl Fg {
             extra: extra_args.to_vec(),
             restricted: on("--restricted-vis-not-root", "--no-restricted-vis-not-root"),
             bin_pub: on("--bin-pub-not-root", "--no-bin-pub-not-root"),
+            lib_exported: has("--lib-exported-only") && !has("--no-lib-exported-only"),
         }
     }
 
-    /// (`restricted`, `bin_pub`) the model must use for a `dead` run: `--strict` turns both options off
-    /// unless asked for explicitly.
-    pub fn model_flags(&self, strict: bool) -> (bool, bool) {
+    /// (`restricted`, `bin_pub`, `lib_exported`) the model must use for a `dead` run: `--strict` turns the first two
+    /// options off unless asked for explicitly; `lib_exported` is opt-in in every mode.
+    pub fn model_flags(&self, strict: bool) -> (bool, bool, bool) {
         let has = |f: &str| self.extra.iter().any(|a| a == f);
         (
             self.restricted && (!strict || has("--restricted-vis-not-root")),
             self.bin_pub && (!strict || has("--bin-pub-not-root")),
+            self.lib_exported,
         )
     }
 
@@ -217,7 +221,8 @@ impl Graph {
         self.attrs.get(nid).is_some_and(|x| x.contains(a))
     }
 
-    fn root_kind(&self, nid: &str, restricted: bool, bin_pub: bool) -> Option<String> {
+    fn root_kind(&self, nid: &str, flags: (bool, bool, bool)) -> Option<String> {
+        let (restricted, bin_pub, lib_exported) = flags;
         let n = &self.nodes[nid];
         let payload = n.payload.as_str();
         if n.kind != "function" {
@@ -234,7 +239,8 @@ impl Graph {
             return Some("underscore".into()); // rustc never reports `_name` fns; roots since 5.0
         }
         let demoted = ((restricted && self.has_attr(nid, "attr::pub_restricted"))
-            || (bin_pub && self.has_attr(nid, "attr::pub_bin_only")))
+            || (bin_pub && self.has_attr(nid, "attr::pub_bin_only"))
+            || (lib_exported && self.has_attr(nid, "attr::pub_unexported")))
             && !payload.starts_with("pub::test::")
             && !payload.starts_with("pub::bench::")
             && payload != "pub::main";
@@ -266,9 +272,9 @@ impl Graph {
         None
     }
 
-    /// Fill the model fields (attributes, adjacency, trait fns, roots). `restricted`/`bin_pub`
-    /// mirror `--restricted-vis-not-root` / `--bin-pub-not-root`.
-    pub fn prepare_model(&mut self, restricted: bool, bin_pub: bool) {
+    /// Fill the model fields (attributes, adjacency, trait fns, roots). `flags` = (`restricted`, `bin_pub`,
+    /// `lib_exported`) mirror `--restricted-vis-not-root` / `--bin-pub-not-root` / `--lib-exported-only`.
+    pub fn prepare_model(&mut self, flags: (bool, bool, bool)) {
         let mut contains: HashMap<&str, Vec<&str>> = HashMap::new();
         let mut implemented: HashSet<&str> = HashSet::new();
         self.attrs.clear();
@@ -303,7 +309,7 @@ impl Graph {
         for (nid, n) in &self.nodes {
             if n.kind == "file" || n.kind == "module" {
                 roots.insert(nid.clone(), n.kind.clone());
-            } else if let Some(k) = self.root_kind(nid, restricted, bin_pub) {
+            } else if let Some(k) = self.root_kind(nid, flags) {
                 roots.insert(nid.clone(), k);
             }
         }
@@ -503,12 +509,21 @@ mod tests {
         let f = |a: &[&str]| {
             let v: Vec<String> = a.iter().map(ToString::to_string).collect();
             let fg = Fg::new("x", &v);
-            (fg.restricted, fg.bin_pub)
+            (fg.restricted, fg.bin_pub, fg.lib_exported)
         };
-        assert_eq!(f(&[]), (true, true));
-        assert_eq!(f(&["--strict"]), (false, false));
-        assert_eq!(f(&["--strict", "--bin-pub-not-root"]), (false, true));
-        assert_eq!(f(&["--no-restricted-vis-not-root"]), (false, true));
+        assert_eq!(f(&[]), (true, true, false));
+        assert_eq!(f(&["--strict"]), (false, false, false));
+        assert_eq!(f(&["--strict", "--bin-pub-not-root"]), (false, true, false));
+        assert_eq!(f(&["--no-restricted-vis-not-root"]), (false, true, false));
+        assert_eq!(f(&["--lib-exported-only"]), (true, true, true));
+        assert_eq!(
+            f(&["--strict", "--lib-exported-only"]),
+            (false, false, true)
+        );
+        assert_eq!(
+            f(&["--lib-exported-only", "--no-lib-exported-only"]),
+            (true, true, false)
+        );
     }
 
     fn model() -> Graph {
@@ -538,7 +553,7 @@ mod tests {
             ],
             &[("m", "b")],
         );
-        g.prepare_model(true, true);
+        g.prepare_model((true, true, false));
         g
     }
 
@@ -554,7 +569,7 @@ mod tests {
         assert_eq!(k("tm"), Some("trait_def_method"));
         assert_eq!(k("d"), None);
         let mut h = model();
-        h.prepare_model(false, true);
+        h.prepare_model((false, true, false));
         assert_eq!(h.roots.get("res").map(String::as_str), Some("pub"));
     }
 
@@ -671,7 +686,7 @@ mod tests {
                 low: raw.low.clone(),
                 ..Graph::default()
             };
-            g.prepare_model(r, b);
+            g.prepare_model((r, b, false));
             let roots: BTreeMap<String, String> = case["roots"]
                 .as_object()
                 .unwrap()
@@ -758,8 +773,7 @@ mod tests {
             let mut g = fg.load_graph(&db).unwrap();
             assert!(g.nodes.len() > 20 && !g.edges.is_empty());
             for strict in [false, true] {
-                let (r, b) = fg.model_flags(strict);
-                g.prepare_model(r, b);
+                g.prepare_model(fg.model_flags(strict));
                 assert_eq!(
                     model_dead(&g, strict),
                     fg.dead(&db, strict).unwrap(),
@@ -767,5 +781,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// With `--lib-exported-only` the model demotes `attr::pub_unexported` fns like the CLI does (fixture of #207).
+    #[test]
+    fn model_follows_lib_exported_only() {
+        let Some(bin) = crate::testutil::binary() else {
+            return;
+        };
+        let root = std::fs::canonicalize(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/lib_exported"),
+        )
+        .unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("l.db");
+        let dead_names = |extra: &[&str], strict: bool| {
+            let extra: Vec<String> = extra.iter().map(ToString::to_string).collect();
+            let fg = Fg::new(&bin, &extra);
+            fg.index(&root, &db, Duration::from_secs(300)).unwrap();
+            let mut g = fg.load_graph(&db).unwrap();
+            g.prepare_model(fg.model_flags(strict));
+            let model = model_dead(&g, strict);
+            assert_eq!(
+                model,
+                fg.dead(&db, strict).unwrap(),
+                "{extra:?} strict={strict}"
+            );
+            model.len()
+        };
+        let off = dead_names(&[], false);
+        let on = dead_names(&["--lib-exported-only"], false);
+        assert!(on > off, "the flag demotes roots: {off} -> {on}");
+        assert!(dead_names(&["--lib-exported-only"], true) >= on);
     }
 }
