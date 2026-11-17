@@ -318,6 +318,7 @@ fn is_comment(node: &tree_sitter::Node) -> bool {
 /// Synthetic attribute marking a method inside `impl Trait for Type` (a dead-code root).
 /// Keep in sync with the entry rules in `graph::query`.
 const TRAIT_IMPL_ATTR: &str = "trait_impl";
+const CONST_EVAL_ATTR: &str = "const_eval";
 /// Marks a function whose visibility is `pub(..)` rather than bare `pub` (opt-in non-root, see `graph::query`).
 const RESTRICTED_VIS_ATTR: &str = "pub_restricted";
 
@@ -956,6 +957,16 @@ fn is_const_use(node: &tree_sitter::Node, source: &str) -> bool {
         .is_some_and(|t| super::calls::is_const_like(t.rsplit("::").next().unwrap_or(t)))
 }
 
+/// `const _: T = ..` or `const NAME: () = ..`: rustc evaluates these (and the fns they call) even though
+/// nothing can reference them.
+fn is_compile_time_check(node: &tree_sitter::Node, source: &str) -> bool {
+    let text = |field| {
+        node.child_by_field_name(field)
+            .and_then(|n| source.get(n.byte_range()))
+    };
+    text("name") == Some("_") || text("type") == Some("()")
+}
+
 /// Marks a const/static as a dead-code root (see `graph::query`): `pub`, an item of a trait impl,
 /// or a static with an entry attribute (`#[no_mangle]`, `#[used]`, ...).
 fn push_const_roots(
@@ -973,6 +984,9 @@ fn push_const_roots(
     }
     if is_trait_impl_method(node) {
         roots.push(TRAIT_IMPL_ATTR.to_string());
+    }
+    if is_compile_time_check(node, source) {
+        roots.push(CONST_EVAL_ATTR.to_string());
     }
     if node.kind() == "static_item" {
         roots.extend(attribute_names(node, source));

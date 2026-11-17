@@ -1089,6 +1089,24 @@ fn pipeline_const_and_static_initialisers_keep_fns_alive() {
     assert!(low.is_empty(), "{low:?}");
 }
 
+#[test]
+fn pipeline_const_underscore_and_unit_consts_keep_callees_alive() {
+    let store = run_fixture("const_checks");
+    for strict in [false, true] {
+        let dead = dead_names(&store, strict);
+        for live in ["assert_send_sync", "check_helper"] {
+            assert!(
+                !dead.iter().any(|n| n == live),
+                "{live} is live (strict={strict}), dead: {dead:?}"
+            );
+        }
+        assert!(
+            dead.iter().any(|n| n == "value_helper"),
+            "value_helper is only called by an unused value const (strict={strict}), dead: {dead:?}"
+        );
+    }
+}
+
 /// Targets of `calls` edges leaving the function `caller`, as (callee id, is low-confidence).
 fn call_targets(store: &Store, caller: &str) -> Vec<(String, bool)> {
     let run = |script: &str| -> Vec<String> {
