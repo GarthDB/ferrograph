@@ -2084,8 +2084,8 @@ fn token_tree_starts_with_paren(node: &tree_sitter::Node, source: &str) -> bool 
 /// (`#[error("..", fmt(.0))]`), unlike a keyword with options such as `ignore(case)`.
 fn token_tree_starts_with_dot_arg(node: &tree_sitter::Node, source: &str) -> bool {
     source.get(node.byte_range()).is_some_and(|s| {
-        s.strip_prefix('(')
-            .is_some_and(|r| r.trim_start().starts_with('.'))
+        let mut rest = s.strip_prefix('(').unwrap_or_default().trim_start().chars();
+        rest.next() == Some('.') && rest.next().is_some_and(char::is_alphanumeric)
     })
 }
 

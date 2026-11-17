@@ -417,7 +417,14 @@ fn pipeline_fns_named_in_attribute_arguments_are_live() {
         dead.sort();
         assert_eq!(
             dead,
-            ["ignore", "long", "priority", "short", "unused_private"],
+            [
+                "ignore",
+                "long",
+                "priority",
+                "short",
+                "skip",
+                "unused_private"
+            ],
             "strict={strict}"
         );
     }
