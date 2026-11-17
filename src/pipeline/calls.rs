@@ -184,6 +184,24 @@ fn pick_by_owner(owner: &str, from: &str, cands: &[NodeId], idx: &Index) -> Vec<
         {
             named.retain(|c| !idx.trait_impl_fns.contains(c.as_str()));
         }
+        // Same-named types in several modules of a file (`solid::Layer`, `gradient::Layer`, `Layer`):
+        // the one declared in the nearest enclosing module of the caller is the one in scope.
+        // shortcut: a `use other::Twin` in the caller's module while an enclosing module declares its own `Twin` resolves to the enclosing one (certain, wrong); imports are not consulted, upgrade if that shape shows up.
+        if named.len() > 1 {
+            let declared_in = |c: &NodeId, scope: &str| {
+                idx.parent_of(c)
+                    .and_then(|imp| idx.parent.get(imp))
+                    .map(String::as_str)
+                    == Some(scope)
+            };
+            let nearest = idx
+                .ancestors(from)
+                .filter(|a| !idx.scopes.get(*a).is_some_and(|s| s.0))
+                .find(|a| named.iter().any(|c| declared_in(c, a)));
+            if let Some(scope) = nearest {
+                named.retain(|c| declared_in(c, scope));
+            }
+        }
         return named;
     }
     let Some(ty) = idx

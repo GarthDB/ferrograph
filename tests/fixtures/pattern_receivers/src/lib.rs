@@ -442,3 +442,62 @@ pub fn impl_iter_adapters(group: impl Iterator<Item = &'static A>, mut more: imp
         a.impl_iter_next();
     }
 }
+
+// The same type name in two modules: `Type::f()` is the one declared in the caller's module.
+pub struct Twin;
+impl Twin {
+    fn make() -> Twin { // live_a_twin_make
+        Twin
+    }
+}
+pub fn twin_in_file_module() {
+    let _ = Twin::make();
+}
+mod twin_mod {
+    pub struct Twin;
+    impl Twin {
+        fn make() -> Twin { // dead_b_twin_make
+            Twin
+        }
+    }
+}
+
+// A caller in a nested module sees the type of the nearest enclosing module that declares one;
+// sibling modules each have their own.
+mod outer_mod {
+    pub struct Twin;
+    impl Twin {
+        fn make() -> Twin { // live_a_twin_nested
+            Twin
+        }
+    }
+    pub fn call_outer() {
+        let _ = Twin::make();
+        inner_mod::call_inner();
+    }
+    mod inner_mod {
+        use super::Twin;
+        pub fn call_inner() {
+            let _ = Twin::make();
+        }
+    }
+}
+mod sibling_one {
+    pub struct Twin;
+    impl Twin {
+        fn make() -> Twin { // live_a_twin_sibling
+            Twin
+        }
+    }
+    pub fn call_one() {
+        let _ = Twin::make();
+    }
+}
+mod sibling_two {
+    pub struct Twin;
+    impl Twin {
+        fn make() -> Twin { // dead_b_twin_sibling
+            Twin
+        }
+    }
+}
