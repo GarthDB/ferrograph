@@ -335,6 +335,17 @@ pub struct DeadOptions {
     pub entry: Vec<String>,
     /// File globs whose functions are never reported.
     pub ignore: Vec<String>,
+    /// What to report: functions (the default) or consts/statics.
+    pub item: DeadItem,
+}
+
+/// The kind of item [`dead_code`] reports.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum DeadItem {
+    #[default]
+    Function,
+    Const,
+    Static,
 }
 
 pub(crate) fn path_matches(pat: &glob::Pattern, node_id: &str) -> bool {
@@ -395,7 +406,9 @@ pub fn dead_code(
     let restricted = opts.restricted_vis_not_root.unwrap_or(!opts.strict);
     let bin_pub = opts.bin_pub_not_root.unwrap_or(!opts.strict);
     let lib_exported = opts.lib_exported_only.unwrap_or(false);
-    let custom = opts.strict || restricted || bin_pub || lib_exported || !opts.entry.is_empty();
+    let consts = opts.item != DeadItem::Function;
+    let custom =
+        consts || opts.strict || restricted || bin_pub || lib_exported || !opts.entry.is_empty();
     let mut triples = if custom {
         Vec::new()
     } else {
@@ -403,14 +416,26 @@ pub fn dead_code(
     };
     let source = if triples.is_empty() {
         let entries = resolve_entry_ids(store, &opts.entry)?;
-        triples = Query::compute_dead_functions_with_payload(
-            store,
-            opts.strict,
-            &entries,
-            restricted,
-            bin_pub,
-            lib_exported,
-        )?;
+        triples = if consts {
+            Query::compute_dead_consts_with_payload(store, opts.strict, &entries)?
+        } else {
+            Query::compute_dead_functions_with_payload(
+                store,
+                opts.strict,
+                &entries,
+                restricted,
+                bin_pub,
+                lib_exported,
+            )?
+        };
+        let wanted = match opts.item {
+            DeadItem::Function => None,
+            DeadItem::Const => Some("const"),
+            DeadItem::Static => Some("static"),
+        };
+        if let Some(t) = wanted {
+            triples.retain(|(_, node_type, _)| node_type == t);
+        }
         "computed"
     } else {
         "stored"
