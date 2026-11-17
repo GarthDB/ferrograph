@@ -928,9 +928,15 @@ fn is_value_position(node: &tree_sitter::Node) -> bool {
         "assignment_expression" => p.child_by_field_name("right") == Some(node),
         // `parser.map(..)`: a fn item as the receiver of a method call (nom/winnow parsers).
         "field_expression" => {
+            // `x.m::<T>(..)` wraps the field expression in a `generic_function`.
+            let callee = p
+                .parent()
+                .filter(|g| g.kind() == "generic_function")
+                .unwrap_or(p);
             p.child_by_field_name("value") == Some(node)
-                && p.parent().is_some_and(|c| {
-                    c.kind() == "call_expression" && c.child_by_field_name("function") == Some(p)
+                && callee.parent().is_some_and(|c| {
+                    c.kind() == "call_expression"
+                        && c.child_by_field_name("function") == Some(callee)
                 })
         }
         _ => false,
