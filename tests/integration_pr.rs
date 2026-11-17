@@ -926,3 +926,68 @@ const C: i32 = unsafe { 1 };\n",
         "outer and the const are not reported"
     );
 }
+
+#[test]
+fn pr_include_consts_reports_newly_dead_consts_and_gates_on_them() {
+    let Some(d) = repo() else { return };
+    let src = |used: &str| {
+        format!(
+            "const KEPT: u8 = 1;\nconst LOSES_USER: u8 = 2;\nfn main() {{\n    let _ = KEPT;\n    {used}\n}}\n"
+        )
+    };
+    write(d.path(), "src/main.rs", &src("let _ = LOSES_USER;"));
+    commit(d.path(), "base");
+    git(d.path(), &["checkout", "-q", "main"]);
+    git(d.path(), &["merge", "-q", "--ff-only", "feature"]);
+    git(d.path(), &["checkout", "-q", "-b", "feature2"]);
+    write(
+        d.path(),
+        "src/main.rs",
+        &format!("{}static FRESH: u8 = 3;\n", src("")),
+    );
+    commit(d.path(), "drop a use, add an unused static");
+
+    let v = json(&pr(d.path(), &["--json"]));
+    assert!(v.get("newly_dead_items").is_none(), "off by default: {v}");
+    assert_eq!(pr(d.path(), &["--fail-on-new-dead"]).status.code(), Some(0));
+
+    let v = json(&pr(d.path(), &["--json", "--include-consts"]));
+    let mut items: Vec<_> = v["newly_dead_items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| {
+            (
+                i["name"].as_str().unwrap(),
+                i["item_type"].as_str().unwrap(),
+                i["status"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    items.sort_unstable();
+    assert_eq!(
+        items,
+        [
+            ("FRESH", "static", "added_dead"),
+            ("LOSES_USER", "const", "became_dead")
+        ]
+    );
+    assert_eq!(v["newly_dead_count"], 0, "function count is unchanged");
+    let md = String::from_utf8_lossy(
+        &pr(d.path(), &["--format", "markdown", "--include-consts"]).stdout,
+    )
+    .into_owned();
+    assert!(md.contains("**Newly dead consts and statics**"), "{md}");
+    assert_eq!(
+        pr(d.path(), &["--include-consts", "--max-new-dead", "2"])
+            .status
+            .code(),
+        Some(0)
+    );
+    assert_eq!(
+        pr(d.path(), &["--include-consts", "--fail-on-new-dead"])
+            .status
+            .code(),
+        Some(1)
+    );
+}
