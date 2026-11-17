@@ -672,6 +672,12 @@ fn pipeline_inherent_methods_win_over_trait_methods() {
     assert_pattern_receivers_resolved(&["inherent_first", "inherent_path", "inherent_self"]);
 }
 
+/// `impl Iterator<Item = T>` parameters yield `T`.
+#[test]
+fn pipeline_impl_iterator_param_resolves_item_receivers() {
+    assert_pattern_receivers_resolved(&["impl_iter"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);

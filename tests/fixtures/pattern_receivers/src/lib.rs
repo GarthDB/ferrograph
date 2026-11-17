@@ -33,6 +33,7 @@ impl A {
     fn try_option(&self) {} // live_a_try_option
     fn try_result(&self) {} // live_a_try_result
     fn closure_map(&self) {} // live_a_closure_map
+    fn impl_iter(&self) {} // live_a_impl_iter
     fn assoc_state(&self) {} // live_a_assoc_state
     fn enum_map(&self) {} // live_a_enum_map
     fn enum_for(&self) {} // live_a_enum_for
@@ -84,6 +85,7 @@ impl B {
     fn try_option(&self) {} // dead_b_try_option
     fn try_result(&self) {} // dead_b_try_result
     fn closure_map(&self) {} // dead_b_closure_map
+    fn impl_iter(&self) {} // dead_b_impl_iter
     fn assoc_state(&self) {} // dead_b_assoc_state
     fn enum_map(&self) {} // dead_b_enum_map
     fn enum_for(&self) {} // dead_b_enum_for
@@ -420,4 +422,11 @@ impl Both for A {
 }
 pub fn inherent_calls(a: &A) {
     a.inherent_first();
+}
+
+// `impl Iterator<Item = (&A, u8)>` yields its item type.
+pub fn impl_iter(group: impl Iterator<Item = (&'static A, u8)>) {
+    for (a, _n) in group {
+        a.impl_iter();
+    }
 }
