@@ -170,6 +170,18 @@ read the source for these and confirmed them, **not** the rest:
 - **iced, 1:** `error_list`, called inside a `#[error("..", error_list(.0))]` attribute (a call in derive-helper arguments).
 - **Not looked at, 11 in all (default mode):** egui 4 (`id`, `ui`, `begin_pass`, `set_options`), iced 4 (`id`, `point`, and `update`/`draw` in the integration example), xilem 1 (`as_mut`), cursive 2 (`layout`, `draw`). Together with the 8 + 2 + 13 + 1 above, 35 in all.
 
+### `--lib-exported-only` on the same cohort (#207)
+
+The harness's model of `dead` follows `--lib-exported-only` (`attr::pub_unexported`, a `Graph::prepare_model` flag; `run-matrix` has an arm `lib` = `both` plus the flag). The self-check matched the CLI on all five corpora, default and `--strict` (diff = 0).
+`cargo xtask groundtruth ... --extra-args=--lib-exported-only`, same binary, date and corpora as above (default mode, the model's flags otherwise on):
+
+| | R | F | F in R | recall | precision (judgeable) | genuine disagreements |
+|---|---|---|---|---|---|---|
+| without the flag | 35 | 54 | 10 | 28.5% (10/35) [16.3-45.1] | 22.2% (10/45) [12.5-36.3] | 35 |
+| `--lib-exported-only` | 35 | 61 | 14 | 40.0% (14/35) [25.6-56.4] | 28.0% (14/50) [17.5-41.7] | 36 |
+
+The flag adds 7 reports, 4 of them confirmed by rustc (recall 10 to 14 of 35, all in library crates: 9 to 13 of 23). Of the other 3, two are in `#[cfg]` code (egui) and one is a genuine disagreement: iced `whitespace` in `test/src/instruction.rs`, whose only caller `point` is itself one of the pre-existing false positives (`point.map(Target::Point)` uses the fn item as a receiver value, a shape the indexer does not link). So no new defect is attributable to the flag in this sample. Small sample, wide intervals; the intervals of the two rows overlap, so this shows the direction, not a significant gain. Not measured: the 22 older corpora (run `run-matrix --arms both,lib` to compare), and methods (#217).
+
 Reproduce: `cargo xtask groundtruth --ferrograph <binary> --work <dir> --only ratatui,egui,iced,xilem,cursive --out-md ui.md --out-json ui.json`
 (about 5 minutes with warm clones; each crate needs 1-3 GB of `target/` while it runs).
 
