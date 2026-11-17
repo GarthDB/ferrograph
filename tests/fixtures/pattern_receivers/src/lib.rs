@@ -17,6 +17,8 @@ impl A {
     fn variant_bare(&self) {} // live_a_variant_bare
     fn variant_struct(&self) {} // live_a_variant_struct
     fn variant_self(&self) {} // live_a_variant_self
+    fn if_value(&self) {} // live_a_if_value
+    fn if_chain(&self) {} // live_a_if_chain
     fn field_variant(&self) {} // live_a_field_variant
     fn field_bare(&self) {} // live_a_field_bare
     fn field_self(&self) {} // live_a_field_self
@@ -58,6 +60,8 @@ impl B {
     fn variant_bare(&self) {} // dead_b_variant_bare
     fn variant_struct(&self) {} // dead_b_variant_struct
     fn variant_self(&self) {} // dead_b_variant_self
+    fn if_value(&self) {} // dead_b_if_value
+    fn if_chain(&self) {} // dead_b_if_chain
     fn field_variant(&self) {} // dead_b_field_variant
     fn field_bare(&self) {} // dead_b_field_bare
     fn field_self(&self) {} // dead_b_field_self
@@ -253,6 +257,7 @@ impl A {
     fn variant_dup(&self) {} // live_a_variant_dup
     fn map_path(&self) {} // live_a_map_path
     pub fn make(_s: String) -> A { A }
+    pub fn make_self(&self) -> A { A }
 }
 impl B {
     fn variant_dup(&self) {} // dead_b_variant_dup
@@ -325,4 +330,19 @@ pub fn twin_variants_bare(l: &Left) {
     use Left::*;
     let Same { v } = l;
     v.twin_bare();
+
+// An `if` has the type of its branches.
+pub fn if_values(flag: bool, a: A) {
+    let a = if flag { a.make_self() } else { a };
+    a.if_value();
+}
+pub fn if_chain(flag: bool, a: A) {
+    let a = if flag {
+        a /* the value, then a comment */
+    } else if !flag {
+        a.make_self()
+    } else {
+        a
+    };
+    a.if_chain();
 }

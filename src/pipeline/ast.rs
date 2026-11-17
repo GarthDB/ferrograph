@@ -1955,6 +1955,23 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
             })
         }
         "parenthesized_expression" => expr_hint(&e.child(1)?, source),
+        // Every branch has the same type, so the first one that can be typed tells it.
+        "if_expression" => {
+            let tail = |b: tree_sitter::Node| {
+                let last = b
+                    .named_children(&mut b.walk())
+                    .filter(|c| !c.kind().ends_with("comment"))
+                    .last()?;
+                expr_hint(&last, source)
+            };
+            let other = e
+                .child_by_field_name("alternative")
+                .and_then(|a| a.named_child(0));
+            tail(e.child_by_field_name("consequence")?).or_else(|| match other?.kind() {
+                "block" => tail(other?),
+                _ => expr_hint(&other?, source),
+            })
+        }
         "tuple_expression" => {
             let hints: Vec<String> = e
                 .named_children(&mut e.walk())
