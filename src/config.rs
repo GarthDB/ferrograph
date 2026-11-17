@@ -126,7 +126,7 @@ pub enum Command {
         /// Keep bare `pub` functions in bin/test/example/bench-only files as entry points (overrides the config file).
         #[arg(long)]
         no_bin_pub_not_root: bool,
-        /// Do not treat bare `pub` free functions that a library crate does not export (private module, no `pub use` path) as entry points. Off by default.
+        /// Do not treat bare `pub` free functions, consts, statics and inherent methods that a library crate does not export (private module, no `pub use` path) as entry points. Off by default.
         #[arg(long, conflicts_with = "no_lib_exported_only")]
         lib_exported_only: bool,
         /// Keep unexported library `pub` functions as entry points (overrides the config file).
@@ -181,7 +181,7 @@ pub enum Command {
         /// Keep bare `pub` functions in bin/test/example/bench-only files as entry points (overrides the config file).
         #[arg(long)]
         no_bin_pub_not_root: bool,
-        /// Do not treat bare `pub` free functions that a library crate does not export (private module, no `pub use` path) as entry points. Off by default.
+        /// Do not treat bare `pub` free functions, consts, statics and inherent methods that a library crate does not export (private module, no `pub use` path) as entry points. Off by default.
         #[arg(long, conflicts_with = "no_lib_exported_only")]
         lib_exported_only: bool,
         /// Keep unexported library `pub` functions as entry points (overrides the config file).
@@ -699,7 +699,7 @@ fn run_dead(
         );
         println!("\n{}", crate::ops::DEAD_CODE_CAVEAT);
         if opts_item != crate::ops::DeadItem::Function {
-            println!("\nFor consts and statics: bare `pub` items are roots, except where `--bin-pub-not-root` or `--lib-exported-only` demotes them like functions. `--lib-exported-only` only covers module-level items; `--bin-pub-not-root` also demotes bare `pub` associated consts in bin-only files.");
+            println!("\nFor consts and statics: bare `pub` items are roots, except where `--bin-pub-not-root` or `--lib-exported-only` demotes them like functions. `--bin-pub-not-root` also demotes bare `pub` associated consts in bin-only files.");
         }
     }
     Ok(check_threshold(result.count, max))

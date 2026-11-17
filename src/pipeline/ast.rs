@@ -395,7 +395,7 @@ const PLAIN_IMPL_ATTRS: [&str; 13] = [
 ];
 
 /// True for a function directly inside an inherent `impl` that carries an attribute macro.
-fn is_attribute_macro_impl_method(node: &tree_sitter::Node, source: &str) -> bool {
+pub(super) fn is_attribute_macro_impl_method(node: &tree_sitter::Node, source: &str) -> bool {
     node.parent()
         .filter(|p| p.kind() == "declaration_list")
         .and_then(|p| p.parent())

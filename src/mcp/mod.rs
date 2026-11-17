@@ -52,7 +52,7 @@ fn dead_code_input_schema() -> serde_json::Map<String, serde_json::Value> {
             },
             "lib_exported_only": {
                 "type": "boolean",
-                "description": "Do not treat bare pub free functions that a library crate does not export (private module, no pub use path) as entry points (default false)",
+                "description": "Do not treat bare pub free functions, consts, statics and inherent methods that a library crate does not export (private module, no pub use path) as entry points (default false)",
                 "default": false
             },
             "restricted_vis_not_root": {

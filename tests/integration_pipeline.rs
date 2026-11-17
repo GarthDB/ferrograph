@@ -867,6 +867,7 @@ fn pipeline_lib_exported_only_demotes_unexported_pub_fns() {
             "chain_a_dead",
             "crate_mod_dead",
             "hidden_dead",
+            "hidden_method",
             "inner_dead",
             "other_dead",
             "path_hidden_dead",
