@@ -26,6 +26,13 @@ impl A {
     fn closure_option(&self) {} // live_a_closure_option
     fn closure_for_each(&self) {} // live_a_closure_for_each
     fn closure_fold(&self) {} // live_a_closure_fold
+    fn zip_closure(&self) {} // live_a_zip_closure
+    fn zip_for(&self) {} // live_a_zip_for
+    fn zip_nested(&self) {} // live_a_zip_nested
+    fn zip_untyped_right(&self) {} // live_a_zip_untyped_right
+    fn zip_untyped_left(&self) {} // live_a_zip_untyped_left
+    fn zip_map(&self) {} // live_a_zip_map
+    fn zip_option(&self) {} // live_a_zip_option
     fn index_chain(&self) {} // live_a_index_chain
     fn boxed(&self) {} // live_a_boxed
     fn map_values(&self) {} // live_a_map_values
@@ -53,6 +60,13 @@ impl B {
     fn closure_option(&self) {} // dead_b_closure_option
     fn closure_for_each(&self) {} // dead_b_closure_for_each
     fn closure_fold(&self) {} // dead_b_closure_fold
+    fn zip_closure(&self) {} // dead_b_zip_closure
+    fn zip_for(&self) {} // dead_b_zip_for
+    fn zip_nested(&self) {} // dead_b_zip_nested
+    fn zip_untyped_right(&self) {} // dead_b_zip_untyped_right
+    fn zip_untyped_left(&self) {} // dead_b_zip_untyped_left
+    fn zip_map(&self) {} // dead_b_zip_map
+    fn zip_option(&self) {} // dead_b_zip_option
     fn index_chain(&self) {} // dead_b_index_chain
     fn boxed(&self) {} // dead_b_boxed
     fn map_values(&self) {} // dead_b_map_values
@@ -71,6 +85,8 @@ use E::*;
 
 pub struct Holder {
     items: Vec<A>,
+    ids: Vec<u32>,
+    maybe_b: Option<B>,
     maybe: Option<A>,
     boxed: Vec<Box<A>>,
     shared: Rc<A>,
@@ -145,6 +161,36 @@ impl Holder {
             a.closure_fold();
             n
         });
+    }
+
+    pub fn zips(&self) {
+        let _ = self
+            .ids
+            .iter()
+            .zip(&self.items)
+            .find_map(|(_id, a)| Some(a.zip_closure()));
+        for (_id, a) in self.ids.iter().zip(self.items.iter()) {
+            a.zip_for();
+        }
+        let _ = self
+            .ids
+            .iter()
+            .zip(&self.items)
+            .zip(self.ids.iter())
+            .find_map(|((_id, a), _other)| Some(a.zip_nested()));
+        // Neither side typed: `_` keeps the positions.
+        for (a, _n) in self.items.iter().zip(0..3) {
+            a.zip_untyped_right();
+        }
+        for (_n, a) in (0..3).zip(self.items.iter()) {
+            a.zip_untyped_left();
+        }
+        for ((_k, a), _id) in self.by_name.iter().zip(self.ids.iter()) {
+            a.zip_map();
+        }
+        if let Some((_b, a)) = self.maybe_b.as_ref().zip(self.maybe.as_ref()) {
+            a.zip_option();
+        }
     }
 
     pub fn chains(&self) {

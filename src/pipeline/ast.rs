@@ -1995,7 +1995,7 @@ fn is_bool_expr(e: &tree_sitter::Node, source: &str) -> bool {
 
 /// Hint for the `Option` adapters whose result type is the closure's:
 /// `x.and_then(|..| f(..))` (`R.and_then(F)`, `x.map(|..| f(..))` (`R.map(F)`) and
-/// `cond.then(|| f())` (`@some(F)`); `and_then` on an untyped receiver is `@and_then(F)`. `None` leaves the call to the plain method hint. The
+/// `cond.then(|| f())` (`@some(F)`); `a.zip(b)` is `@zip(A;B)`; `and_then` on an untyped receiver is `@and_then(F)`. `None` leaves the call to the plain method hint. The
 /// calls phase keeps `R.m(F)` only when `R` is an `Option`/`Result`, so a project method of the same
 /// name still resolves by its declared return type.
 fn adapter_hint(
@@ -2023,6 +2023,12 @@ fn adapter_hint(
                 None if method == "and_then" => Some(format!("@and_then({f})")),
                 None => None,
             }
+        }
+        // `a.zip(b)` pairs the element types; a side that cannot be typed is empty (`_`).
+        "zip" => {
+            let (r, b) = (expr_hint(recv, source), expr_hint(&arg, source));
+            (r.is_some() || b.is_some())
+                .then(|| format!("@zip({};{})", r.unwrap_or_default(), b.unwrap_or_default()))
         }
         "then" if is_bool_expr(recv, source) => closure(&arg).map(|f| format!("@some({f})")),
         "then_some" if is_bool_expr(recv, source) => {

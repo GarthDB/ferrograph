@@ -38,7 +38,7 @@ pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
 /// impl's type), `HINT.field`, `HINT.method()` or `=path::to::f()` (the result of a call). Further steps:
 /// `.[]` (element), `.?` (payload), `.#i` (tuple element), `.()` (call a `fn` pointer) and `.m(HINT)` (an
 /// `Option` adapter whose closure returns `HINT`); further starts: `@tuple(H0;H1)`,
-/// `@some(H)`, `@vec(H)` (a `Vec` of `H`), `@and_then(H)`.
+/// `@some(H)`, `@vec(H)` (a `Vec` of `H`), `@and_then(H)`, `@zip(A;B)` (pairs of the element types).
 pub(crate) const RECEIVER_MARK: &str = "@on:";
 /// Separator in the temporary struct-field placeholder `field@field:Type` (a `Calls` edge from the
 /// struct), consumed here to learn field types.
@@ -257,6 +257,37 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
             })
             .collect();
         format!("({})", elems.join(","))
+    } else if let Some(pair) = first.strip_prefix("@zip(") {
+        let mut sides = split_top(pair.strip_suffix(')')?, ';').map(|e| {
+            Some(e)
+                .filter(|e| !e.is_empty())
+                .and_then(|e| eval_hint(e, from, from_file, idx))
+        });
+        let (a, b) = (sides.next()?, sides.next()?);
+        // A project type with its own `zip` method keeps that method's result.
+        if let Some(own) = a
+            .as_deref()
+            .filter(|t| idx.type_names.contains(auto_deref(t, idx)))
+        {
+            step_type(own, "zip()", idx)?
+        } else {
+            let is_option = |t: &Option<String>| {
+                t.as_deref()
+                    .and_then(|t| split_generic(auto_deref(t, idx)))
+                    .is_some_and(|(name, _)| name == "Option")
+            };
+            // `Option::zip` pairs the payloads; on anything else it is `Iterator::zip` over the elements.
+            let (step, wrap) = if is_option(&a) {
+                ("?", "Option")
+            } else {
+                ("[]", "Vec")
+            };
+            let elem = |t: Option<String>| {
+                t.and_then(|t| step_type(&t, step, idx))
+                    .unwrap_or_else(|| "_".to_string())
+            };
+            format!("{wrap}<({},{})>", elem(a), elem(b))
+        }
     } else if let Some(inner) = first.strip_prefix("@some(") {
         format!(
             "Option<{}>",
