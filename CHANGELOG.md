@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0](https://github.com/GarthDB/ferrograph/compare/v6.2.1...v7.0.0) - 2026-11-17
+
+### Added
+
+- *(pr)* report newly dead consts and statics with --include-consts ([#208](https://github.com/GarthDB/ferrograph/pull/208))
+- *(dead)* report unused consts and statics with dead --type ([#208](https://github.com/GarthDB/ferrograph/pull/208))
+- *(pr)* report functions that gained or lost unsafe
+- *(dead)* --lib-exported-only demotes unexported pub fns of library crates
+
+### Fixed
+
+- *(calls)* resolve cross-file qualified, imported and re-exported const/static references ([#211](https://github.com/GarthDB/ferrograph/pull/211))
+- *(dead)* method receivers with a turbofish count as references
+- *(dead)* a fn item as a method-call receiver is a reference ([#222](https://github.com/GarthDB/ferrograph/pull/222))
+- *(calls)* resolve the super parent from mod.rs callers; cover a.rs layout
+- *(calls)* link super::f from a same-named child fn to the parent f ([#219](https://github.com/GarthDB/ferrograph/pull/219))
+- *(dead)* treat const _ and unit-typed consts as roots ([#218](https://github.com/GarthDB/ferrograph/pull/218))
+- *(dead)* satisfy clippy needless_range_loop; track_caller and cold are not attribute macros
+- *(dead)* dense marker for the pr stale-graph check; attribute macros keep pub fns as roots
+
+### Other
+
+- count consts in the markdown headline, document newly_dead_count
+- dead --type const: drop ignored marker params, fix help and note wording
+- cover cfg-gated modules, doc(hidden), unresolved pub use and unsafe in closures
+- restore a closing brace lost in the merge
+- Merge branch 'feat/lib-exported-only' into feat/pr-unsafe-delta
+
 ## [6.2.1](https://github.com/GarthDB/ferrograph/compare/v6.2.0...v6.2.1) - 2026-11-16
 
 ### Other
