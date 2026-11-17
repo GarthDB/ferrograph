@@ -579,7 +579,7 @@ pub fn run_mutation(c: &Corpus, o: &Opts) -> Result<Report> {
     let db = work.join("base.db");
     fg.index(&index_root, &db, T)?;
     let mut g = fg.load_graph(&db)?;
-    g.prepare_model(fg.restricted, fg.bin_pub);
+    g.prepare_model((fg.restricted, fg.bin_pub, fg.lib_exported));
     let by_file = build_index(&g);
     let fams: Vec<String> = if o.family == "all" {
         FAMILIES.map(String::from).to_vec()
@@ -693,7 +693,7 @@ pub fn run_mutation(c: &Corpus, o: &Opts) -> Result<Report> {
             let hdb = work.join("head.db");
             fg.index(&index_root, &hdb, T)?;
             let mut hg = fg.load_graph(&hdb)?;
-            hg.prepare_model(fg.restricted, fg.bin_pub);
+            hg.prepare_model((fg.restricted, fg.bin_pub, fg.lib_exported));
             let (head_dead, base_dead) = (fg.dead(&hdb, false)?, fg.dead(&db, false)?);
             let info = reach(&hg, false, &fn_ids.iter().cloned().collect());
             for nid in &fn_ids {

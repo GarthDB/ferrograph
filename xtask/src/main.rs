@@ -94,7 +94,7 @@ enum Cmd {
         config: PathBuf,
         #[arg(long, default_value = "")]
         only: String,
-        /// Comma-separated, from default, restricted, binpub, both.
+        /// Comma-separated, from default, restricted, binpub, both, lib (both + --lib-exported-only).
         #[arg(long, default_value = "default,restricted")]
         arms: String,
         #[arg(long)]
