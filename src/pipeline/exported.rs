@@ -41,8 +41,33 @@ struct Mod {
     children: BTreeMap<String, usize>,
     /// Bare `pub mod` (the root counts as public).
     is_pub: bool,
-    fns: Vec<(String, NodeId)>,
+    fns: Vec<Func>,
+    types: Vec<TypeDecl>,
+    methods: Vec<Method>,
+    /// `impl Trait for Ty`: the type names the whole impl mentions (associated types, `Deref::Target`, ...).
+    trait_impls: Vec<(String, Vec<String>)>,
     pub_uses: Vec<Leaf>,
+}
+
+/// A bare `pub` free function, const or static. `id` is set when it may be demoted.
+struct Func {
+    name: String,
+    id: Option<NodeId>,
+    /// Type names in the signature (params, return type, bounds): they are nameable through this item.
+    sig: Vec<String>,
+}
+
+struct TypeDecl {
+    name: String,
+    is_pub: bool,
+    /// Every type name inside the declaration (over-approximates: private fields count).
+    exposes: Vec<String>,
+}
+
+/// A bare `pub` method of an inherent `impl`.
+struct Method {
+    ty: String,
+    func: Func,
 }
 
 struct Crate<'a> {
@@ -55,6 +80,62 @@ fn is_bare_pub(node: &Node, source: &str) -> bool {
     node.child(0).is_some_and(|c| {
         c.kind() == "visibility_modifier" && source.get(c.byte_range()) == Some("pub")
     })
+}
+
+fn field_text(node: &Node, field: &str, source: &str) -> String {
+    node.child_by_field_name(field)
+        .and_then(|n| source.get(n.byte_range()))
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn node_id(node: &Node, file_id: &str) -> NodeId {
+    NodeId::new(format!(
+        "{file_id}#{}:{}",
+        node.start_position().row + 1,
+        node.start_position().column + 1
+    ))
+}
+
+/// Every `type_identifier` under `node` (including the last segment of scoped paths).
+fn type_idents(node: &Node, source: &str, out: &mut Vec<String>) {
+    if node.kind() == "type_identifier" {
+        out.extend(source.get(node.byte_range()).map(str::to_string));
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        type_idents(&child, source, out);
+    }
+}
+
+/// `Ty`, `Ty<T>` or `path::Ty` as the self type of an `impl`; anything else (`&Ty`, tuples) is not tracked.
+fn self_type_name(node: &Node, source: &str) -> Option<String> {
+    match node.kind() {
+        "type_identifier" => source.get(node.byte_range()).map(str::to_string),
+        "generic_type" => node
+            .child_by_field_name("type")
+            .and_then(|t| self_type_name(&t, source)),
+        "scoped_type_identifier" => node
+            .child_by_field_name("name")
+            .and_then(|t| self_type_name(&t, source)),
+        _ => None,
+    }
+}
+
+fn func(node: &Node, source: &str, file_id: &str, demotable: bool) -> Func {
+    let mut sig = Vec::new();
+    let body = node.child_by_field_name("body").map(|b| b.id());
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if Some(child.id()) != body {
+            type_idents(&child, source, &mut sig);
+        }
+    }
+    Func {
+        name: field_text(node, "name", source),
+        id: demotable.then(|| node_id(node, file_id)),
+        sig,
+    }
 }
 
 fn parse_leaf(text: &str) -> Leaf {
@@ -112,30 +193,34 @@ impl Crate<'_> {
         let mut cursor = body.walk();
         for node in body.children(&mut cursor) {
             match node.kind() {
-                "function_item" if super::ast::is_unexported_candidate(&node, source) => {
-                    let name = node
-                        .child_by_field_name("name")
-                        .and_then(|n| source.get(n.byte_range()))
-                        .unwrap_or_default();
-                    let id = NodeId::new(format!(
-                        "{file_id}#{}:{}",
-                        node.start_position().row + 1,
-                        node.start_position().column + 1
-                    ));
-                    self.mods[idx].fns.push((name.to_string(), id));
+                "function_item" if is_bare_pub(&node, source) => {
+                    let f = func(
+                        &node,
+                        source,
+                        file_id,
+                        super::ast::is_unexported_candidate(&node, source),
+                    );
+                    self.mods[idx].fns.push(f);
                 }
                 "const_item" | "static_item" if is_bare_pub(&node, source) => {
-                    let name = node
-                        .child_by_field_name("name")
-                        .and_then(|n| source.get(n.byte_range()))
-                        .unwrap_or_default();
-                    let id = NodeId::new(format!(
-                        "{file_id}#{}:{}",
-                        node.start_position().row + 1,
-                        node.start_position().column + 1
-                    ));
-                    self.mods[idx].fns.push((name.to_string(), id));
+                    let name = field_text(&node, "name", source);
+                    let id = Some(node_id(&node, file_id));
+                    self.mods[idx].fns.push(Func {
+                        name,
+                        id,
+                        sig: vec![],
+                    });
                 }
+                "struct_item" | "enum_item" | "union_item" | "trait_item" | "type_item" => {
+                    let mut exposes = Vec::new();
+                    type_idents(&node, source, &mut exposes);
+                    self.mods[idx].types.push(TypeDecl {
+                        name: field_text(&node, "name", source),
+                        is_pub: is_bare_pub(&node, source),
+                        exposes,
+                    });
+                }
+                "impl_item" => self.impl_block(idx, &node, source, file_id),
                 "use_declaration" if is_bare_pub(&node, source) => {
                     if let Some(path) = use_path_from_node(&node, source) {
                         let leaves = expand_use(&path).into_iter().map(|l| parse_leaf(&l));
@@ -144,6 +229,36 @@ impl Crate<'_> {
                 }
                 "mod_item" => self.module(idx, node, source, file, dir, file_id),
                 _ => {}
+            }
+        }
+    }
+
+    fn impl_block(&mut self, idx: usize, node: &Node, source: &str, file_id: &str) {
+        let Some(ty) = node
+            .child_by_field_name("type")
+            .and_then(|t| self_type_name(&t, source))
+        else {
+            return;
+        };
+        if node.child_by_field_name("trait").is_some() {
+            let mut names = Vec::new();
+            type_idents(node, source, &mut names);
+            self.mods[idx].trait_impls.push((ty, names));
+            return;
+        }
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
+        let mut cursor = body.walk();
+        for f in body.children(&mut cursor) {
+            if f.kind() == "function_item" && is_bare_pub(&f, source) {
+                let demotable = super::ast::is_unexported_candidate(&f, source)
+                    && !super::ast::is_attribute_macro_impl_method(&f, source);
+                let func = func(&f, source, file_id, demotable);
+                self.mods[idx].methods.push(Method {
+                    ty: ty.clone(),
+                    func,
+                });
             }
         }
     }
@@ -275,7 +390,55 @@ struct State {
     unresolved: HashSet<String>,
 }
 
+impl State {
+    fn is_exported(&self, m: usize, name: &str) -> bool {
+        self.reach.contains(&m)
+            || self.names.contains(&(m, name.to_string()))
+            || self.unresolved.contains(name)
+    }
+}
+
 impl Crate<'_> {
+    /// Names of the types a user of the crate can name or obtain: declared bare `pub` in a reachable
+    /// module, named by a `pub use`, or mentioned in the signature of an exported function or method, in an
+    /// exported type, or in a trait impl of one (name-based, over-approximate).
+    fn exported_types(&self, st: &State) -> HashSet<String> {
+        let mut exposed: HashSet<String> = HashSet::new();
+        let mut out: HashSet<String> = HashSet::new();
+        loop {
+            let before = (exposed.len(), out.len());
+            for (i, m) in self.mods.iter().enumerate() {
+                for f in &m.fns {
+                    if st.is_exported(i, &f.name) {
+                        exposed.extend(f.sig.iter().cloned());
+                    }
+                }
+                for t in &m.types {
+                    let public = (st.reach.contains(&i) && t.is_pub)
+                        || st.names.contains(&(i, t.name.clone()))
+                        || st.unresolved.contains(&t.name);
+                    if public || exposed.contains(&t.name) {
+                        out.insert(t.name.clone());
+                        exposed.extend(t.exposes.iter().cloned());
+                    }
+                }
+                for f in &m.methods {
+                    if out.contains(&f.ty) {
+                        exposed.extend(f.func.sig.iter().cloned());
+                    }
+                }
+                for (ty, names) in &m.trait_impls {
+                    if out.contains(ty) {
+                        exposed.extend(names.iter().cloned());
+                    }
+                }
+            }
+            if before == (exposed.len(), out.len()) {
+                return out;
+            }
+        }
+    }
+
     fn exported(&self) -> State {
         let mut st = State::default();
         st.reach.insert(0);
@@ -348,17 +511,32 @@ pub(super) fn mark_pub_unexported(
         };
         krate.load(0, &lib, lib.parent().unwrap_or(&dir));
         let st = krate.exported();
+        let exported_types = krate.exported_types(&st);
+        let known: HashSet<&str> = krate
+            .mods
+            .iter()
+            .flat_map(|m| m.types.iter().map(|t| t.name.as_str()))
+            .collect();
+        let demote = |id: &NodeId| {
+            (
+                id.clone(),
+                NodeId::new(format!("attr::{PUB_UNEXPORTED_ATTR}")),
+                EdgeType::HasAttribute,
+            )
+        };
         for (i, m) in krate.mods.iter().enumerate() {
-            if st.reach.contains(&i) {
-                continue;
+            if !st.reach.contains(&i) {
+                for f in &m.fns {
+                    if let (Some(id), false) = (&f.id, st.is_exported(i, &f.name)) {
+                        edges.push(demote(id));
+                    }
+                }
             }
-            for (name, id) in &m.fns {
-                if !st.names.contains(&(i, name.clone())) && !st.unresolved.contains(name) {
-                    edges.push((
-                        id.clone(),
-                        NodeId::new(format!("attr::{PUB_UNEXPORTED_ATTR}")),
-                        EdgeType::HasAttribute,
-                    ));
+            // A method is demoted only when its type is declared in this crate and no declaration of that name is exported.
+            for f in &m.methods {
+                let hidden = known.contains(f.ty.as_str()) && !exported_types.contains(&f.ty);
+                if let (Some(id), true) = (&f.func.id, hidden) {
+                    edges.push(demote(id));
                 }
             }
         }

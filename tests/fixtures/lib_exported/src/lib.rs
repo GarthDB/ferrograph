@@ -28,3 +28,4 @@ pub use external_crate::ext_fn;
 
 pub fn root_fn() {}
 pub use reexp::EXPORTED_CONST;
+pub use reexp::Reexported;
