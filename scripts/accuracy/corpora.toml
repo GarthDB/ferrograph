@@ -161,3 +161,43 @@ heldout = true
 cohort = "held-out-2"
 url = "https://github.com/kafka-rust/kafka-rust"
 ref = "6681c81e0f7a84547e972ec545f3ed278d2ecfec"
+
+# UI-toolkit cohort ("ui", #210): closures stored in fields, message handlers, builders, immediate-mode callbacks. Added
+# to measure live-code false positives on that style; not used while tuning. Candidates came from `cargo xtask scan`
+# on 2026-11-16 (its dead-in-all-units count was 0 for all of them, but `groundtruth` finds R = 13, 1, 5, 6 and 10 for
+# ratatui, egui, iced, xilem and cursive; the two commands count units differently, read the groundtruth numbers).
+# Pinned to default-branch HEAD. Results: scripts/accuracy/README.md, "UI-toolkit cohort".
+[[corpus]]
+name = "ratatui"   # TUI widgets and builders
+heldout = true
+cohort = "ui"
+url = "https://github.com/ratatui/ratatui"
+ref = "f08c02fd5a7d5355cb8dd36e920b055e2d2e09cf"
+
+[[corpus]]
+name = "egui"   # immediate-mode, closures passed to ui.* calls
+heldout = true
+cohort = "ui"
+url = "https://github.com/emilk/egui"
+ref = "c61b45f6570465f6445d6fc4251d1395db440223"
+
+[[corpus]]
+name = "iced"   # Elm-style: messages, update/view closures
+heldout = true
+cohort = "ui"
+url = "https://github.com/iced-rs/iced"
+ref = "e5c350f271a8046f875c6662d452fde9e462d486"
+
+[[corpus]]
+name = "xilem"   # view-tree closures
+heldout = true
+cohort = "ui"
+url = "https://github.com/linebender/xilem"
+ref = "dc496876a2f6ff2ce7687bfc8c19bd311bb553dc"
+
+[[corpus]]
+name = "cursive"   # callback-registering TUI (built without --all-features)
+heldout = true
+cohort = "ui"
+url = "https://github.com/gyscos/cursive"
+ref = "16657e09af66ba253987666bcebc1244dd519397"

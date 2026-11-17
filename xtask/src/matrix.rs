@@ -13,7 +13,7 @@ use anyhow::{bail, Result};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-pub const ARMS: [(&str, &str); 4] = [
+pub const ARMS: [(&str, &str); 5] = [
     (
         "default",
         "--no-restricted-vis-not-root --no-bin-pub-not-root",
@@ -24,6 +24,10 @@ pub const ARMS: [(&str, &str); 4] = [
     ),
     ("binpub", "--no-restricted-vis-not-root --bin-pub-not-root"),
     ("both", "--restricted-vis-not-root --bin-pub-not-root"),
+    (
+        "lib",
+        "--restricted-vis-not-root --bin-pub-not-root --lib-exported-only",
+    ),
 ];
 
 pub struct Args {
@@ -181,6 +185,7 @@ mod tests {
             ARMS[0].1,
             "--no-restricted-vis-not-root --no-bin-pub-not-root"
         );
-        assert_eq!(ARMS.len(), 4);
+        assert_eq!(ARMS.len(), 5);
+        assert!(ARMS[4].1.ends_with("--lib-exported-only"));
     }
 }
