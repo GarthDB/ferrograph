@@ -38,6 +38,7 @@ impl A {
     fn enum_for(&self) {} // live_a_enum_for
     fn inherent_first(&self) {} // live_a_inherent_first
     fn inherent_path(&self) {} // live_a_inherent_path
+    fn inherent_self(&self) {} // live_a_inherent_self
     fn closure_typed(&self) {} // live_a_closure_typed
     fn closure_option(&self) {} // live_a_closure_option
     fn closure_for_each(&self) {} // live_a_closure_for_each
@@ -88,6 +89,7 @@ impl B {
     fn enum_for(&self) {} // dead_b_enum_for
     fn inherent_first(&self) {} // dead_b_inherent_first
     fn inherent_path(&self) {} // dead_b_inherent_path
+    fn inherent_self(&self) {} // dead_b_inherent_self
     fn closure_typed(&self) {} // dead_b_closure_typed
     fn closure_option(&self) {} // dead_b_closure_option
     fn closure_for_each(&self) {} // dead_b_closure_for_each
@@ -405,11 +407,15 @@ impl Program for Attach {
 pub trait Both {
     fn inherent_first(&self);
     fn inherent_path(&self);
+    fn inherent_self(&self);
 }
 impl Both for A {
     fn inherent_first(&self) {}
     fn inherent_path(&self) {
         A::inherent_path(self);
+    }
+    fn inherent_self(&self) {
+        self.inherent_self();
     }
 }
 pub fn inherent_calls(a: &A) {

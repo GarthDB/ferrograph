@@ -669,7 +669,7 @@ fn pipeline_self_assoc_type_receivers_resolve_to_their_type() {
 /// An inherent method wins over a same-named method of a trait the type implements.
 #[test]
 fn pipeline_inherent_methods_win_over_trait_methods() {
-    assert_pattern_receivers_resolved(&["inherent_first", "inherent_path"]);
+    assert_pattern_receivers_resolved(&["inherent_first", "inherent_path", "inherent_self"]);
 }
 
 #[test]

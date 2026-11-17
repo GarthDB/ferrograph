@@ -217,7 +217,11 @@ fn resolution_of(mut v: Vec<NodeId>) -> Option<Resolution> {
 /// Same-named types in different files: a single match in the caller's own file wins.
 /// shortcut: types are matched by name only, so `impl other::Iter` in a file that defines its own `Iter` binds to the local one; upgrade when scopes carry resolved type paths.
 fn resolve_self_method(name: &str, from: &str, idx: &Index) -> Option<Resolution> {
-    let all = methods_of_type(name, enclosing_impl_type(from, idx)?, idx);
+    let mut all = methods_of_type(name, enclosing_impl_type(from, idx)?, idx);
+    // `self.f()` has the same receiver step for both: the inherent `f` wins over a trait's.
+    if all.iter().any(|c| !idx.trait_impl_fns.contains(c.as_str())) {
+        all.retain(|c| !idx.trait_impl_fns.contains(c.as_str()));
+    }
     let prefix = format!("{}#", from.split('#').next().unwrap_or(from));
     let mut own = all.iter().filter(|c| c.as_str().starts_with(&prefix));
     if let (Some(c), None) = (own.next(), own.next()) {
