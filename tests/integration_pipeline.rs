@@ -628,10 +628,18 @@ fn pipeline_try_operator_receivers_resolve_to_their_type() {
 }
 
 /// #220: `a.zip(b)` pairs the element types, so a tuple pattern over it types its bindings (the second
-/// `zip` argument cannot be typed and keeps its position as `_`).
+/// side that cannot be typed keeps its position as `_`; a map yields `(K, V)` pairs and `Option::zip` an `Option`).
 #[test]
 fn pipeline_zip_receivers_resolve_to_their_type() {
-    assert_pattern_receivers_resolved(&["zip_closure", "zip_for", "zip_nested"]);
+    assert_pattern_receivers_resolved(&[
+        "zip_closure",
+        "zip_for",
+        "zip_nested",
+        "zip_untyped_right",
+        "zip_untyped_left",
+        "zip_map",
+        "zip_option",
+    ]);
 }
 
 #[test]

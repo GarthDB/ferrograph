@@ -271,11 +271,22 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
         {
             step_type(own, "zip()", idx)?
         } else {
+            let is_option = |t: &Option<String>| {
+                t.as_deref()
+                    .and_then(|t| split_generic(auto_deref(t, idx)))
+                    .is_some_and(|(name, _)| name == "Option")
+            };
+            // `Option::zip` pairs the payloads; on anything else it is `Iterator::zip` over the elements.
+            let (step, wrap) = if is_option(&a) {
+                ("?", "Option")
+            } else {
+                ("[]", "Vec")
+            };
             let elem = |t: Option<String>| {
-                t.and_then(|t| step_type(&t, "[]", idx))
+                t.and_then(|t| step_type(&t, step, idx))
                     .unwrap_or_else(|| "_".to_string())
             };
-            format!("Vec<({},{})>", elem(a), elem(b))
+            format!("{wrap}<({},{})>", elem(a), elem(b))
         }
     } else if let Some(inner) = first.strip_prefix("@some(") {
         format!(
@@ -1731,9 +1742,6 @@ pub(crate) fn build_call_graph_in(store: &Store, units: Option<&Units>) -> Resul
         let (to_str, value, self_method, method, hint) = parse_target(&raw_to);
         let from_file = from_str.split('#').next().unwrap_or(&from_str);
         let (path_part, fn_name) = split_placeholder(&to_str, from_file);
-        if method && std::env::var("FG_DBG").is_ok_and(|v| fn_name.starts_with(&v)) {
-            eprintln!("DBG {from_str} {raw_to} hint={hint:?}");
-        }
         let resolution = if method {
             let own = if self_method {
                 resolve_self_method(fn_name, &from_str, &idx)
