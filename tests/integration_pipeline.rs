@@ -770,6 +770,16 @@ fn pipeline_rc_clone_is_not_the_inner_types_clone() {
 }
 
 #[test]
+fn pipeline_bare_variant_shared_by_two_enums_stays_unresolved() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    let strict = dead_lines(&store, true, "src/lib.rs");
+    assert!(strict.contains(&tags["twin_bare_a"]) && strict.contains(&tags["twin_bare_b"]));
+    let default = dead_lines(&store, false, "src/lib.rs");
+    assert!(!default.contains(&tags["twin_bare_a"]) && !default.contains(&tags["twin_bare_b"]));
+}
+
+#[test]
 fn pipeline_pattern_receivers_rebound_to_an_unknown_type_stay_unresolved() {
     let store = run_fixture("pattern_receivers");
     let tags = tagged_lines("pattern_receivers", "src/lib.rs");

@@ -23,6 +23,7 @@ impl A {
     fn field_struct(&self) {} // live_a_field_struct
     fn field_renamed(&self) {} // live_a_field_renamed
     fn field_twin(&self) {} // live_a_field_twin
+    fn twin_bare(&self) {} // twin_bare_a
     fn some_pattern(&self) {} // live_a_some_pattern
     fn while_let(&self) {} // live_a_while_let
     fn try_option(&self) {} // live_a_try_option
@@ -63,6 +64,7 @@ impl B {
     fn field_struct(&self) {} // dead_b_field_struct
     fn field_renamed(&self) {} // dead_b_field_renamed
     fn field_twin(&self) {} // dead_b_field_twin
+    fn twin_bare(&self) {} // twin_bare_b
     fn some_pattern(&self) {} // dead_b_some_pattern
     fn while_let(&self) {} // dead_b_while_let
     fn try_option(&self) {} // dead_b_try_option
@@ -317,4 +319,10 @@ pub enum Right {
 pub fn twin_variants(l: &Left) {
     let Left::Same { v } = l;
     v.field_twin();
+}
+// The bare form cannot tell the two enums apart: no type, both candidates stay low-confidence.
+pub fn twin_variants_bare(l: &Left) {
+    use Left::*;
+    let Same { v } = l;
+    v.twin_bare();
 }
