@@ -33,6 +33,8 @@ impl A {
     fn try_option(&self) {} // live_a_try_option
     fn try_result(&self) {} // live_a_try_result
     fn closure_map(&self) {} // live_a_closure_map
+    fn enum_map(&self) {} // live_a_enum_map
+    fn enum_for(&self) {} // live_a_enum_for
     fn closure_typed(&self) {} // live_a_closure_typed
     fn closure_option(&self) {} // live_a_closure_option
     fn closure_for_each(&self) {} // live_a_closure_for_each
@@ -78,6 +80,8 @@ impl B {
     fn try_option(&self) {} // dead_b_try_option
     fn try_result(&self) {} // dead_b_try_result
     fn closure_map(&self) {} // dead_b_closure_map
+    fn enum_map(&self) {} // dead_b_enum_map
+    fn enum_for(&self) {} // dead_b_enum_for
     fn closure_typed(&self) {} // dead_b_closure_typed
     fn closure_option(&self) {} // dead_b_closure_option
     fn closure_for_each(&self) {} // dead_b_closure_for_each
@@ -219,6 +223,19 @@ impl Holder {
     pub fn int_maps(&mut self) {
         for a in self.keyed.values_mut() {
             a.int_map();
+        }
+    }
+
+    pub fn enumerated(&self) {
+        let _: Vec<()> = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.is_some_flag())
+            .map(|(_i, a)| a.enum_map())
+            .collect();
+        for (_i, a) in self.items.iter().enumerate() {
+            a.enum_for();
         }
     }
 

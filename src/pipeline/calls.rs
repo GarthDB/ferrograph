@@ -561,6 +561,7 @@ fn container_method(ty: &str, m: &str) -> Option<String> {
         {
             Some(format!("Option<{inner}>"))
         }
+        "enumerate" if !wrapper => Some(format!("Vec<(usize,{inner})>")),
         "unwrap" | "expect" | "unwrap_or" | "unwrap_or_else" | "unwrap_or_default" if wrapper => {
             Some(inner.to_string())
         }

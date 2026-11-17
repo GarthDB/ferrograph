@@ -654,6 +654,12 @@ fn pipeline_int_map_values_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["int_map"]);
 }
 
+/// `v.iter().enumerate()` yields `(usize, T)` pairs, so tuple patterns over it type their bindings.
+#[test]
+fn pipeline_enumerate_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["enum_map", "enum_for"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);
