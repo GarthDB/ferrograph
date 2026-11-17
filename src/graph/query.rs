@@ -189,8 +189,16 @@ impl Query {
         store: &Store,
         strict: bool,
         extra_entries: &[String],
+        bin_pub_not_root: bool,
+        lib_exported_only: bool,
     ) -> Result<Vec<NodeTriple>> {
-        let ids = Self::compute_dead_consts_with(store, strict, extra_entries)?;
+        let ids = Self::compute_dead_consts_with(
+            store,
+            strict,
+            extra_entries,
+            bin_pub_not_root,
+            lib_exported_only,
+        )?;
         Self::with_payload(store, ids)
     }
 
@@ -279,9 +287,9 @@ impl Query {
 
     /// Const and static node ids that no root reaches: neither a live function nor a root item
     /// (bare `pub`, trait impl, entry attribute, `const _`) references them. Same reachability as
-    /// [`Self::compute_dead_functions_with`], but the visibility markers (`pub_restricted`,
-    /// `pub_bin_only`, `pub_unexported`) are only written for functions, so a bare `pub` const or
-    /// static is always a root, in bin crates too.
+    /// [`Self::compute_dead_functions_with`]. A bare `pub` const or static is a root unless
+    /// `bin_pub_not_root` (`pub_bin_only`) or `lib_exported_only` (`pub_unexported`) demotes it;
+    /// `pub(..)` ones are never roots.
     ///
     /// # Errors
     /// Fails if the store query fails.
@@ -289,14 +297,16 @@ impl Query {
         store: &Store,
         strict: bool,
         extra_entries: &[String],
+        bin_pub_not_root: bool,
+        lib_exported_only: bool,
     ) -> Result<Vec<String>> {
         Self::compute_dead_ids(
             store,
             strict,
             extra_entries,
             false,
-            false,
-            false,
+            bin_pub_not_root,
+            lib_exported_only,
             &[NodeType::Const, NodeType::Static],
         )
     }
@@ -373,12 +383,20 @@ impl Query {
             .collect();
         let mut params = BTreeMap::new();
         params.insert("entry_ids".to_string(), DataValue::List(entry_ids));
+        // Bare `pub` consts and statics are roots through `attr::pub` unless a visibility marker demotes them.
+        let demoted_ids: Vec<DataValue> = restricted
+            .iter()
+            .map(|id| DataValue::from(id.as_str()))
+            .collect();
+        params.insert("demoted_ids".to_string(), DataValue::List(demoted_ids));
         let script = format!(
             r#"
             entry[id] := id in $entry_ids
-            entry[id] := *edges[id, t, "{edge_attr}"], t in ["attr::trait_impl", "attr::no_mangle", "attr::export_name", "attr::used", "attr::pub", "attr::const_eval"]
+            entry[id] := *edges[id, t, "{edge_attr}"], t in ["attr::trait_impl", "attr::no_mangle", "attr::export_name", "attr::used", "attr::const_eval"]
+            demoted[id] := id in $demoted_ids
+            entry[id] := *edges[id, "attr::pub", "{edge_attr}"], not demoted[id]
             entry[id] := *nodes[id, type, _], type in ["file", "module"]
-            entry[f] := *nodes[t, "trait", _], *edges[t, f, "{edge_contains}"], *edges[_, t, "{edge_impl}"], *nodes[f, "{type_function}", _]
+            entry[f] := *nodes[t, "trait", _], *edges[t, f, "{edge_contains}"], *edges[_, t, "{edge_impl}"], *nodes[f, ft, _], ft in ["{type_function}", "const"]
             reachable[id] := entry[id]
             low[from, to] := *edge_confidence[from, to, _, _]
             reachable[to] := reachable[from], *edges[from, to, "{edge_calls}"]{not_low}
