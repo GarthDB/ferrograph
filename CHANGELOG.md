@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0](https://github.com/GarthDB/ferrograph/compare/v7.0.0...v8.0.0) - 2026-11-17
+
+### Other
+
+- drop zip debug output, type Option::zip, cover untyped and map zips
+- Merge branch 'main' into fix/closure-tuple-receivers
+- a const or static's declared type counts as exposed ([#217](https://github.com/GarthDB/ferrograph/pull/217))
+- type the pairs of a.zip(b) so tuple patterns over it resolve receivers ([#220](https://github.com/GarthDB/ferrograph/pull/220))
+- --lib-exported-only also demotes bare pub methods of unexported types ([#217](https://github.com/GarthDB/ferrograph/pull/217))
+- fix the const caveat for associated consts in bin-only files
+- pass the visibility options to the dead const query
+- demote bare pub consts/statics like functions; trait-declared consts are roots ([#208](https://github.com/GarthDB/ferrograph/pull/208))
+- const/static support in the MCP dead_code filter, SARIF and markdown ([#208](https://github.com/GarthDB/ferrograph/pull/208))
+
 ## [7.0.0](https://github.com/GarthDB/ferrograph/compare/v6.2.1...v7.0.0) - 2026-11-17
 
 ### Added
