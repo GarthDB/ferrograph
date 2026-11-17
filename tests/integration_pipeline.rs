@@ -417,7 +417,14 @@ fn pipeline_fns_named_in_attribute_arguments_are_live() {
         dead.sort();
         assert_eq!(
             dead,
-            ["ignore", "long", "priority", "short", "unused_private"],
+            [
+                "ignore",
+                "long",
+                "priority",
+                "short",
+                "skip",
+                "unused_private"
+            ],
             "strict={strict}"
         );
     }
@@ -622,6 +629,31 @@ fn pipeline_variant_payload_receivers_resolve_to_their_type() {
     ]);
 }
 
+/// #240: fields bound by `Variant { f }`, `Self { f }` and `Struct { f: x }` patterns take the declared field type.
+#[test]
+fn pipeline_struct_pattern_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&[
+        "field_variant",
+        "field_bare",
+        "field_self",
+        "field_struct",
+        "field_renamed",
+        "field_twin",
+    ]);
+}
+
+/// #240: an `if` is typed by one of its branches.
+#[test]
+fn pipeline_if_value_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["if_value", "if_chain", "if_comment"]);
+}
+
+/// #240: `IntMap` (nohash) is a map: its values are typed like a `HashMap`'s.
+#[test]
+fn pipeline_int_map_values_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["int_map"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);
@@ -747,6 +779,16 @@ fn pipeline_rc_clone_is_not_the_inner_types_clone() {
     // `Rc::clone` is not `A::clone`: neither candidate gets a certain edge.
     let strict = dead_lines(&store, true, "src/lib.rs");
     assert!(strict.contains(&tags["rc_clone_a"]) && strict.contains(&tags["rc_clone_b"]));
+}
+
+#[test]
+fn pipeline_bare_variant_shared_by_two_enums_stays_unresolved() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    let strict = dead_lines(&store, true, "src/lib.rs");
+    assert!(strict.contains(&tags["twin_bare_a"]) && strict.contains(&tags["twin_bare_b"]));
+    let default = dead_lines(&store, false, "src/lib.rs");
+    assert!(!default.contains(&tags["twin_bare_a"]) && !default.contains(&tags["twin_bare_b"]));
 }
 
 #[test]

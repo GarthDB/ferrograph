@@ -69,3 +69,18 @@ fn parse_d() {}
 // Attribute keywords after a literal are not references.
 fn priority() {}
 fn ignore() {}
+
+// thiserror-style: a call after a leading literal.
+pub enum Failure {
+    #[error("many:\n{}", error_list(.0))]
+    Many(Vec<String>),
+    #[error("rest", skip(..))]
+    Rest,
+}
+
+fn error_list(_e: &[String]) -> String {
+    String::new()
+}
+
+// `(..)` after a literal is not a format argument.
+fn skip() {}

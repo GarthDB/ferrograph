@@ -17,6 +17,17 @@ impl A {
     fn variant_bare(&self) {} // live_a_variant_bare
     fn variant_struct(&self) {} // live_a_variant_struct
     fn variant_self(&self) {} // live_a_variant_self
+    fn if_value(&self) {} // live_a_if_value
+    fn if_chain(&self) {} // live_a_if_chain
+    fn if_comment(&self) {} // live_a_if_comment
+    fn field_variant(&self) {} // live_a_field_variant
+    fn field_bare(&self) {} // live_a_field_bare
+    fn field_self(&self) {} // live_a_field_self
+    fn field_struct(&self) {} // live_a_field_struct
+    fn field_renamed(&self) {} // live_a_field_renamed
+    fn field_twin(&self) {} // live_a_field_twin
+    fn twin_bare(&self) {} // twin_bare_a
+    fn int_map(&self) {} // live_a_int_map
     fn some_pattern(&self) {} // live_a_some_pattern
     fn while_let(&self) {} // live_a_while_let
     fn try_option(&self) {} // live_a_try_option
@@ -51,6 +62,17 @@ impl B {
     fn variant_bare(&self) {} // dead_b_variant_bare
     fn variant_struct(&self) {} // dead_b_variant_struct
     fn variant_self(&self) {} // dead_b_variant_self
+    fn if_value(&self) {} // dead_b_if_value
+    fn if_chain(&self) {} // dead_b_if_chain
+    fn if_comment(&self) {} // dead_b_if_comment
+    fn field_variant(&self) {} // dead_b_field_variant
+    fn field_bare(&self) {} // dead_b_field_bare
+    fn field_self(&self) {} // dead_b_field_self
+    fn field_struct(&self) {} // dead_b_field_struct
+    fn field_renamed(&self) {} // dead_b_field_renamed
+    fn field_twin(&self) {} // dead_b_field_twin
+    fn twin_bare(&self) {} // twin_bare_b
+    fn int_map(&self) {} // dead_b_int_map
     fn some_pattern(&self) {} // dead_b_some_pattern
     fn while_let(&self) {} // dead_b_while_let
     fn try_option(&self) {} // dead_b_try_option
@@ -91,6 +113,7 @@ pub struct Holder {
     boxed: Vec<Box<A>>,
     shared: Rc<A>,
     by_name: HashMap<String, A>,
+    keyed: IntMap<u32, A>,
 }
 
 impl Holder {
@@ -193,6 +216,12 @@ impl Holder {
         }
     }
 
+    pub fn int_maps(&mut self) {
+        for a in self.keyed.values_mut() {
+            a.int_map();
+        }
+    }
+
     pub fn chains(&self) {
         self.items[0].index_chain();
         for a in self.by_name.values() {
@@ -239,6 +268,7 @@ impl A {
     fn variant_dup(&self) {} // live_a_variant_dup
     fn map_path(&self) {} // live_a_map_path
     pub fn make(_s: String) -> A { A }
+    pub fn make_self(&self) -> A { A }
 }
 impl B {
     fn variant_dup(&self) {} // dead_b_variant_dup
@@ -267,4 +297,71 @@ pub fn map_path(r: Result<String, ()>) -> Result<(), ()> {
     let a = r.map(A::make)?;
     a.map_path();
     Ok(())
+}
+
+// Struct-like patterns: `Variant { f }`, `Self { f }`, `Struct { f: x }`.
+pub enum Shape {
+    Named { first: A, second: B },
+}
+pub struct Pair {
+    left: A,
+    right: B,
+}
+impl Pair {
+    pub fn fields(&self, s: &Shape) {
+        let Shape::Named { first, .. } = s else { return };
+        first.field_variant();
+        let Self { left, .. } = self;
+        left.field_self();
+    }
+}
+pub fn field_patterns(p: &Pair) {
+    use Shape::*;
+    let Named { first, .. } = Shape::Named { first: A, second: B };
+    first.field_bare();
+    let Pair { left, .. } = p;
+    left.field_struct();
+    let Pair { left: l, .. } = p;
+    l.field_renamed();
+}
+
+// Two enums share a variant name: the qualified path picks the enum.
+pub enum Left {
+    Same { v: A },
+}
+pub enum Right {
+    Same { v: B },
+}
+pub fn twin_variants(l: &Left) {
+    let Left::Same { v } = l;
+    v.field_twin();
+}
+// The bare form cannot tell the two enums apart: no type, both candidates stay low-confidence.
+pub fn twin_variants_bare(l: &Left) {
+    use Left::*;
+    let Same { v } = l;
+    v.twin_bare();
+
+// An `if` has the type of its branches.
+pub fn if_values(flag: bool, a: A) {
+    let a = if flag { a.make_self() } else { a };
+    a.if_value();
+}
+pub fn if_chain(flag: bool, a: A) {
+    let a = if flag {
+        a /* the value, then a comment */
+    } else if !flag {
+        a.make_self()
+    } else {
+        a
+    };
+    a.if_chain();
+}
+pub fn if_comment(flag: bool, a: A) {
+    let a = if flag {
+        a /* the value, then a comment */
+    } else {
+        todo!()
+    };
+    a.if_comment();
 }

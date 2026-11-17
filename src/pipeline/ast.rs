@@ -1178,7 +1178,7 @@ fn plain_type_name(ty: &tree_sitter::Node, source: &str) -> Option<String> {
 
 /// Standard containers whose element type is worth keeping (`Vec<A>`, `Option<A>`, ..); maps keep their
 /// value type. Smart pointers and lock guards are looked through by the calls phase.
-const KEPT_WRAPPERS: [&str; 23] = [
+const KEPT_WRAPPERS: [&str; 25] = [
     "Vec",
     "VecDeque",
     "HashSet",
@@ -1202,6 +1202,8 @@ const KEPT_WRAPPERS: [&str; 23] = [
     "BTreeMap",
     "IndexMap",
     "FxHashMap",
+    "IntMap",
+    "AHashMap",
 ];
 
 /// Per-file index of top-level `type` aliases (name to item byte range), built on first use, and the
@@ -1426,15 +1428,27 @@ fn push_field_type_edge(
     ) else {
         return;
     };
-    edges.push((
-        from.clone(),
-        NodeId::new(format!(
-            "{}::{name}{}{ty}",
-            file_id.as_str(),
-            super::calls::FIELD_MARK
-        )),
-        EdgeType::Calls,
-    ));
+    // Patterns (`V { f, .. }`, `S { f, .. }`) find the type by the name before the braces: key it
+    // `V#f` like tuple payloads (`V#i`). An enum's variant fields are not fields of the enum itself.
+    let owner = node.parent().and_then(|list| list.parent());
+    let in_variant = owner.is_some_and(|o| o.kind() == "enum_variant");
+    let pattern_key = owner
+        .and_then(|o| source.get(o.child_by_field_name("name")?.byte_range()))
+        .map(|o| format!("{o}#{name}"));
+    let keys = pattern_key
+        .into_iter()
+        .chain((!in_variant).then(|| name.to_string()));
+    for key in keys {
+        edges.push((
+            from.clone(),
+            NodeId::new(format!(
+                "{}::{key}{}{ty}",
+                file_id.as_str(),
+                super::calls::FIELD_MARK
+            )),
+            EdgeType::Calls,
+        ));
+    }
 }
 
 /// Temporary `Calls` edges from an enum or struct to `file::Variant#i@field:Type`, one per tuple
@@ -1722,6 +1736,33 @@ fn pattern_hint(
             };
             pattern_hint(&arg, id, sub, source)
         }
+        "struct_pattern" => {
+            let path = pat.child_by_field_name("type")?;
+            if path.kind() == "generic_type" {
+                return None;
+            }
+            let field = pat.named_children(&mut pat.walk()).find(|f| {
+                f.kind() == "field_pattern"
+                    && f.start_byte() <= id.start_byte()
+                    && id.end_byte() <= f.end_byte()
+            })?;
+            let name = source.get(field.child_by_field_name("name")?.byte_range())?;
+            let segs: Vec<&str> = source.get(path.byte_range())?.split("::").collect();
+            let last = *segs.last()?;
+            let sub = match segs.len().checked_sub(2).map(|k| segs[k]) {
+                Some(owner) if owner.starts_with(char::is_uppercase) => {
+                    format!("{owner}.{last}#{name}")
+                }
+                Some(_) => return None,
+                // `Self { a, .. }` is the enclosing type's own field; a bare `Variant { a }` is a variant.
+                None if last == "Self" => format!("Self.{name}"),
+                None => format!("%{last}#{name}"),
+            };
+            match field.child_by_field_name("pattern") {
+                Some(inner) => pattern_hint(&inner, id, Some(sub), source),
+                None => Some(sub),
+            }
+        }
         "tuple_pattern" => {
             for (i, arg) in element_patterns(pat, None).into_iter().enumerate() {
                 if arg.kind() == "remaining_field_pattern" {
@@ -1916,6 +1957,23 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
             })
         }
         "parenthesized_expression" => expr_hint(&e.child(1)?, source),
+        // Every branch has the same type, so the first one that can be typed tells it.
+        "if_expression" => {
+            let tail = |b: tree_sitter::Node| {
+                let last = b
+                    .named_children(&mut b.walk())
+                    .filter(|c| !c.kind().ends_with("comment"))
+                    .last()?;
+                expr_hint(&last, source)
+            };
+            let other = e
+                .child_by_field_name("alternative")
+                .and_then(|a| a.named_child(0));
+            tail(e.child_by_field_name("consequence")?).or_else(|| match other?.kind() {
+                "block" => tail(other?),
+                _ => expr_hint(&other?, source),
+            })
+        }
         "tuple_expression" => {
             let hints: Vec<String> = e
                 .named_children(&mut e.walk())
@@ -2080,6 +2138,15 @@ fn token_tree_starts_with_paren(node: &tree_sitter::Node, source: &str) -> bool 
         .is_some_and(|s| s.starts_with('('))
 }
 
+/// `( .field ..)`: a `thiserror`/`derive_more` format argument, so the identifier before it is a call
+/// (`#[error("..", fmt(.0))]`), unlike a keyword with options such as `ignore(case)`.
+fn token_tree_starts_with_dot_arg(node: &tree_sitter::Node, source: &str) -> bool {
+    source.get(node.byte_range()).is_some_and(|s| {
+        let mut rest = s.strip_prefix('(').unwrap_or_default().trim_start().chars();
+        rest.next() == Some('.') && rest.next().is_some_and(char::is_alphanumeric)
+    })
+}
+
 /// Scan a macro invocation's body for call-like patterns (identifier followed by `( ... )`).
 /// Creates placeholder call edges so the calls phase can resolve them.
 fn scan_macro_for_calls(
@@ -2182,7 +2249,10 @@ fn scan_attribute_tree(
                 if positional
                     && !in_expr
                     && prev_kind == ","
-                    && matches!(tt.child(i + 1).map(|n| n.kind()), None | Some("," | ")")) =>
+                    && (matches!(tt.child(i + 1).map(|n| n.kind()), None | Some("," | ")"))
+                        || tt.child(i + 1).is_some_and(|n| {
+                            n.kind() == "token_tree" && token_tree_starts_with_dot_arg(&n, source)
+                        })) =>
             {
                 push_attribute_ref(tt, i, &child, source, file_id, anchor, edges);
             }
