@@ -1130,6 +1130,18 @@ fn pipeline_super_call_from_same_named_child_fn_links_to_the_parent() {
     }
 }
 
+#[test]
+fn pipeline_fn_item_as_method_receiver_is_a_reference() {
+    let store = run_fixture("fn_receiver");
+    for strict in [false, true] {
+        assert_eq!(
+            dead_names(&store, strict),
+            ["unused_parser"],
+            "strict={strict}"
+        );
+    }
+}
+
 /// Targets of `calls` edges leaving the function `caller`, as (callee id, is low-confidence).
 fn call_targets(store: &Store, caller: &str) -> Vec<(String, bool)> {
     let run = |script: &str| -> Vec<String> {
