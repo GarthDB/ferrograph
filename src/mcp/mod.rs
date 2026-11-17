@@ -588,7 +588,13 @@ impl FerrographMcp {
         };
         let source = if ids.is_empty() {
             let computed = if consts {
-                crate::graph::Query::compute_dead_consts_with(store, strict, &[])
+                crate::graph::Query::compute_dead_consts_with(
+                    store,
+                    strict,
+                    &[],
+                    bin_pub,
+                    lib_exported,
+                )
             } else {
                 crate::graph::Query::compute_dead_functions_with(
                     store,
