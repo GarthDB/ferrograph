@@ -769,11 +769,14 @@ fn resolve_placeholder(
             let owner = path_part.rsplit("::").next().unwrap_or(path_part);
             // A lone same-file candidate only counts if the owner is relative (`crate`/`self`/`super`)
             // or names it: `HaystackBuilder::new()` must not bind to an unrelated `new` in this file.
+            // `super::f()` from `f` itself is the parent's `f`, not a self call (#219).
             if let ([one], true) = (
                 candidates.as_slice(),
                 matches!(owner, "crate" | "self" | "super"),
             ) {
-                return Resolution::One(one.clone());
+                if !(owner == "super" && one.as_str() == from) {
+                    return Resolution::One(one.clone());
+                }
             }
             let mut picked = pick_by_owner(owner, from, candidates, idx);
             // `use orig as owner;` renames a module or type declared in this file.
@@ -1097,6 +1100,24 @@ fn resolve_qualified_elsewhere(
             by_scope
         }
     };
+    if owner == "super" {
+        cands.retain(|c| c.as_str() != from);
+        // From `a/n.rs` the parent module is `a/mod.rs` or `a.rs`.
+        if let Some(dir) = std::path::Path::new(from_file)
+            .parent()
+            .and_then(|d| d.to_str())
+        {
+            let parent = [format!("{dir}/mod.rs"), format!("{dir}.rs")];
+            let in_parent: Vec<NodeId> = cands
+                .iter()
+                .filter(|c| parent.iter().any(|p| file_of(c) == p))
+                .cloned()
+                .collect();
+            if !in_parent.is_empty() {
+                cands = in_parent;
+            }
+        }
+    }
     let key = crate_key(from_file);
     let same_crate: Vec<NodeId> = cands
         .iter()
