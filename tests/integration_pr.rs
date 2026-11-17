@@ -892,3 +892,37 @@ fn lib_exported_only_does_not_warn_when_only_the_head_has_unexported_fns() {
     assert!(!warnings.contains("lib_exported"), "{warnings}");
     assert_eq!(names(&v["newly_dead"]), ["unexported"]);
 }
+
+/// An `unsafe` block in a closure counts for the enclosing function, one in a nested `fn` for that fn,
+/// and one in a `const` initializer is not a function gaining unsafe.
+#[test]
+fn pr_attributes_unsafe_in_closures_and_nested_fns_to_the_right_function() {
+    let Some(d) = repo() else { return };
+    write(
+        d.path(),
+        "src/main.rs",
+        "fn main() {\n    closure_user();\n    outer();\n}\n\
+fn closure_user() {\n    let f = || 1;\n    f();\n}\n\
+fn outer() {\n    fn inner() {}\n    inner();\n}\n\
+const C: i32 = 1;\n",
+    );
+    commit(d.path(), "base");
+    git(d.path(), &["checkout", "-q", "main"]);
+    git(d.path(), &["merge", "-q", "--ff-only", "feature"]);
+    git(d.path(), &["checkout", "-q", "-b", "feature2"]);
+    write(
+        d.path(),
+        "src/main.rs",
+        "fn main() {\n    closure_user();\n    outer();\n}\n\
+fn closure_user() {\n    let f = || unsafe { 1 };\n    f();\n}\n\
+fn outer() {\n    fn inner() {\n        unsafe { 1; }\n    }\n    inner();\n}\n\
+const C: i32 = unsafe { 1 };\n",
+    );
+    commit(d.path(), "unsafe in closure, nested fn and const");
+    let v = json(&pr(d.path(), &["--json"]));
+    assert_eq!(
+        unsafe_names(&v, "unsafe_gained"),
+        [("closure_user", "gained"), ("inner", "gained")],
+        "outer and the const are not reported"
+    );
+}
