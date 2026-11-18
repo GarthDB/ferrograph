@@ -372,8 +372,8 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
             ty = step_type(&ty, &format!("{m}()"), idx)?;
             continue;
         }
-        // `self.children.mutate()` with `-> &mut T`: `T` is the field's first type argument.
-        // shortcut: the first type argument stands for any bare generic return; upgrade by indexing each type's generics.
+        // `self.children.mutate()` with `-> &mut T`: `T` is the field's sole type argument.
+        // shortcut: the field's single type argument stands for a bare generic return; upgrade by indexing each type's generics.
         if let Some((arg, m)) = arg.take().zip(part.strip_suffix("()")) {
             let fns = methods_of_type(m, auto_deref(&ty, idx), idx);
             if returns_bare_generic(&fns, auto_deref(&ty, idx), idx) {
@@ -519,7 +519,6 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
                         .map_or((m, None), |(m, t)| (m, t.strip_suffix('>')));
                     let fns = methods_of_type(m, ty, idx);
                     // `-> &mut T` with `T` a generic parameter of the method: the turbofish names it.
-                    // shortcut: a short capitalised return name is taken as the method's own generic; an impl-level `T` in `impl<T> W<T> { fn get<U>(&self) -> T }` passes too. Upgrade by indexing each method's generics.
                     if let Some(t) = turbofish.filter(|_| returns_bare_generic(&fns, ty, idx)) {
                         return Some(t.to_string());
                     }

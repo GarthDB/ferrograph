@@ -37,6 +37,7 @@ impl A {
     fn turbo_concrete(&self) {} // live_a_turbo_concrete
     fn turbo_tuple(&self) {} // live_a_turbo_tuple
     fn generic_field(&self) {} // live_a_generic_field
+    fn generic_pair(&self) {} // pair_a
     fn impl_iter(&self) {} // live_a_impl_iter
     fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
     fn impl_iter_next(&self) {} // live_a_impl_iter_next
@@ -95,6 +96,7 @@ impl B {
     fn turbo_concrete(&self) {} // dead_b_turbo_concrete
     fn turbo_tuple(&self) {} // dead_b_turbo_tuple
     fn generic_field(&self) {} // dead_b_generic_field
+    fn generic_pair(&self) {} // pair_b
     fn generic_alias(&self) {} // dead_b_generic_alias
     fn impl_iter(&self) {} // dead_b_impl_iter
     fn impl_iter_adapter(&self) {} // dead_b_impl_iter_adapter
@@ -565,5 +567,22 @@ impl AliasParent<'_> {
     pub fn go(&mut self) {
         let a = self.items.mutate();
         a.generic_alias();
+    }
+}
+
+// Two type arguments: which one a bare generic return names is not known, so the call stays unresolved.
+pub struct Pair<K, V>(K, V);
+impl<K, V> Pair<K, V> {
+    pub fn val(&mut self) -> &mut V {
+        loop {}
+    }
+}
+pub struct PairParent {
+    p: Pair<B, A>,
+}
+impl PairParent {
+    pub fn go(&mut self) {
+        let a = self.p.val();
+        a.generic_pair();
     }
 }
