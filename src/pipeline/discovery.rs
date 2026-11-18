@@ -10,7 +10,8 @@ use ignore::WalkBuilder;
 
 /// Discover all Rust source files under `root`, returning path -> contents.
 /// Respects `.gitignore` and limits depth to 50. A file reachable by several paths (a symlinked
-/// directory) is kept once, under the path that does not go through a symlink (#239).
+/// directory) is kept once, under the path that does not go through a symlink (#239); if every path
+/// goes through a symlink, all are kept.
 ///
 /// # Errors
 /// Fails if `root` does not exist; unreadable entries below it are skipped with a warning.
@@ -46,8 +47,8 @@ pub fn discover_files(root: &Path) -> Result<BTreeMap<std::path::PathBuf, String
     Ok(out)
 }
 
-/// Of the paths that name the same file, keep the one below `root` without a symlinked component
-/// (else the first in path order).
+/// Of the paths that name the same file, keep the one below `root` without a symlinked component;
+/// when there is none, keep them all.
 fn drop_symlink_duplicates(root: &Path, files: &mut BTreeMap<PathBuf, String>) {
     let Ok(canon_root) = root.canonicalize() else {
         return;
@@ -66,7 +67,9 @@ fn drop_symlink_duplicates(root: &Path, files: &mut BTreeMap<PathBuf, String>) {
             p.strip_prefix(root)
                 .is_ok_and(|rel| canon_root.join(rel) == target)
         });
-        let keep = real.unwrap_or(&paths[0]);
+        // Without a symlink-free path (a directory shared from outside the root by several
+        // crates) every path stays: each side's `mod`/`use` resolution needs its own copy.
+        let Some(keep) = real else { continue };
         for p in &paths {
             if p != keep {
                 files.remove(p);
@@ -105,6 +108,35 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["b.rs", "real/sub/a.rs"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_symlink_to_a_file_in_the_tree_is_indexed_once() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("z_real.rs"), "pub fn a() {}").unwrap();
+        std::os::unix::fs::symlink("z_real.rs", dir.path().join("a_link.rs")).unwrap();
+        let files = discover_files(dir.path()).unwrap();
+        let names: Vec<_> = files
+            .keys()
+            .map(|p| p.file_name().unwrap().to_owned())
+            .collect();
+        assert_eq!(names, ["z_real.rs"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_shared_from_outside_the_root_keeps_every_path() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("shared.rs"), "pub fn s() {}").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        for krate in ["one", "two"] {
+            std::fs::create_dir(root.path().join(krate)).unwrap();
+            std::os::unix::fs::symlink(outside.path(), root.path().join(krate).join("shared"))
+                .unwrap();
+        }
+        let files = discover_files(root.path()).unwrap();
+        assert_eq!(files.len(), 2, "{:?}", files.keys().collect::<Vec<_>>());
     }
 
     #[test]
