@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.1](https://github.com/GarthDB/ferrograph/compare/v8.0.0...v8.0.1) - 2026-11-18
+
+### Other
+
+- README names the remaining false-positive causes and links the UI-toolkit numbers
+- keep every path of a file shared from outside the root; test file symlinks
+- a file reachable through a symlinked directory is indexed once, under its real path
+- skip a parenthesised turbofish type, document the generic-name shortcut
+- a turbofish fills a method's bare generic return (x.downcast_mut::<T>())
+- Type::f() prefers the same-named type declared in the caller's module
+- adapters and next on an impl Iterator parameter keep the item type
+- type for-loops over an impl Iterator<Item = T> parameter
+- self.f() calls the inherent method before a same-named trait method
+- document the limits of the inherent-method preference
+- x.f() and Type::f() call the inherent method before a same-named trait method
+- type values declared as Self::Assoc in a trait impl from that impl's own associated type
+- type tuple patterns over iter().enumerate() so their bindings resolve receivers
+- type values of IntMap and AHashMap fields like a HashMap's
+- if branch whose value is followed by a comment
+- type a local bound to an if/else expression from its branches
+- document that a bare variant shared by two enums stays unresolved
+- struct-variant patterns of two enums sharing a variant name
+- type locals bound by struct-like patterns (Variant { f }, Self { f }, Struct { f: x }) so their method calls resolve
+- only treat (.field ..) after a literal in an attribute as a call, not (..)
+- backtick crate names in a doc comment
+- treat fn calls after a leading literal in derive attributes as references (thiserror #[error("..", f(.0))])
+
 ## [8.0.0](https://github.com/GarthDB/ferrograph/compare/v7.0.0...v8.0.0) - 2026-11-17
 
 ### Added
