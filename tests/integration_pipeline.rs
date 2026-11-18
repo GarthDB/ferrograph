@@ -708,6 +708,15 @@ fn pipeline_generic_field_argument_alias_resolves() {
     assert!(dead_lines(&store, false, "src/lib.rs").contains(&tags["dead_b_generic_alias"]));
 }
 
+/// A wrapper with two type arguments keeps both `generic_pair` candidates alive (low confidence).
+#[test]
+fn pipeline_generic_field_with_two_arguments_stays_unresolved() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    let dead = dead_lines(&store, false, "src/lib.rs");
+    assert!(!dead.contains(&tags["pair_a"]) && !dead.contains(&tags["pair_b"]));
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);

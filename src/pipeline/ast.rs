@@ -1511,7 +1511,7 @@ fn push_field_type_edge(
     }
 }
 
-/// The first non-lifetime type argument of a generic type that `type_repr` flattens to its bare name.
+/// The one non-lifetime type argument of a generic type that `type_repr` flattens to its bare name.
 fn first_type_arg(ty: &tree_sitter::Node, source: &str) -> Option<String> {
     let ty = if ty.kind() == "reference_type" {
         ty.child_by_field_name("type")?
@@ -1524,9 +1524,14 @@ fn first_type_arg(ty: &tree_sitter::Node, source: &str) -> Option<String> {
         return None;
     }
     let args = ty.child_by_field_name("type_arguments")?;
-    let first = args
-        .named_children(&mut args.walk())
-        .find(|c| c.kind() != "lifetime")?;
+    let mut cursor = args.walk();
+    let mut types = args
+        .named_children(&mut cursor)
+        .filter(|c| c.kind() != "lifetime");
+    // With several type arguments the generic a method returns could be any of them.
+    let (first, None) = (types.next()?, types.next()) else {
+        return None;
+    };
     type_repr(&first, source)
 }
 
