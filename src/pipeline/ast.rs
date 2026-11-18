@@ -2048,7 +2048,9 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
                 turbofish = f
                     .child_by_field_name("type_arguments")
                     .filter(|a| a.named_child_count() == 1)
-                    .and_then(|a| type_repr(&a.named_child(0)?, source));
+                    .and_then(|a| type_repr(&a.named_child(0)?, source))
+                    // A `(` would be read as a closure argument (`m(F)`) by the hint evaluator.
+                    .filter(|t| !t.contains('('));
                 f = f.child_by_field_name("function")?;
             }
             match f.kind() {

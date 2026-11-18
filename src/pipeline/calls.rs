@@ -508,6 +508,7 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
                         .map_or((m, None), |(m, t)| (m, t.strip_suffix('>')));
                     let fns = methods_of_type(m, ty, idx);
                     // `-> &mut T` with `T` a generic parameter of the method: the turbofish names it.
+                    // shortcut: a short capitalised return name is taken as the method's own generic; an impl-level `T` in `impl<T> W<T> { fn get<U>(&self) -> T }` passes too. Upgrade by indexing each method's generics.
                     if let Some(t) = turbofish {
                         let ret = return_type_of(&fns, ty, idx);
                         let generic = |r: &str| {

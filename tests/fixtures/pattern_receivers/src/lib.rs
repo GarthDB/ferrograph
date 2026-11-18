@@ -35,6 +35,7 @@ impl A {
     fn closure_map(&self) {} // live_a_closure_map
     fn turbo_mut(&self) {} // live_a_turbo_mut
     fn turbo_concrete(&self) {} // live_a_turbo_concrete
+    fn turbo_tuple(&self) {} // live_a_turbo_tuple
     fn impl_iter(&self) {} // live_a_impl_iter
     fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
     fn impl_iter_next(&self) {} // live_a_impl_iter_next
@@ -91,6 +92,7 @@ impl B {
     fn closure_map(&self) {} // dead_b_closure_map
     fn turbo_mut(&self) {} // dead_b_turbo_mut
     fn turbo_concrete(&self) {} // dead_b_turbo_concrete
+    fn turbo_tuple(&self) {} // dead_b_turbo_tuple
     fn impl_iter(&self) {} // dead_b_impl_iter
     fn impl_iter_adapter(&self) {} // dead_b_impl_iter_adapter
     fn impl_iter_next(&self) {} // dead_b_impl_iter_next
@@ -526,5 +528,8 @@ impl Tree {
         a.turbo_mut();
         let b = self.state.concrete::<B>();
         b.turbo_concrete();
+        // A parenthesised turbofish keeps the concrete return type's typing.
+        let c = self.state.concrete::<(A, B)>();
+        c.turbo_tuple();
     }
 }
