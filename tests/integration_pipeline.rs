@@ -688,6 +688,12 @@ fn pipeline_module_scoped_type_paths_resolve() {
     assert!(!dead_lines(&store, true, "src/lib.rs").contains(&tags["live_a_twin_nested"]));
 }
 
+/// `x.get::<T>()` with `-> &mut T` is a `T`; a turbofish on a method with a concrete return type does not change it (#249).
+#[test]
+fn pipeline_turbofish_fills_a_generic_return() {
+    assert_pattern_receivers_resolved(&["turbo_mut", "turbo_concrete", "turbo_tuple"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);

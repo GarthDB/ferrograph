@@ -503,7 +503,23 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
             let is_project_type = idx.type_names.contains(ty);
             match part.strip_suffix("()") {
                 Some(m) if is_project_type => {
+                    let (m, turbofish) = m
+                        .split_once('<')
+                        .map_or((m, None), |(m, t)| (m, t.strip_suffix('>')));
                     let fns = methods_of_type(m, ty, idx);
+                    // `-> &mut T` with `T` a generic parameter of the method: the turbofish names it.
+                    // shortcut: a short capitalised return name is taken as the method's own generic; an impl-level `T` in `impl<T> W<T> { fn get<U>(&self) -> T }` passes too. Upgrade by indexing each method's generics.
+                    if let Some(t) = turbofish {
+                        let ret = return_type_of(&fns, ty, idx);
+                        let generic = |r: &str| {
+                            r.len() <= 2
+                                && r.starts_with(char::is_uppercase)
+                                && !idx.type_names.contains(r)
+                        };
+                        if ret.as_deref().is_some_and(generic) {
+                            return Some(t.to_string());
+                        }
+                    }
                     // An inherent method wins over the `Iterator` adapter of the same name.
                     if let Some(item) = idx.iter_items.get(ty).filter(|_| fns.is_empty()) {
                         match m {
@@ -520,7 +536,7 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
                     }
                     return_type_of(&fns, ty, idx)
                 }
-                Some(m) => container_method(ty, m),
+                Some(m) => container_method(ty, m.split_once('<').map_or(m, |(m, _)| m)),
                 None if is_project_type => field_type(ty, part, idx),
                 None => None,
             }
