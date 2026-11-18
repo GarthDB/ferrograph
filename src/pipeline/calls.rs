@@ -347,6 +347,7 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
     } else {
         first.to_string()
     };
+    let mut arg: Option<String> = None;
     for part in parts {
         // `m(F)`: an `Option`/`Result` adapter whose closure returns `F`; a project type's own
         // method of that name is a plain method step.
@@ -371,6 +372,16 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
             ty = step_type(&ty, &format!("{m}()"), idx)?;
             continue;
         }
+        // `self.children.mutate()` with `-> &mut T`: `T` is the field's first type argument.
+        // shortcut: the first type argument stands for any bare generic return; upgrade by indexing each type's generics.
+        if let Some((arg, m)) = arg.take().zip(part.strip_suffix("()")) {
+            let fns = methods_of_type(m, auto_deref(&ty, idx), idx);
+            if returns_bare_generic(&fns, auto_deref(&ty, idx), idx) {
+                ty = arg;
+                continue;
+            }
+        }
+        arg = field_type(auto_deref(&ty, idx), &format!("{part}<>"), idx);
         ty = step_type(&ty, part, idx)?;
     }
     Some(ty)
@@ -509,16 +520,8 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
                     let fns = methods_of_type(m, ty, idx);
                     // `-> &mut T` with `T` a generic parameter of the method: the turbofish names it.
                     // shortcut: a short capitalised return name is taken as the method's own generic; an impl-level `T` in `impl<T> W<T> { fn get<U>(&self) -> T }` passes too. Upgrade by indexing each method's generics.
-                    if let Some(t) = turbofish {
-                        let ret = return_type_of(&fns, ty, idx);
-                        let generic = |r: &str| {
-                            r.len() <= 2
-                                && r.starts_with(char::is_uppercase)
-                                && !idx.type_names.contains(r)
-                        };
-                        if ret.as_deref().is_some_and(generic) {
-                            return Some(t.to_string());
-                        }
+                    if let Some(t) = turbofish.filter(|_| returns_bare_generic(&fns, ty, idx)) {
+                        return Some(t.to_string());
                     }
                     // An inherent method wins over the `Iterator` adapter of the same name.
                     if let Some(item) = idx.iter_items.get(ty).filter(|_| fns.is_empty()) {
@@ -542,6 +545,14 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
             }
         }
     }
+}
+
+/// Is the return type of `fns` a bare generic parameter (`T`)?
+/// shortcut: a short capitalised return name is taken as the method's own generic; an impl-level `T` in `impl<T> W<T> { fn get<U>(&self) -> T }` passes too. Upgrade by indexing each method's generics.
+fn returns_bare_generic(fns: &[NodeId], ty: &str, idx: &Index) -> bool {
+    return_type_of(fns, ty, idx).is_some_and(|r| {
+        r.len() <= 2 && r.starts_with(char::is_uppercase) && !idx.type_names.contains(&r)
+    })
 }
 
 /// Element `i` of the tuple type `(A,B,..)` (`None` for `_`).
@@ -1586,6 +1597,21 @@ fn fill_fields(
                 .insert(row.first().map(unquote_datavalue).unwrap_or_default(), name);
         }
     }
+    // `impl AnyPod { .. }` on an alias: the alias name is the owner of those methods, so it types a receiver.
+    let impl_owners: HashSet<&str> = idx
+        .scopes
+        .values()
+        .filter(|s| s.0)
+        .map(|s| s.1.as_str())
+        .collect();
+    let aliases: Vec<String> = nodes
+        .rows
+        .iter()
+        .filter(|r| r.get(1).map(unquote_datavalue) == Some(NodeType::TypeAlias.to_string()))
+        .filter_map(|r| r.get(2).map(unquote_datavalue))
+        .filter(|n| impl_owners.contains(n.as_str()))
+        .collect();
+    idx.type_names.extend(aliases);
     let calls = EdgeType::Calls;
     for row in &edges.rows {
         let from = row.first().map(unquote_datavalue).unwrap_or_default();

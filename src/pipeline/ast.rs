@@ -1493,6 +1493,41 @@ fn push_field_type_edge(
             EdgeType::Calls,
         ));
     }
+    // `f: Wrapper<'a, X>` of a project type: `f<>` keeps `X`, which fills a bare generic method return.
+    if let Some(arg) = node
+        .child_by_field_name("type")
+        .and_then(|t| first_type_arg(&t, source))
+        .filter(|_| !in_variant)
+    {
+        edges.push((
+            from.clone(),
+            NodeId::new(format!(
+                "{}::{name}<>{}{arg}",
+                file_id.as_str(),
+                super::calls::FIELD_MARK
+            )),
+            EdgeType::Calls,
+        ));
+    }
+}
+
+/// The first non-lifetime type argument of a generic type that `type_repr` flattens to its bare name.
+fn first_type_arg(ty: &tree_sitter::Node, source: &str) -> Option<String> {
+    let ty = if ty.kind() == "reference_type" {
+        ty.child_by_field_name("type")?
+    } else {
+        *ty
+    };
+    if ty.kind() != "generic_type"
+        || KEPT_WRAPPERS.contains(&plain_type_name(&ty, source)?.as_str())
+    {
+        return None;
+    }
+    let args = ty.child_by_field_name("type_arguments")?;
+    let first = args
+        .named_children(&mut args.walk())
+        .find(|c| c.kind() != "lifetime")?;
+    type_repr(&first, source)
 }
 
 /// Temporary `Calls` edges from an enum or struct to `file::Variant#i@field:Type`, one per tuple

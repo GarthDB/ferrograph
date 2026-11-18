@@ -2,3 +2,9 @@
 pub enum F {
     A(crate::B),
 }
+
+pub struct Pod<N>(N);
+pub type AnyPod = Pod<u8>;
+impl AnyPod {
+    pub fn generic_alias(&self) {}
+}

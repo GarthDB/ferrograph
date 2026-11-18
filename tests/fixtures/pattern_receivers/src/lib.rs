@@ -36,6 +36,7 @@ impl A {
     fn turbo_mut(&self) {} // live_a_turbo_mut
     fn turbo_concrete(&self) {} // live_a_turbo_concrete
     fn turbo_tuple(&self) {} // live_a_turbo_tuple
+    fn generic_field(&self) {} // live_a_generic_field
     fn impl_iter(&self) {} // live_a_impl_iter
     fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
     fn impl_iter_next(&self) {} // live_a_impl_iter_next
@@ -93,6 +94,8 @@ impl B {
     fn turbo_mut(&self) {} // dead_b_turbo_mut
     fn turbo_concrete(&self) {} // dead_b_turbo_concrete
     fn turbo_tuple(&self) {} // dead_b_turbo_tuple
+    fn generic_field(&self) {} // dead_b_generic_field
+    fn generic_alias(&self) {} // dead_b_generic_alias
     fn impl_iter(&self) {} // dead_b_impl_iter
     fn impl_iter_adapter(&self) {} // dead_b_impl_iter_adapter
     fn impl_iter_next(&self) {} // dead_b_impl_iter_next
@@ -531,5 +534,36 @@ impl Tree {
         // A parenthesised turbofish keeps the concrete return type's typing.
         let c = self.state.concrete::<(A, B)>();
         c.turbo_tuple();
+    }
+}
+
+// `self.items.mutate()` returns the `T` of the field's `Splice<'a, A>`.
+pub struct Splice<'a, T> {
+    slot: &'a mut T,
+}
+impl<T> Splice<'_, T> {
+    pub fn mutate(&mut self) -> &mut T {
+        self.slot
+    }
+}
+pub struct Parent<'a> {
+    items: Splice<'a, A>,
+}
+impl Parent<'_> {
+    pub fn generic_field(&mut self) {
+        let a = self.items.mutate();
+        a.generic_field();
+    }
+}
+
+// The same when the type argument is an alias (declared in `other.rs`) with its own `impl`.
+use other::AnyPod;
+pub struct AliasParent<'a> {
+    items: Splice<'a, AnyPod>,
+}
+impl AliasParent<'_> {
+    pub fn go(&mut self) {
+        let a = self.items.mutate();
+        a.generic_alias();
     }
 }

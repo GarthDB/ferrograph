@@ -694,6 +694,20 @@ fn pipeline_turbofish_fills_a_generic_return() {
     assert_pattern_receivers_resolved(&["turbo_mut", "turbo_concrete", "turbo_tuple"]);
 }
 
+/// #242: a method's bare generic return is the type argument of the field it is called on.
+#[test]
+fn pipeline_generic_field_argument_fills_a_generic_return() {
+    assert_pattern_receivers_resolved(&["generic_field"]);
+}
+
+/// #242: the type argument may be an alias declared in another file, with its own `impl`.
+#[test]
+fn pipeline_generic_field_argument_alias_resolves() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    assert!(dead_lines(&store, false, "src/lib.rs").contains(&tags["dead_b_generic_alias"]));
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);
