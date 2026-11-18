@@ -33,6 +33,8 @@ impl A {
     fn try_option(&self) {} // live_a_try_option
     fn try_result(&self) {} // live_a_try_result
     fn closure_map(&self) {} // live_a_closure_map
+    fn turbo_mut(&self) {} // live_a_turbo_mut
+    fn turbo_concrete(&self) {} // live_a_turbo_concrete
     fn impl_iter(&self) {} // live_a_impl_iter
     fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
     fn impl_iter_next(&self) {} // live_a_impl_iter_next
@@ -87,6 +89,8 @@ impl B {
     fn try_option(&self) {} // dead_b_try_option
     fn try_result(&self) {} // dead_b_try_result
     fn closure_map(&self) {} // dead_b_closure_map
+    fn turbo_mut(&self) {} // dead_b_turbo_mut
+    fn turbo_concrete(&self) {} // dead_b_turbo_concrete
     fn impl_iter(&self) {} // dead_b_impl_iter
     fn impl_iter_adapter(&self) {} // dead_b_impl_iter_adapter
     fn impl_iter_next(&self) {} // dead_b_impl_iter_next
@@ -499,5 +503,28 @@ mod sibling_two {
         fn make() -> Twin { // dead_b_twin_sibling
             Twin
         }
+    }
+}
+
+// `holder.get::<A>()` returns its generic `T`; a turbofish on a method with a concrete return is ignored.
+pub struct AnyBox;
+impl AnyBox {
+    pub fn get<T>(&mut self) -> &mut T {
+        loop {}
+    }
+    pub fn concrete<T>(&self) -> A {
+        let _ = std::marker::PhantomData::<T>;
+        A
+    }
+}
+pub struct Tree {
+    state: AnyBox,
+}
+impl Tree {
+    pub fn turbo(&mut self) {
+        let a = self.state.get::<A>();
+        a.turbo_mut();
+        let b = self.state.concrete::<B>();
+        b.turbo_concrete();
     }
 }

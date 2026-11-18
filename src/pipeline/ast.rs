@@ -2042,7 +2042,13 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
         }
         "call_expression" => {
             let mut f = e.child_by_field_name("function")?;
+            // `x.m::<T>()`: the one turbofish type, which fills a bare generic return (`-> &mut T`).
+            let mut turbofish = None;
             if f.kind() == "generic_function" {
+                turbofish = f
+                    .child_by_field_name("type_arguments")
+                    .filter(|a| a.named_child_count() == 1)
+                    .and_then(|a| type_repr(&a.named_child(0)?, source));
                 f = f.child_by_field_name("function")?;
             }
             match f.kind() {
@@ -2059,8 +2065,9 @@ fn expr_hint(e: &tree_sitter::Node, source: &str) -> Option<String> {
                     if let Some(h) = adapter_hint(method, &recv, e, source) {
                         return Some(h);
                     }
+                    let turbo = turbofish.map_or_else(String::new, |t| format!("<{t}>"));
                     Some(format!(
-                        "{}.{}()",
+                        "{}.{}{turbo}()",
                         expr_hint(&f.child_by_field_name("value")?, source)?,
                         text(&name)?
                     ))
