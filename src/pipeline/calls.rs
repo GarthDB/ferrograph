@@ -372,7 +372,7 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
             ty = step_type(&ty, &format!("{m}()"), idx)?;
             continue;
         }
-        // `self.children.mutate()` with `-> &mut T`: `T` is the field's first type argument.
+        // `self.children.mutate()` with `-> &mut T`: `T` is the field's sole type argument.
         // shortcut: the field's single type argument stands for a bare generic return; upgrade by indexing each type's generics.
         if let Some((arg, m)) = arg.take().zip(part.strip_suffix("()")) {
             let fns = methods_of_type(m, auto_deref(&ty, idx), idx);

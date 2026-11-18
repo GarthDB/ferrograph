@@ -1496,7 +1496,7 @@ fn push_field_type_edge(
     // `f: Wrapper<'a, X>` of a project type: `f<>` keeps `X`, which fills a bare generic method return.
     if let Some(arg) = node
         .child_by_field_name("type")
-        .and_then(|t| first_type_arg(&t, source))
+        .and_then(|t| sole_type_arg(&t, source))
         .filter(|_| !in_variant)
     {
         edges.push((
@@ -1512,7 +1512,7 @@ fn push_field_type_edge(
 }
 
 /// The one non-lifetime type argument of a generic type that `type_repr` flattens to its bare name.
-fn first_type_arg(ty: &tree_sitter::Node, source: &str) -> Option<String> {
+fn sole_type_arg(ty: &tree_sitter::Node, source: &str) -> Option<String> {
     let ty = if ty.kind() == "reference_type" {
         ty.child_by_field_name("type")?
     } else {
