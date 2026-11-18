@@ -183,7 +183,7 @@ zip/tuple pattern, because `zip` was not modelled and the lone same-file method 
 (egui `id`/`ui`/`set_options`, iced `update`/`draw`) were instances of these. Strict-only fixes: `iter().enumerate()` (#251), `Self::Assoc` types (#252), inherent over trait methods (#253, #255),
 `impl Iterator<Item = T>` parameters (#256), same-named types in several modules (#257).
 
-**Harness self-check.** The harness's model of `dead` matched the CLI on all corpora but one at the measured head. egui was off by 8 in both modes (the model lacked the `const _: () = { .. };` root; fixed in #261, diff 0 afterwards) and cursive is off by 1 in default mode (`rgb`, the symlinked directory of #239; open in #260). The F column above is the CLI's.
+**Harness self-check.** The harness's model of `dead` matched the CLI on three of the five corpora at the measured head. egui was off by 8 in both modes (the model lacked the `const _: () = { .. };` root; fixed in #261, diff 0 afterwards) and cursive is off by 1 in default mode (`rgb`, the symlinked directory of #239; open in #260). The F column above is the CLI's.
 
 **Regression checks.** Mutation (clap, all families, 30 per family) and replay (clap and ripgrep, 50 commits that remove a call, `--select calls`), v8.0.0 against this `main`: replay identical
 (0 false-alarm commits of 100; recall 1/12 on both); mutation sampled 19 mutations in common (the two runs differ in the rest) and gave identical results on them (14 TP, 7 FP, 3 FN).
@@ -193,8 +193,8 @@ zip/tuple pattern, because `zip` was not modelled and the lone same-file method 
 
 ### `--lib-exported-only` on the same cohort (#207)
 
-The harness's model of `dead` follows `--lib-exported-only` (`attr::pub_unexported`, a `Graph::prepare_model` flag; `run-matrix` has an arm `lib` = `both` plus the flag). The self-check matched the CLI on all five corpora, default and `--strict` (diff = 0).
-`cargo xtask groundtruth ... --extra-args=--lib-exported-only`, same binary, date and corpora as above (default mode, the model's flags otherwise on; the model's self-check differences above apply):
+The harness's model of `dead` follows `--lib-exported-only` (`attr::pub_unexported`, a `Graph::prepare_model` flag; `run-matrix` has an arm `lib` = `both` plus the flag).
+`cargo xtask groundtruth ... --extra-args=--lib-exported-only`, same binary, date and corpora as above (default mode, the model's flags otherwise on; the egui and cursive self-check differences above apply):
 
 | | R | F | F in R | recall | precision (judgeable) | genuine disagreements |
 |---|---|---|---|---|---|---|
