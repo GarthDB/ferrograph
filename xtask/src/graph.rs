@@ -10,7 +10,8 @@ use std::time::Duration;
 
 const PREFIXES: [&str; 3] = ["pub::", "test::", "bench::"];
 /// Sorted, so the first match wins like `sorted(ENTRY_ATTRS)` in Python.
-const ENTRY_ATTRS: [&str; 5] = [
+const ENTRY_ATTRS: [&str; 6] = [
+    "attr::const_eval",
     "attr::export_name",
     "attr::no_mangle",
     "attr::pub",
@@ -571,6 +572,22 @@ mod tests {
         let mut h = model();
         h.prepare_model((false, true, false));
         assert_eq!(h.roots.get("res").map(String::as_str), Some("pub"));
+    }
+
+    #[test]
+    fn const_eval_items_are_roots() {
+        // `const _: () = { .. };` is evaluated by rustc, so its callees are live (#218).
+        let mut g = g(
+            &[("ce", "const", "_"), ("f", "function", "assert_send_sync")],
+            &[
+                ("ce", "attr::const_eval", "has_attribute"),
+                ("ce", "f", "calls"),
+            ],
+            &[],
+        );
+        g.prepare_model((true, true, false));
+        assert_eq!(g.roots.get("ce").map(String::as_str), Some("const_eval"));
+        assert!(!model_dead(&g, true).contains("f"));
     }
 
     #[test]
