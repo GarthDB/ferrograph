@@ -241,6 +241,9 @@ fn traverse(
         if kind == "macro_definition" {
             scan_macro_rules_body(&node, source, file_id, &id, edges);
         }
+        if kind == "impl_item" {
+            push_borrow_bound_edges(&id, &node, source, file_id, edges);
+        }
         if kind == "type_item" {
             push_iterator_item_edge(parent.as_ref(), &node, source, file_id, edges);
         }
@@ -1508,6 +1511,60 @@ fn push_field_type_edge(
             )),
             EdgeType::Calls,
         ));
+    }
+}
+
+/// Temporary `Calls` edges from an impl to `file::C<:@field:X` for each bound `C: Borrow<X>` (also
+/// `BorrowMut`, `AsRef`, `AsMut`) of its generics or `where` clause: `c.borrow()` on a `C` is an `X`.
+fn push_borrow_bound_edges(
+    imp: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let mut cursor = node.walk();
+    let where_clause = node
+        .children(&mut cursor)
+        .find(|c| c.kind() == "where_clause");
+    let mut preds = Vec::new();
+    for list in [node.child_by_field_name("type_parameters"), where_clause]
+        .into_iter()
+        .flatten()
+    {
+        let mut c = list.walk();
+        preds.extend(list.named_children(&mut c));
+    }
+    for pred in preds {
+        let (Some(left), Some(bounds)) = (
+            pred.child_by_field_name("left"),
+            pred.child_by_field_name("bounds"),
+        ) else {
+            continue;
+        };
+        let Some(param) = source.get(left.byte_range()) else {
+            continue;
+        };
+        let mut c = bounds.walk();
+        for bound in bounds.named_children(&mut c) {
+            let is_borrow = plain_type_name(&bound, source)
+                .is_some_and(|n| matches!(n.as_str(), "Borrow" | "BorrowMut" | "AsRef" | "AsMut"));
+            let Some(target) = is_borrow
+                .then_some(bound)
+                .and_then(|b| sole_type_arg(&b, source))
+            else {
+                continue;
+            };
+            edges.push((
+                imp.clone(),
+                NodeId::new(format!(
+                    "{}::{param}<:{}{target}",
+                    file_id.as_str(),
+                    super::calls::FIELD_MARK
+                )),
+                EdgeType::Calls,
+            ));
+        }
     }
 }
 

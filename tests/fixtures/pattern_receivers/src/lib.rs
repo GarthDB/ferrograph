@@ -37,6 +37,8 @@ impl A {
     fn turbo_concrete(&self) {} // live_a_turbo_concrete
     fn turbo_tuple(&self) {} // live_a_turbo_tuple
     fn generic_field(&self) {} // live_a_generic_field
+    fn bound_borrow(&self) {} // live_a_bound_borrow
+    fn bound_where(&self) {} // live_a_bound_where
     fn generic_pair(&self) {} // pair_a
     fn impl_iter(&self) {} // live_a_impl_iter
     fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
@@ -96,6 +98,8 @@ impl B {
     fn turbo_concrete(&self) {} // dead_b_turbo_concrete
     fn turbo_tuple(&self) {} // dead_b_turbo_tuple
     fn generic_field(&self) {} // dead_b_generic_field
+    fn bound_borrow(&self) {} // dead_b_bound_borrow
+    fn bound_where(&self) {} // dead_b_bound_where
     fn generic_pair(&self) {} // pair_b
     fn generic_alias(&self) {} // dead_b_generic_alias
     fn impl_iter(&self) {} // dead_b_impl_iter
@@ -584,5 +588,23 @@ impl PairParent {
     pub fn go(&mut self) {
         let a = self.p.val();
         a.generic_pair();
+    }
+}
+
+// `C: BorrowMut<A>` on the impl: `.borrow_mut()` on a `C` is an `A`.
+pub struct Runner<C> {
+    siv: C,
+}
+impl<C: std::borrow::BorrowMut<A>> Runner<C> {
+    pub fn go(&mut self) {
+        self.siv.borrow_mut().bound_borrow();
+    }
+}
+impl<C> Runner<C>
+where
+    C: AsRef<A>,
+{
+    pub fn go_where(&self) {
+        self.siv.as_ref().bound_where();
     }
 }

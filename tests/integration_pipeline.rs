@@ -717,6 +717,12 @@ fn pipeline_generic_field_with_two_arguments_stays_unresolved() {
     assert!(!dead.contains(&tags["pair_a"]) && !dead.contains(&tags["pair_b"]));
 }
 
+/// #238: `C: BorrowMut<X>` (or `AsRef<X>`, inline or in a `where` clause) types `.borrow_mut()` on a `C`.
+#[test]
+fn pipeline_borrow_bound_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["bound_borrow", "bound_where"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);

@@ -372,14 +372,13 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
             ty = step_type(&ty, &format!("{m}()"), idx)?;
             continue;
         }
-        // `self.children.mutate()` with `-> &mut T`: `T` is the field's sole type argument.
-        // shortcut: the field's single type argument stands for a bare generic return; upgrade by indexing each type's generics.
-        if let Some((arg, m)) = arg.take().zip(part.strip_suffix("()")) {
-            let fns = methods_of_type(m, auto_deref(&ty, idx), idx);
-            if returns_bare_generic(&fns, auto_deref(&ty, idx), idx) {
-                ty = arg;
-                continue;
-            }
+        if let Some(x) = borrow_bound_target(&ty, part, from, idx).or_else(|| {
+            arg.take()
+                .and_then(|a| generic_return_arg(&ty, part, a, idx))
+        }) {
+            ty = x;
+            arg = None;
+            continue;
         }
         arg = field_type(auto_deref(&ty, idx), &format!("{part}<>"), idx);
         ty = step_type(&ty, part, idx)?;
@@ -544,6 +543,24 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
             }
         }
     }
+}
+
+/// `self.children.mutate()` with `-> &mut T`: `T` is the field's sole type argument `arg`.
+/// shortcut: the field's single type argument stands for a bare generic return; upgrade by indexing each type's generics.
+fn generic_return_arg(ty: &str, part: &str, arg: String, idx: &Index) -> Option<String> {
+    let ty = auto_deref(ty, idx);
+    let fns = methods_of_type(part.strip_suffix("()")?, ty, idx);
+    returns_bare_generic(&fns, ty, idx).then_some(arg)
+}
+
+/// `self.siv.borrow_mut()` with `C: BorrowMut<X>` on the enclosing impl is an `X`.
+fn borrow_bound_target(ty: &str, part: &str, from: &str, idx: &Index) -> Option<String> {
+    if !matches!(part, "borrow()" | "borrow_mut()" | "as_ref()" | "as_mut()")
+        || idx.type_names.contains(auto_deref(ty, idx))
+    {
+        return None;
+    }
+    field_type(enclosing_impl_type(from, idx)?, &format!("{ty}<:"), idx)
 }
 
 /// Is the return type of `fns` a bare generic parameter (`T`)?
@@ -1631,7 +1648,12 @@ fn fill_fields(
         let Some((path, ty)) = to.rsplit_once(FIELD_MARK) else {
             continue;
         };
-        if let (Some(owner), Some(field)) = (idx.type_by_id.get(&from), path.rsplit("::").next()) {
+        // A bound `C<:` hangs off the impl, whose scope names the type it is for.
+        let owner = idx
+            .type_by_id
+            .get(&from)
+            .or_else(|| idx.scopes.get(&from).filter(|s| s.0).map(|s| &s.1));
+        if let (Some(owner), Some(field)) = (owner, path.rsplit("::").next()) {
             // Tuple payloads (`Variant#i`) are also found by variant name alone, for bare patterns:
             // first among the variants of the same file, then of the whole project.
             if field.contains('#') {
