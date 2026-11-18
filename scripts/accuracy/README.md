@@ -150,31 +150,30 @@ the first `--n` hits are measured); the default `--select last` keeps the last-N
 ## UI-toolkit cohort (`ui`, #210)
 
 Five toolkits (ratatui, egui, iced, xilem, cursive; see `corpora.toml`) whose code is closures in fields, message handlers, builders and
-callbacks. `cargo xtask groundtruth --only ratatui,egui,iced,xilem,cursive`, ferrograph `main` after #257 (8.0.0 plus #243-#246, #251-#253 and
-#255-#257; measured on the head of #257 before its review follow-up, which changed only a test and comments), rustc 1.99.1, macOS arm64,
+callbacks. `cargo xtask groundtruth --only ratatui,egui,iced,xilem,cursive`, ferrograph `main` after #263 (8.0.0 plus #243-#246, #251-#253,
+#255-#257, #261-#263; measured on the head of #263), rustc 1.99.1, macOS arm64,
 2026-11-17, `cargo check --workspace --all-targets --all-features` (cursive without `--all-features`). Wilson 95% intervals; percentages are
 floored, as in the harness reports. "Genuine disagreements" are F minus the confirmed items minus the ones rustc cannot judge (cfg-gated, file
-not compiled), so judgeable minus confirmed (22 - 5 - 10 = 7 in default mode; 105 - 52 - 11 = 42 under `--strict`).
+not compiled), so judgeable minus confirmed (21 - 5 - 10 = 6 in default mode; 99 - 52 - 11 = 36 under `--strict`).
 
 | | R (rustc-dead) | F | F in R | recall | precision (judgeable) | genuine disagreements |
 |---|---|---|---|---|---|---|
-| default | 35 | 22 | 10 | 28.5% (10/35) [16.3-45.1] | 58.8% (10/17) [36.0-78.4] | 7 |
-| `--strict` | 35 | 105 | 11 | 31.4% (11/35) [18.6-48.0] | 20.7% (11/53) [12.0-33.5] | 42 |
+| default | 35 | 21 | 10 | 28.5% (10/35) [16.3-45.1] | 62.5% (10/16) [38.6-81.5] | 6 |
+| `--strict` | 35 | 99 | 11 | 31.4% (11/35) [18.6-48.0] | 23.4% (11/47) [13.6-37.2] | 36 |
 
 For comparison, the same cohort on ferrograph 6.2.1 (`fe9ef0d`, 2026-11-16): default F 54, precision 22.2% (10/45), 35 genuine disagreements; `--strict` F 157,
 10.5% (11/104), 93 genuine. Recall is unchanged (R and F in R are the same): the fixes since then removed reports, not detections. The 7 older
 corpora of the harness were measured with the same binary: recall 31.4% (17/54), unchanged.
 
-Genuine disagreements per corpus (default): ratatui 0, egui 1, iced 2, xilem 1, cursive 3. R is small (these crates are CI-clean), so recall has wide
-intervals, and the list is a candidate list, not a verdict. The 7 default ones were each read and traced to a cause:
+Genuine disagreements per corpus (default): ratatui 0, egui 1, iced 2, xilem 1, cursive 2. R is small (these crates are CI-clean), so recall has wide
+intervals, and the list is a candidate list, not a verdict. The 6 default ones were each read and traced to a cause:
 
 - **iced `Content::diff`, `TitleBar::diff`:** called in a closure passed to `diff_children_custom`, whose parameter type comes from the callee's signature (#237).
 - **cursive `CursiveRoot::layout`, `draw`:** called through `C: BorrowMut<Cursive>` in `CursiveRunner<C>` (#238).
-- **cursive `rgb`:** `corpora/cursive/examples` is a symlink to `cursive/examples`, so the file is indexed twice (#239).
 - **egui `PassState::begin_pass`:** the receiver goes through a one-argument map alias defined in another file (`ViewportIdMap<V>`, #241).
 - **xilem `AnyPod::as_mut`:** the receiver is the generic return of `VecSplice<T>::mutate` (#242).
 
-Strict mode has 42 (ratatui 7, egui 22, iced 6, xilem 3, cursive 4). Not looked at except for iced's 6 `cfg`-gated `examples/todos` items (policy) and 6 `downcast_ref/_mut::<State>()` receivers (#249).
+Strict mode has 36 (ratatui 7, egui 22, iced 0, xilem 3, cursive 4); iced's 6 strict reports are `cfg`-gated `examples/todos` items (policy, not judgeable). The other strict items were not read.
 
 How the 35 default ones went (6.2.1 to now): egui `assert_send_sync`, a `const fn` declared and called inside `const _: () = { .. };` (8, #218); cursive `find_closest_pair`
 called as `super::find_closest_pair(..)` from a same-named wrapper in a child module (2, #219); iced `Content`/`TitleBar` methods called on a receiver bound by a closure or
@@ -183,7 +182,7 @@ zip/tuple pattern, because `zip` was not modelled and the lone same-file method 
 (egui `id`/`ui`/`set_options`, iced `update`/`draw`) were instances of these. Strict-only fixes: `iter().enumerate()` (#251), `Self::Assoc` types (#252), inherent over trait methods (#253, #255),
 `impl Iterator<Item = T>` parameters (#256), same-named types in several modules (#257).
 
-**Harness self-check.** The harness's model of `dead` matched the CLI on three of the five corpora at the measured head. egui was off by 8 in both modes (the model lacked the `const _: () = { .. };` root; fixed in #261, diff 0 afterwards) and cursive is off by 1 in default mode (`rgb`, the symlinked directory of #239; open in #260). The F column above is the CLI's.
+**Harness self-check.** The harness's model of `dead` matches the CLI on all five corpora at the measured head (diff 0 in both modes). It did not at 8.0.0: egui was off by 8 (the model lacked the `const _: () = { .. };` root, #261) and cursive by 1 (`rgb`, the symlinked directory indexed twice, #263).
 
 **Regression checks.** Mutation (clap, all families, 30 per family) and replay (clap and ripgrep, 50 commits that remove a call, `--select calls`), v8.0.0 against this `main`: replay identical
 (0 false-alarm commits of 100; recall 1/12 on both); mutation sampled 19 mutations in common (the two runs differ in the rest) and gave identical results on them (14 TP, 7 FP, 3 FN).
@@ -194,14 +193,14 @@ zip/tuple pattern, because `zip` was not modelled and the lone same-file method 
 ### `--lib-exported-only` on the same cohort (#207)
 
 The harness's model of `dead` follows `--lib-exported-only` (`attr::pub_unexported`, a `Graph::prepare_model` flag; `run-matrix` has an arm `lib` = `both` plus the flag).
-`cargo xtask groundtruth ... --extra-args=--lib-exported-only`, same binary, date and corpora as above (default mode, the model's flags otherwise on; the egui and cursive self-check differences above apply):
+`cargo xtask groundtruth ... --extra-args=--lib-exported-only`, same binary, date and corpora as above (default mode, the model's flags otherwise on; the model's self-check applies here as well):
 
 | | R | F | F in R | recall | precision (judgeable) | genuine disagreements |
 |---|---|---|---|---|---|---|
-| without the flag | 35 | 22 | 10 | 28.5% (10/35) [16.3-45.1] | 58.8% (10/17) [36.0-78.4] | 7 |
-| `--lib-exported-only` | 35 | 28 | 14 | 40.0% (14/35) [25.6-56.4] | 66.6% (14/21) [45.4-82.8] | 7 |
+| without the flag | 35 | 21 | 10 | 28.5% (10/35) [16.3-45.1] | 62.5% (10/16) [38.6-81.5] | 6 |
+| `--lib-exported-only` | 35 | 27 | 14 | 40.0% (14/35) [25.6-56.4] | 70.0% (14/20) [48.1-85.5] | 6 |
 
-The flag adds 6 reports, 4 of them confirmed by rustc (recall 10 to 14 of 35, all in library crates: 9 to 13 of 23). The other 2 are not judgeable (`#[cfg]` code), so the genuine disagreements stay at 7: the iced `whitespace` item that this section used to list as the one new false positive is no longer reported (not traced to a single fix). Small sample, wide intervals; the intervals of the two recall rows overlap, so this shows the direction, not a significant gain. Not measured: the 22 older corpora (run `run-matrix --arms both,lib` to compare), and methods (#217).
+The flag adds 6 reports, 4 of them confirmed by rustc (recall 10 to 14 of 35, all in library crates: 9 to 13 of 23). The other 2 are not judgeable (`#[cfg]` code), so the genuine disagreements stay at 6: the iced `whitespace` item that this section used to list as the one new false positive is no longer reported (not traced to a single fix). Small sample, wide intervals; the intervals of the two recall rows overlap, so this shows the direction, not a significant gain. Not measured: the 22 older corpora (run `run-matrix --arms both,lib` to compare), and methods (#217).
 
 Reproduce: `cargo xtask groundtruth --ferrograph <binary> --work <dir> --only ratatui,egui,iced,xilem,cursive --out-md ui.md --out-json ui.json`
 (about 5 minutes with warm clones; each crate needs 1-3 GB of `target/` while it runs).
