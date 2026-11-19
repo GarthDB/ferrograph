@@ -45,6 +45,8 @@ pub(crate) const RECEIVER_MARK: &str = "@on:";
 pub(crate) const FIELD_MARK: &str = "@field:";
 /// Separator in the temporary return-type placeholder `@ret:Type` (a `Calls` edge from a function).
 pub(crate) const RET_MARK: &str = "@ret:";
+/// Marks a `type Name<T> = Base<.., T>` placeholder, see `Index::alias_wrappers`.
+pub(crate) const ALIAS_MARK: &str = "@alias:";
 /// A method name with more candidates than this is dropped at the call site (no edges).
 const MAX_METHOD_CANDIDATES: usize = 8;
 use crate::graph::{query::Query, unquote_datavalue, Store};
@@ -117,6 +119,9 @@ struct Index {
     rets: HashMap<String, String>,
     /// Project type -> `Item` of its `impl Iterator`, for `for x in it` and `it.next()` (#91).
     iter_items: HashMap<String, String>,
+    /// `type Name<T> = Base<.., T>` of a standard container: alias name -> `Base`.
+    /// shortcut: keyed by alias name only, so same-named aliases collide (last wins); key by node id to fix.
+    alias_wrappers: HashMap<String, String>,
 }
 
 impl Index {
@@ -381,8 +386,7 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
                 continue;
             }
         }
-        arg = field_type(auto_deref(&ty, idx), &format!("{part}<>"), idx);
-        ty = step_type(&ty, part, idx)?;
+        (ty, arg) = step_field(&ty, part, idx)?;
     }
     Some(ty)
 }
@@ -546,6 +550,29 @@ fn step_type(ty: &str, part: &str, idx: &Index) -> Option<String> {
     }
 }
 
+/// The step `part` from `ty` and, for a field of a generic project type, its sole type argument `X`
+/// (folded into the type when the field is declared through a one-parameter container alias).
+fn step_field(ty: &str, part: &str, idx: &Index) -> Option<(String, Option<String>)> {
+    let arg = field_type(auto_deref(ty, idx), &format!("{part}<>"), idx);
+    let next = step_type(ty, part, idx)?;
+    Some(
+        match arg.as_ref().and_then(|a| wrapped_by_alias(&next, a, idx)) {
+            Some(wrapped) => (wrapped, None),
+            None => (next, arg),
+        },
+    )
+}
+
+/// A field `Name<X>` of an alias `type Name<T> = Map<K, T>` is a `Map<X>`.
+fn wrapped_by_alias(ty: &str, arg: &str, idx: &Index) -> Option<String> {
+    // A project struct of the same name is the type meant, not the alias.
+    let base = idx
+        .alias_wrappers
+        .get(ty)
+        .filter(|_| !idx.type_names.contains(ty))?;
+    Some(format!("{base}<{arg}>"))
+}
+
 /// Is the return type of `fns` a bare generic parameter (`T`)?
 /// shortcut: a short capitalised return name is taken as the method's own generic; an impl-level `T` in `impl<T> W<T> { fn get<U>(&self) -> T }` passes too. Upgrade by indexing each method's generics.
 fn returns_bare_generic(fns: &[NodeId], ty: &str, idx: &Index) -> bool {
@@ -579,8 +606,16 @@ fn tuple_elem(ty: &str, i: usize) -> Option<String> {
 /// accessors yield `Option<Elem>`, `unwrap` and friends yield the payload.
 fn container_method(ty: &str, m: &str) -> Option<String> {
     let (name, inner) = split_generic(ty)?;
+    if name == "Entry" {
+        return matches!(
+            m,
+            "or_default" | "or_insert" | "or_insert_with" | "or_insert_with_key"
+        )
+        .then(|| inner.to_string());
+    }
     if name.ends_with("Map") {
         return match m {
+            "entry" => Some(format!("Entry<{inner}>")),
             "iter" | "iter_mut" | "into_iter" | "drain" => Some(format!("Vec<(_,{inner})>")),
             "values" | "values_mut" | "into_values" => Some(format!("Vec<{inner}>")),
             "get" | "get_mut" => Some(format!("Option<{inner}>")),
@@ -1628,6 +1663,14 @@ fn fill_fields(
             store.remove_edge(&NodeId(from), &NodeId(to), &calls)?;
             continue;
         }
+        if let Some((path, base)) = to.rsplit_once(ALIAS_MARK) {
+            if let Some(name) = path.rsplit("::").next() {
+                idx.alias_wrappers
+                    .insert(name.to_string(), base.to_string());
+            }
+            store.remove_edge(&NodeId(from), &NodeId(to), &calls)?;
+            continue;
+        }
         let Some((path, ty)) = to.rsplit_once(FIELD_MARK) else {
             continue;
         };
@@ -1832,7 +1875,7 @@ pub(crate) fn build_call_graph_in(store: &Store, units: Option<&Units>) -> Resul
         }
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
         let raw_to = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if raw_to.contains(FIELD_MARK) || raw_to.contains(RET_MARK) {
+        if raw_to.contains(FIELD_MARK) || raw_to.contains(RET_MARK) || raw_to.contains(ALIAS_MARK) {
             continue;
         }
         let (to_str, value, self_method, method, hint) = parse_target(&raw_to);

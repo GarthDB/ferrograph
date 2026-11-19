@@ -37,6 +37,9 @@ impl A {
     fn turbo_concrete(&self) {} // live_a_turbo_concrete
     fn turbo_tuple(&self) {} // live_a_turbo_tuple
     fn generic_field(&self) {} // live_a_generic_field
+    fn entry_direct(&self) {} // live_a_entry_direct
+    fn entry_alias(&self) {} // live_a_entry_alias
+    fn alias_get(&self) {} // live_a_alias_get
     fn generic_pair(&self) {} // pair_a
     fn impl_iter(&self) {} // live_a_impl_iter
     fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
@@ -96,6 +99,9 @@ impl B {
     fn turbo_concrete(&self) {} // dead_b_turbo_concrete
     fn turbo_tuple(&self) {} // dead_b_turbo_tuple
     fn generic_field(&self) {} // dead_b_generic_field
+    fn entry_direct(&self) {} // dead_b_entry_direct
+    fn entry_alias(&self) {} // dead_b_entry_alias
+    fn alias_get(&self) {} // dead_b_alias_get
     fn generic_pair(&self) {} // pair_b
     fn generic_alias(&self) {} // dead_b_generic_alias
     fn impl_iter(&self) {} // dead_b_impl_iter
@@ -584,5 +590,21 @@ impl PairParent {
     pub fn go(&mut self) {
         let a = self.p.val();
         a.generic_pair();
+    }
+}
+
+// `entry(..).or_default()` on a map field, and a field typed by a one-parameter alias of a map declared in `other.rs`.
+pub struct Registry {
+    direct: HashMap<u32, A>,
+    aliased: other::MapOf<A>,
+}
+impl Registry {
+    pub fn go(&mut self) {
+        let a = self.direct.entry(1).or_default();
+        a.entry_direct();
+        let b = self.aliased.entry(1).or_default();
+        b.entry_alias();
+        let c = self.aliased.get(&1).unwrap();
+        c.alias_get();
     }
 }

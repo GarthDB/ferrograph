@@ -8,3 +8,5 @@ pub type AnyPod = Pod<u8>;
 impl AnyPod {
     pub fn generic_alias(&self) {}
 }
+
+pub type MapOf<T> = std::collections::HashMap<u32, T>;

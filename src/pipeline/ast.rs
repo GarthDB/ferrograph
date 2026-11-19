@@ -242,6 +242,7 @@ fn traverse(
             scan_macro_rules_body(&node, source, file_id, &id, edges);
         }
         if kind == "type_item" {
+            push_wrapper_alias_edge(&id, &node, source, file_id, edges);
             push_iterator_item_edge(parent.as_ref(), &node, source, file_id, edges);
         }
         if let Some((to_id, edge_type)) = extra {
@@ -1505,6 +1506,63 @@ fn push_field_type_edge(
                 "{}::{name}<>{}{arg}",
                 file_id.as_str(),
                 super::calls::FIELD_MARK
+            )),
+            EdgeType::Calls,
+        ));
+    }
+}
+
+/// Temporary `Calls` edge from `type Name<T> = Base<.., T>` (a standard container whose last type
+/// argument is the alias's only parameter) to `file::Name@alias:Base`, so a field `Name<X>` is a `Base<X>`.
+fn push_wrapper_alias_edge(
+    alias: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let (Some(name), Some(params), Some(target)) = (
+        name_of_node(node, source),
+        node.child_by_field_name("type_parameters"),
+        node.child_by_field_name("type"),
+    ) else {
+        return;
+    };
+    let mut cursor = params.walk();
+    let mut own = params
+        .named_children(&mut cursor)
+        .filter(|c| c.kind() != "lifetime");
+    let (Some(param), None) = (own.next(), own.next()) else {
+        return;
+    };
+    let param = param.child_by_field_name("name").unwrap_or(param);
+    // The container may be named by an external path (`nohash_hasher::IntMap`): its last segment counts.
+    let base = (target.kind() == "generic_type")
+        .then(|| target.child_by_field_name("type"))
+        .flatten()
+        .and_then(|t| match t.kind() {
+            "scoped_type_identifier" => source.get(t.child_by_field_name("name")?.byte_range()),
+            _ => source.get(t.byte_range()),
+        })
+        .filter(|b| KEPT_WRAPPERS.contains(b));
+    let Some(base) = base else {
+        return;
+    };
+    let Some(args) = target.child_by_field_name("type_arguments") else {
+        return;
+    };
+    let mut c = args.walk();
+    let last = args
+        .named_children(&mut c)
+        .filter(|a| a.kind() != "lifetime")
+        .last();
+    if last.and_then(|l| source.get(l.byte_range())) == source.get(param.byte_range()) {
+        edges.push((
+            alias.clone(),
+            NodeId::new(format!(
+                "{}::{name}{}{base}",
+                file_id.as_str(),
+                super::calls::ALIAS_MARK
             )),
             EdgeType::Calls,
         ));
