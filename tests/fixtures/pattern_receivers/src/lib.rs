@@ -39,6 +39,7 @@ impl A {
     fn generic_field(&self) {} // live_a_generic_field
     fn bound_borrow(&self) {} // live_a_bound_borrow
     fn bound_where(&self) {} // live_a_bound_where
+    fn bound_conflict(&self) {} // conflict_a
     fn generic_pair(&self) {} // pair_a
     fn impl_iter(&self) {} // live_a_impl_iter
     fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
@@ -100,6 +101,7 @@ impl B {
     fn generic_field(&self) {} // dead_b_generic_field
     fn bound_borrow(&self) {} // dead_b_bound_borrow
     fn bound_where(&self) {} // dead_b_bound_where
+    fn bound_conflict(&self) {} // conflict_b
     fn generic_pair(&self) {} // pair_b
     fn generic_alias(&self) {} // dead_b_generic_alias
     fn impl_iter(&self) {} // dead_b_impl_iter
@@ -606,5 +608,15 @@ where
 {
     pub fn go_where(&self) {
         self.siv.as_ref().bound_where();
+    }
+}
+
+// Two different bounds on one parameter: the type is not known, so both candidates stay.
+pub struct Both<C> {
+    c: C,
+}
+impl<C: AsRef<A> + AsRef<B>> Both<C> {
+    pub fn go(&self) {
+        self.c.as_ref().bound_conflict();
     }
 }

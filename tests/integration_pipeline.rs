@@ -723,6 +723,15 @@ fn pipeline_borrow_bound_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["bound_borrow", "bound_where"]);
 }
 
+/// Two different bounds on one parameter leave the receiver untyped: both candidates stay alive.
+#[test]
+fn pipeline_conflicting_borrow_bounds_stay_unresolved() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    let dead = dead_lines(&store, false, "src/lib.rs");
+    assert!(!dead.contains(&tags["conflict_a"]) && !dead.contains(&tags["conflict_b"]));
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);
