@@ -37,6 +37,11 @@ impl A {
     fn turbo_concrete(&self) {} // live_a_turbo_concrete
     fn turbo_tuple(&self) {} // live_a_turbo_tuple
     fn generic_field(&self) {} // live_a_generic_field
+    fn bound_borrow(&self) {} // live_a_bound_borrow
+    fn bound_where(&self) {} // live_a_bound_where
+    fn bound_conflict(&self) {} // conflict_a
+    fn bound_split(&self) {} // split_a
+    fn bound_trait(&self) {} // live_a_bound_trait
     fn entry_direct(&self) {} // live_a_entry_direct
     fn entry_alias(&self) {} // live_a_entry_alias
     fn alias_get(&self) {} // live_a_alias_get
@@ -99,6 +104,11 @@ impl B {
     fn turbo_concrete(&self) {} // dead_b_turbo_concrete
     fn turbo_tuple(&self) {} // dead_b_turbo_tuple
     fn generic_field(&self) {} // dead_b_generic_field
+    fn bound_borrow(&self) {} // dead_b_bound_borrow
+    fn bound_where(&self) {} // dead_b_bound_where
+    fn bound_conflict(&self) {} // conflict_b
+    fn bound_split(&self) {} // split_b
+    fn bound_trait(&self) {} // dead_b_bound_trait
     fn entry_direct(&self) {} // dead_b_entry_direct
     fn entry_alias(&self) {} // dead_b_entry_alias
     fn alias_get(&self) {} // dead_b_alias_get
@@ -389,6 +399,7 @@ pub fn twin_variants_bare(l: &Left) {
     use Left::*;
     let Same { v } = l;
     v.twin_bare();
+}
 
 // An `if` has the type of its branches.
 pub fn if_values(flag: bool, a: A) {
@@ -590,6 +601,67 @@ impl PairParent {
     pub fn go(&mut self) {
         let a = self.p.val();
         a.generic_pair();
+    }
+}
+
+// `C: BorrowMut<A>` on the impl: `.borrow_mut()` on a `C` is an `A`.
+pub struct Runner<C> {
+    siv: C,
+}
+impl<C: std::borrow::BorrowMut<A>> Runner<C> {
+    pub fn go(&mut self) {
+        self.siv.borrow_mut().bound_borrow();
+    }
+}
+impl<C> Runner<C>
+where
+    C: AsRef<A>,
+{
+    pub fn go_where(&self) {
+        self.siv.as_ref().bound_where();
+    }
+}
+
+// Two different bounds on one parameter: the type is not known, so both candidates stay.
+pub struct Both<C> {
+    c: C,
+}
+impl<C: AsRef<A> + AsRef<B>> Both<C> {
+    pub fn go(&self) {
+        self.c.as_ref().bound_conflict();
+    }
+}
+
+// Same parameter bounded differently in two impl blocks of one type: both candidates stay.
+pub struct Split<C> {
+    c: C,
+}
+impl<C: AsRef<A>> Split<C> {
+    pub fn go_a(&self) {
+        self.c.as_ref().bound_split();
+    }
+}
+impl<C: AsRef<B>> Split<C> {
+    pub fn go_b(&self) {
+        self.c.as_ref().bound_split();
+    }
+}
+
+// The bound on a trait impl types the receiver through the Self type.
+pub struct Via<C> {
+    c: C,
+}
+pub trait Go {
+    fn go_trait(&self);
+}
+impl<C: AsRef<A>> Go for Via<C> {
+    fn go_trait(&self) {
+        self.c.as_ref().bound_trait();
+    }
+}
+impl<C> Via<C> {
+    pub fn run(&self) {
+        self.go_trait();
     }
 }
 
