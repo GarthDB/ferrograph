@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.2](https://github.com/GarthDB/ferrograph/compare/v8.0.1...v8.0.2) - 2026-11-19
+
+### Other
+
+- update thin-vec to 0.2.21 and drop the RUSTSEC-2026-0103 ignore
+- Merge origin/main into calls-borrow-bound
+- read inline bound parameter names; fix unclosed fn in pattern_receivers fixture
+- a project struct named like a container alias is not rewritten
+- entry().or_default() yields a map's value; a one-parameter alias of a container wraps its field's argument
+- conflicting borrow bounds on one parameter stay unresolved
+- a bound C: BorrowMut<X> types .borrow_mut() on a C as an X
+- rename first_type_arg to sole_type_arg, fix the stale comment
+- record a generic field's type argument only when it is the only one
+- a bare generic method return is the type argument of the field it is called on
+
 ## [8.0.1](https://github.com/GarthDB/ferrograph/compare/v8.0.0...v8.0.1) - 2026-11-18
 
 ### Other
