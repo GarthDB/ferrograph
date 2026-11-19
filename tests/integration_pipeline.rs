@@ -741,6 +741,12 @@ fn pipeline_borrow_bounds_across_impl_blocks_stay_unresolved() {
     assert!(!dead.contains(&tags["split_a"]) && !dead.contains(&tags["split_b"]));
 }
 
+/// #241: `entry(..).or_default()` yields the map's value, also through a one-parameter alias of a map.
+#[test]
+fn pipeline_map_entry_and_alias_receivers_resolve_to_their_type() {
+    assert_pattern_receivers_resolved(&["entry_direct", "entry_alias", "alias_get"]);
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);
