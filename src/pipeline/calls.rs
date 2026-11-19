@@ -565,7 +565,12 @@ fn step_field(ty: &str, part: &str, idx: &Index) -> Option<(String, Option<Strin
 
 /// A field `Name<X>` of an alias `type Name<T> = Map<K, T>` is a `Map<X>`.
 fn wrapped_by_alias(ty: &str, arg: &str, idx: &Index) -> Option<String> {
-    Some(format!("{}<{arg}>", idx.alias_wrappers.get(ty)?))
+    // A project struct of the same name is the type meant, not the alias.
+    let base = idx
+        .alias_wrappers
+        .get(ty)
+        .filter(|_| !idx.type_names.contains(ty))?;
+    Some(format!("{base}<{arg}>"))
 }
 
 /// Is the return type of `fns` a bare generic parameter (`T`)?
