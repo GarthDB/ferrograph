@@ -1536,8 +1536,10 @@ fn push_borrow_bound_edges(
         preds.extend(list.named_children(&mut c));
     }
     for pred in preds {
+        // An inline `C: Bound` names its parameter `name`; a `where` predicate `left`.
         let (Some(left), Some(bounds)) = (
-            pred.child_by_field_name("left"),
+            pred.child_by_field_name("left")
+                .or_else(|| pred.child_by_field_name("name")),
             pred.child_by_field_name("bounds"),
         ) else {
             continue;

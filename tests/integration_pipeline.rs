@@ -720,7 +720,7 @@ fn pipeline_generic_field_with_two_arguments_stays_unresolved() {
 /// #238: `C: BorrowMut<X>` (or `AsRef<X>`, inline or in a `where` clause) types `.borrow_mut()` on a `C`.
 #[test]
 fn pipeline_borrow_bound_receivers_resolve_to_their_type() {
-    assert_pattern_receivers_resolved(&["bound_borrow", "bound_where"]);
+    assert_pattern_receivers_resolved(&["bound_borrow", "bound_where", "bound_trait"]);
 }
 
 /// Two different bounds on one parameter leave the receiver untyped: both candidates stay alive.
@@ -730,6 +730,15 @@ fn pipeline_conflicting_borrow_bounds_stay_unresolved() {
     let tags = tagged_lines("pattern_receivers", "src/lib.rs");
     let dead = dead_lines(&store, false, "src/lib.rs");
     assert!(!dead.contains(&tags["conflict_a"]) && !dead.contains(&tags["conflict_b"]));
+}
+
+/// Different bounds on one parameter in separate impl blocks of a type also leave both candidates alive.
+#[test]
+fn pipeline_borrow_bounds_across_impl_blocks_stay_unresolved() {
+    let store = run_fixture("pattern_receivers");
+    let tags = tagged_lines("pattern_receivers", "src/lib.rs");
+    let dead = dead_lines(&store, false, "src/lib.rs");
+    assert!(!dead.contains(&tags["split_a"]) && !dead.contains(&tags["split_b"]));
 }
 
 #[test]

@@ -40,6 +40,8 @@ impl A {
     fn bound_borrow(&self) {} // live_a_bound_borrow
     fn bound_where(&self) {} // live_a_bound_where
     fn bound_conflict(&self) {} // conflict_a
+    fn bound_split(&self) {} // split_a
+    fn bound_trait(&self) {} // live_a_bound_trait
     fn generic_pair(&self) {} // pair_a
     fn impl_iter(&self) {} // live_a_impl_iter
     fn impl_iter_adapter(&self) {} // live_a_impl_iter_adapter
@@ -102,6 +104,8 @@ impl B {
     fn bound_borrow(&self) {} // dead_b_bound_borrow
     fn bound_where(&self) {} // dead_b_bound_where
     fn bound_conflict(&self) {} // conflict_b
+    fn bound_split(&self) {} // split_b
+    fn bound_trait(&self) {} // dead_b_bound_trait
     fn generic_pair(&self) {} // pair_b
     fn generic_alias(&self) {} // dead_b_generic_alias
     fn impl_iter(&self) {} // dead_b_impl_iter
@@ -389,6 +393,7 @@ pub fn twin_variants_bare(l: &Left) {
     use Left::*;
     let Same { v } = l;
     v.twin_bare();
+}
 
 // An `if` has the type of its branches.
 pub fn if_values(flag: bool, a: A) {
@@ -618,5 +623,38 @@ pub struct Both<C> {
 impl<C: AsRef<A> + AsRef<B>> Both<C> {
     pub fn go(&self) {
         self.c.as_ref().bound_conflict();
+    }
+}
+
+// Same parameter bounded differently in two impl blocks of one type: both candidates stay.
+pub struct Split<C> {
+    c: C,
+}
+impl<C: AsRef<A>> Split<C> {
+    pub fn go_a(&self) {
+        self.c.as_ref().bound_split();
+    }
+}
+impl<C: AsRef<B>> Split<C> {
+    pub fn go_b(&self) {
+        self.c.as_ref().bound_split();
+    }
+}
+
+// The bound on a trait impl types the receiver through the Self type.
+pub struct Via<C> {
+    c: C,
+}
+pub trait Go {
+    fn go_trait(&self);
+}
+impl<C: AsRef<A>> Go for Via<C> {
+    fn go_trait(&self) {
+        self.c.as_ref().bound_trait();
+    }
+}
+impl<C> Via<C> {
+    pub fn run(&self) {
+        self.go_trait();
     }
 }
