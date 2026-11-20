@@ -38,13 +38,17 @@ pub(crate) const SELF_METHOD_SUFFIX: &str = "@selfmethod";
 /// impl's type), `HINT.field`, `HINT.method()` or `=path::to::f()` (the result of a call). Further steps:
 /// `.[]` (element), `.?` (payload), `.#i` (tuple element), `.()` (call a `fn` pointer) and `.m(HINT)` (an
 /// `Option` adapter whose closure returns `HINT`); further starts: `@tuple(H0;H1)`,
-/// `@some(H)`, `@vec(H)` (a `Vec` of `H`), `@and_then(H)`, `@zip(A;B)` (pairs of the element types).
+/// `@some(H)`, `@vec(H)` (a `Vec` of `H`), `@and_then(H)`, `@zip(A;B)` (pairs of the element types),
+/// `@cparam(name;arg;pos;m|f)` (input `pos` of the `Fn*` parameter `arg` of the method/fn `name`).
 pub(crate) const RECEIVER_MARK: &str = "@on:";
 /// Separator in the temporary struct-field placeholder `field@field:Type` (a `Calls` edge from the
 /// struct), consumed here to learn field types.
 pub(crate) const FIELD_MARK: &str = "@field:";
 /// Separator in the temporary return-type placeholder `@ret:Type` (a `Calls` edge from a function).
 pub(crate) const RET_MARK: &str = "@ret:";
+/// Separator in the temporary closure-parameter placeholder `@fnarg:IDX:T0;T1` (a `Calls` edge from a
+/// function): the concrete input types of its `IDX`-th parameter's `Fn*` bound, `?` if unreadable.
+pub(crate) const FNARG_MARK: &str = "@fnarg:";
 /// Marks a `type Name<T> = Base<.., T>` placeholder, see `Index::alias_wrappers`.
 pub(crate) const ALIAS_MARK: &str = "@alias:";
 /// A method name with more candidates than this is dropped at the call site (no edges).
@@ -75,6 +79,9 @@ fn canonical_name(payload: &str) -> &str {
 
 /// A `use .. as ..` rename seen from outside: (importing file, original name, resolved item id).
 type AliasTarget = (String, String, Option<String>);
+
+/// A parameter's index and the input types of its `Fn*` bound (`None`: might take a closure we cannot read).
+type FnArg = (usize, Option<Vec<String>>);
 
 /// Lookup tables used to resolve call placeholders.
 #[derive(Default)]
@@ -119,6 +126,8 @@ struct Index {
     rets: HashMap<String, String>,
     /// Project type -> `Item` of its `impl Iterator`, for `for x in it` and `it.next()` (#91).
     iter_items: HashMap<String, String>,
+    /// Function id -> (parameter index, input types of its `Fn*` bound); `None` for a parameter that might take a closure we cannot read.
+    fn_args: HashMap<String, Vec<FnArg>>,
     /// `type Name<T> = Base<.., T>` of a standard container: alias name -> `Base`.
     /// shortcut: keyed by alias name only, so same-named aliases collide (last wins); key by node id to fix.
     alias_wrappers: HashMap<String, String>,
@@ -275,6 +284,40 @@ fn methods_of_type(name: &str, ty: &str, idx: &Index) -> Vec<NodeId> {
         .collect()
 }
 
+/// Type of `a.zip(b)` for the hint `A;B` (see `@zip` in `RECEIVER_MARK`).
+fn zip_type(pair: &str, from: &str, from_file: &str, idx: &Index) -> Option<String> {
+    let mut sides = split_top(pair, ';').map(|e| {
+        Some(e)
+            .filter(|e| !e.is_empty())
+            .and_then(|e| eval_hint(e, from, from_file, idx))
+    });
+    let (a, b) = (sides.next()?, sides.next()?);
+    // A project type with its own `zip` method keeps that method's result.
+    if let Some(own) = a
+        .as_deref()
+        .filter(|t| idx.type_names.contains(auto_deref(t, idx)))
+    {
+        step_type(own, "zip()", idx)
+    } else {
+        let is_option = |t: &Option<String>| {
+            t.as_deref()
+                .and_then(|t| split_generic(auto_deref(t, idx)))
+                .is_some_and(|(name, _)| name == "Option")
+        };
+        // `Option::zip` pairs the payloads; on anything else it is `Iterator::zip` over the elements.
+        let (step, wrap) = if is_option(&a) {
+            ("?", "Option")
+        } else {
+            ("[]", "Vec")
+        };
+        let elem = |t: Option<String>| {
+            t.and_then(|t| step_type(&t, step, idx))
+                .unwrap_or_else(|| "_".to_string())
+        };
+        Some(format!("{wrap}<({},{})>", elem(a), elem(b)))
+    }
+}
+
 /// Type named by a hint (see `RECEIVER_MARK`), following fields and the return types of calls.
 /// `None` when a step is not a project struct/enum, has no (or several different) such field or
 /// method, or the callee cannot be told: generics, trait objects, std types stay unknown.
@@ -295,36 +338,9 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
             .collect();
         format!("({})", elems.join(","))
     } else if let Some(pair) = first.strip_prefix("@zip(") {
-        let mut sides = split_top(pair.strip_suffix(')')?, ';').map(|e| {
-            Some(e)
-                .filter(|e| !e.is_empty())
-                .and_then(|e| eval_hint(e, from, from_file, idx))
-        });
-        let (a, b) = (sides.next()?, sides.next()?);
-        // A project type with its own `zip` method keeps that method's result.
-        if let Some(own) = a
-            .as_deref()
-            .filter(|t| idx.type_names.contains(auto_deref(t, idx)))
-        {
-            step_type(own, "zip()", idx)?
-        } else {
-            let is_option = |t: &Option<String>| {
-                t.as_deref()
-                    .and_then(|t| split_generic(auto_deref(t, idx)))
-                    .is_some_and(|(name, _)| name == "Option")
-            };
-            // `Option::zip` pairs the payloads; on anything else it is `Iterator::zip` over the elements.
-            let (step, wrap) = if is_option(&a) {
-                ("?", "Option")
-            } else {
-                ("[]", "Vec")
-            };
-            let elem = |t: Option<String>| {
-                t.and_then(|t| step_type(&t, step, idx))
-                    .unwrap_or_else(|| "_".to_string())
-            };
-            format!("{wrap}<({},{})>", elem(a), elem(b))
-        }
+        zip_type(pair.strip_suffix(')')?, from, from_file, idx)?
+    } else if let Some(spec) = first.strip_prefix("@cparam(") {
+        closure_param_type(spec.strip_suffix(')')?, idx)?
     } else if let Some(inner) = first.strip_prefix("@some(") {
         format!(
             "Option<{}>",
@@ -388,6 +404,35 @@ fn eval_hint(hint: &str, from: &str, from_file: &str, idx: &Index) -> Option<Str
         (ty, arg) = step_field(&ty, part, idx)?;
     }
     Some(ty)
+}
+
+/// Input type of a closure passed to a project fn/method (`@cparam(name;arg;pos;m|f)`): the one
+/// concrete type every same-named candidate declares for it. A candidate with a different, generic
+/// or unreadable input, or one that might take a closure we cannot read, leaves it untyped.
+fn closure_param_type(spec: &str, idx: &Index) -> Option<String> {
+    let mut it = spec.split(';');
+    let name = it.next()?;
+    let at: usize = it.next()?.parse().ok()?;
+    let pos: usize = it.next()?.parse().ok()?;
+    let method = it.next()? == "m";
+    let mut ty: Option<&String> = None;
+    for c in idx.global_by_name.get(name)? {
+        if idx.methods.contains(c.as_str()) != method {
+            continue;
+        }
+        let slots = idx.fn_args.get(c.as_str()).into_iter().flatten();
+        for (_, inputs) in slots.filter(|(i, _)| *i == at) {
+            let t = inputs.as_ref()?.get(pos)?;
+            if t == "_" || ty.is_some_and(|prev| prev != t) {
+                return None;
+            }
+            ty = Some(t);
+        }
+    }
+    let ty = ty?;
+    idx.type_names
+        .contains(auto_deref(ty, idx))
+        .then(|| ty.clone())
 }
 
 /// A hint whose type is a generic parameter (`W`, `I::Item`) or the unmodelled `Item` of a project
@@ -1680,6 +1725,24 @@ fn fill_fields(
             store.remove_edge(&NodeId(from), &NodeId(to), &calls)?;
             continue;
         }
+        if let Some((_, spec)) = to.rsplit_once(FNARG_MARK) {
+            if let Some((i, tys)) = spec
+                .split_once(':')
+                .and_then(|(i, t)| Some((i.parse().ok()?, t)))
+            {
+                let inputs = match tys {
+                    "?" => None,
+                    "" => Some(Vec::new()),
+                    t => Some(t.split(';').map(str::to_string).collect()),
+                };
+                idx.fn_args
+                    .entry(from.clone())
+                    .or_default()
+                    .push((i, inputs));
+            }
+            store.remove_edge(&NodeId(from), &NodeId(to), &calls)?;
+            continue;
+        }
         if let Some((path, base)) = to.rsplit_once(ALIAS_MARK) {
             if let Some(name) = path.rsplit("::").next() {
                 idx.alias_wrappers
@@ -1897,7 +1960,11 @@ pub(crate) fn build_call_graph_in(store: &Store, units: Option<&Units>) -> Resul
         }
         let from_str = row.first().map(unquote_datavalue).unwrap_or_default();
         let raw_to = row.get(1).map(unquote_datavalue).unwrap_or_default();
-        if raw_to.contains(FIELD_MARK) || raw_to.contains(RET_MARK) || raw_to.contains(ALIAS_MARK) {
+        if raw_to.contains(FIELD_MARK)
+            || raw_to.contains(RET_MARK)
+            || raw_to.contains(ALIAS_MARK)
+            || raw_to.contains(FNARG_MARK)
+        {
             continue;
         }
         let (to_str, value, self_method, method, hint) = parse_target(&raw_to);

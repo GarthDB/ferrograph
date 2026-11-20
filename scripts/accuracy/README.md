@@ -173,14 +173,14 @@ intervals, and the list is a candidate list, not a verdict. The 6 default ones w
 - **egui `PassState::begin_pass`:** the receiver goes through a one-argument map alias defined in another file (`ViewportIdMap<V>`, #241).
 - **xilem `AnyPod::as_mut`:** the receiver is the generic return of `VecSplice<T>::mutate` (#242).
 
-Strict mode has 36 (ratatui 7, egui 22, iced 0, xilem 3, cursive 4); iced's 6 strict reports are `cfg`-gated `examples/todos` items (policy, not judgeable). The other strict items were not read.
+Strict mode has 20 (ratatui 7, egui 6, iced 0, xilem 3, cursive 4); iced's 6 strict reports are `cfg`-gated `examples/todos` items (policy, not judgeable). The other strict items were not read.
 
 How the 35 default ones went (6.2.1 to now): egui `assert_send_sync`, a `const fn` declared and called inside `const _: () = { .. };` (8, #218); cursive `find_closest_pair`
 called as `super::find_closest_pair(..)` from a same-named wrapper in a child module (2, #219); iced `Content`/`TitleBar` methods called on a receiver bound by a closure or
 zip/tuple pattern, because `zip` was not modelled and the lone same-file method of the same name was linked instead (11, #220/#236); iced `error_list` in
 `#[error("..", error_list(.0))]` (#243); locals bound by struct patterns (`Self::Ready { controls, .. }`; #244), an `if` expression (#245) and an `IntMap` field (#246); the remaining unlooked-at items
 (egui `id`/`ui`/`set_options`, iced `update`/`draw`) were instances of these. Strict-only fixes: `iter().enumerate()` (#251), `Self::Assoc` types (#252), inherent over trait methods (#253, #255),
-`impl Iterator<Item = T>` parameters (#256), same-named types in several modules (#257).
+`impl Iterator<Item = T>` parameters (#256), same-named types in several modules (#257), closure parameters typed from a concrete `Fn*` parameter of the callee (#273; egui 19 to 6, the `ContextImpl` methods reached through `Context::write`/`read`).
 
 **Harness self-check.** The harness's model of `dead` matches the CLI on all five corpora at the measured head (diff 0 in both modes). It did not at 8.0.0: egui was off by 8 (the model lacked the `const _: () = { .. };` root, #261) and cursive by 1 (`rgb`, the symlinked directory indexed twice, #263).
 
