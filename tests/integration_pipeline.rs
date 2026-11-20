@@ -747,6 +747,26 @@ fn pipeline_map_entry_and_alias_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["entry_direct", "entry_alias", "alias_get"]);
 }
 
+/// A closure passed to a project fn whose `Fn*` parameter has concrete input types is typed from them (#273).
+/// Same-named callees that disagree on the input leave it untyped.
+#[test]
+fn pipeline_closure_params_typed_from_concrete_callee_signature() {
+    let store = run_fixture("closure_concrete_params");
+    let tags = tagged_lines("closure_concrete_params", "src/lib.rs");
+    let dead = dead_lines(&store, true, "src/lib.rs");
+    for live in ["live_impl_foo", "live_impl_val"] {
+        assert!(!dead.contains(&tags[live]), "{live}");
+    }
+    for conflicting in [
+        "dead_impl_bar",
+        "dead_other_bar",
+        "dead_impl_baz",
+        "dead_other_baz",
+    ] {
+        assert!(dead.contains(&tags[conflicting]), "{conflicting}");
+    }
+}
+
 #[test]
 fn pipeline_try_operator_receivers_resolve_to_their_type() {
     assert_pattern_receivers_resolved(&["try_option", "try_result", "map_path"]);

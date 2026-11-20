@@ -234,6 +234,7 @@ fn traverse(
             }
             push_return_type_owns_or_borrows_edge(&id, &node, source, file_id, edges);
             push_return_hint_edge(&id, &node, source, file_id, edges);
+            push_closure_param_edges(&id, &node, source, file_id, edges);
         }
         if kind == "const_item" || kind == "static_item" {
             push_const_roots(&id, &node, source, edges);
@@ -1421,6 +1422,171 @@ fn push_return_hint_edge(
     }
 }
 
+/// What a parameter type can take a closure as.
+enum ClosureSlot<'a> {
+    /// `impl Fn*(..)`, `F: Fn*(..)`, `Box<dyn Fn*(..)>`: the `Fn*(..)` bound.
+    Fn(tree_sitter::Node<'a>),
+    /// A generic or `impl`/`dyn` trait that might still accept a closure.
+    Maybe,
+    /// A concrete type no closure literal can be passed for.
+    No,
+}
+
+/// The first `Fn`/`FnMut`/`FnOnce(..)` bound inside `n`.
+fn find_fn_bound<'a>(n: tree_sitter::Node<'a>, source: &str) -> Option<tree_sitter::Node<'a>> {
+    if n.kind() == "function_type"
+        && n.child_by_field_name("trait")
+            .and_then(|t| source.get(t.byte_range()))
+            .is_some_and(|t| matches!(t, "Fn" | "FnMut" | "FnOnce"))
+    {
+        return Some(n);
+    }
+    let mut c = n.walk();
+    let found = n.children(&mut c).find_map(|ch| find_fn_bound(ch, source));
+    found
+}
+
+fn closure_slot<'a>(
+    ty: tree_sitter::Node<'a>,
+    func: &tree_sitter::Node<'a>,
+    generics: &[String],
+    source: &str,
+) -> ClosureSlot<'a> {
+    match ty.kind() {
+        "abstract_type" | "dynamic_type" => {
+            find_fn_bound(ty, source).map_or(ClosureSlot::Maybe, ClosureSlot::Fn)
+        }
+        "reference_type" => ty
+            .child_by_field_name("type")
+            .map_or(ClosureSlot::No, |t| closure_slot(t, func, generics, source)),
+        "generic_type"
+            if matches!(
+                plain_type_name(&ty, source).as_deref(),
+                Some("Box" | "Rc" | "Arc")
+            ) =>
+        {
+            let arg = ty
+                .child_by_field_name("type_arguments")
+                .and_then(|a| a.named_child(0));
+            arg.map_or(ClosureSlot::No, |t| closure_slot(t, func, generics, source))
+        }
+        "type_identifier" => {
+            let name = source.get(ty.byte_range()).unwrap_or_default();
+            if !generics.iter().any(|g| g == name) {
+                return ClosureSlot::No;
+            }
+            let mut c = func.walk();
+            let where_clause = func.children(&mut c).find(|c| c.kind() == "where_clause");
+            let mut preds = Vec::new();
+            for list in [func.child_by_field_name("type_parameters"), where_clause]
+                .into_iter()
+                .flatten()
+            {
+                let mut c = list.walk();
+                preds.extend(list.named_children(&mut c));
+            }
+            preds
+                .into_iter()
+                .filter(|p| {
+                    p.child_by_field_name("left")
+                        .or_else(|| p.child_by_field_name("name"))
+                        .and_then(|l| source.get(l.byte_range()))
+                        == Some(name)
+                })
+                .find_map(|p| find_fn_bound(p.child_by_field_name("bounds")?, source))
+                .map_or(ClosureSlot::Maybe, ClosureSlot::Fn)
+        }
+        _ => ClosureSlot::No,
+    }
+}
+
+/// Names of the generic parameters of a function and of its enclosing impl or trait.
+fn generic_names(func: &tree_sitter::Node, source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut scope = Some(*func);
+    while let Some(n) = scope {
+        if matches!(n.kind(), "function_item" | "impl_item" | "trait_item") {
+            if let Some(list) = n.child_by_field_name("type_parameters") {
+                let mut c = list.walk();
+                for p in list.named_children(&mut c) {
+                    let name = p
+                        .child_by_field_name("left")
+                        .or_else(|| p.child_by_field_name("name"))
+                        .unwrap_or(p);
+                    names.extend(source.get(name.byte_range()).map(str::to_string));
+                }
+            }
+        }
+        scope = n.parent();
+    }
+    names
+}
+
+/// Temporary `Calls` edges from a function to `file::@fnarg:IDX:T0;T1` for each parameter (not
+/// counting `self`) that takes a closure: `Ti` is the concrete type of the closure's `i`-th input,
+/// `_` when it is not concrete (mentions a generic parameter, `Self`, `impl`/`dyn`) or not plain.
+/// `@fnarg:IDX:?` marks a parameter that might take a closure we cannot read. Consumed by the calls
+/// phase to type closure parameters (see `calls::FNARG_MARK`).
+fn push_closure_param_edges(
+    function_id: &NodeId,
+    node: &tree_sitter::Node,
+    source: &str,
+    file_id: &NodeId,
+    edges: &mut Vec<(NodeId, NodeId, EdgeType)>,
+) {
+    let Some(params) = node.child_by_field_name("parameters") else {
+        return;
+    };
+    let generics = generic_names(node, source);
+    let mut c = params.walk();
+    let typed = params
+        .named_children(&mut c)
+        .filter(|p| p.kind() == "parameter")
+        .enumerate();
+    for (i, p) in typed {
+        let Some(ty) = p.child_by_field_name("type") else {
+            continue;
+        };
+        let spec = match closure_slot(ty, node, &generics, source) {
+            ClosureSlot::No => continue,
+            ClosureSlot::Maybe => "?".to_string(),
+            ClosureSlot::Fn(ft) => {
+                let Some(inputs) = ft.child_by_field_name("parameters") else {
+                    continue;
+                };
+                let mut c = inputs.walk();
+                let tys: Vec<String> = inputs
+                    .named_children(&mut c)
+                    .map(|t| {
+                        let text = source.get(t.byte_range()).unwrap_or_default();
+                        let generic = text
+                            .split(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
+                            .any(|w| w == "Self" || w == "impl" || w == "dyn" || w == "_")
+                            || text
+                                .split(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
+                                .any(|w| generics.iter().any(|g| g == w));
+                        if generic {
+                            "_".to_string()
+                        } else {
+                            type_repr(&t, source).unwrap_or_else(|| "_".to_string())
+                        }
+                    })
+                    .collect();
+                tys.join(";")
+            }
+        };
+        edges.push((
+            function_id.clone(),
+            NodeId::new(format!(
+                "{}::{}{i}:{spec}",
+                file_id.as_str(),
+                super::calls::FNARG_MARK
+            )),
+            EdgeType::Calls,
+        ));
+    }
+}
+
 /// `type Item = T;` inside `impl Iterator for X`: a temporary `@ret:T` edge from the impl, read by the
 /// calls phase as "iterating an `X` yields `T`" (#91).
 fn push_iterator_item_edge(
@@ -2033,19 +2199,31 @@ fn closure_param_hint(
         .position(|c| c == *param)?;
     let args = closure.parent().filter(|a| a.kind() == "arguments")?;
     let call = args.parent().filter(|c| c.kind() == "call_expression")?;
-    let callee = call
-        .child_by_field_name("function")
-        .filter(|f| f.kind() == "field_expression")?;
-    let method = source.get(callee.child_by_field_name("field")?.byte_range())?;
-    let (arg_pos, elem_params) = closure_elem_params(method)?;
+    let callee = call.child_by_field_name("function")?;
     let at = args
         .named_children(&mut args.walk())
         .position(|c| c == *closure)?;
-    if at != arg_pos || !elem_params.contains(&pos) {
-        return None;
+    let (name, kind) = match callee.kind() {
+        "field_expression" => (callee.child_by_field_name("field")?, 'm'),
+        "identifier" => (callee, 'f'),
+        _ => return None,
+    };
+    let name = source.get(name.byte_range())?;
+    let elem = closure_elem_params(name).filter(|_| kind == 'm');
+    if let Some((arg_pos, elem_params)) = elem {
+        if at != arg_pos || !elem_params.contains(&pos) {
+            return None;
+        }
+        let recv = expr_hint(&callee.child_by_field_name("value")?, source)?;
+        return pattern_hint(param, id, Some(format!("{recv}.[]")), source);
     }
-    let recv = expr_hint(&callee.child_by_field_name("value")?, source)?;
-    pattern_hint(param, id, Some(format!("{recv}.[]")), source)
+    // A project fn/method taking `impl Fn(&mut T)`: the input type of that parameter (`calls::eval_hint`).
+    pattern_hint(
+        param,
+        id,
+        Some(format!("@cparam({name};{at};{pos};{kind})")),
+        source,
+    )
 }
 
 /// Type recipe of the local bound at `id` (see `expr_hint`).
