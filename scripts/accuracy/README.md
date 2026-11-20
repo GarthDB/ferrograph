@@ -169,9 +169,9 @@ Genuine disagreements per corpus (default): ratatui 0, egui 1, iced 2, xilem 1, 
 intervals, and the list is a candidate list, not a verdict. The 6 default ones were each read and traced to a cause:
 
 - **iced `Content::diff`, `TitleBar::diff`:** called in a closure passed to `diff_children_custom`, whose parameter type comes from the callee's signature (#237, a known won't-fix: this is the only affected call site across the 29 pinned corpora).
-- **cursive `CursiveRoot::layout`, `draw`:** called through `C: BorrowMut<Cursive>` in `CursiveRunner<C>` (#238).
-- **egui `PassState::begin_pass`:** the receiver goes through a one-argument map alias defined in another file (`ViewportIdMap<V>`, #241).
-- **xilem `AnyPod::as_mut`:** the receiver is the generic return of `VecSplice<T>::mutate` (#242).
+- **cursive `CursiveRoot::layout`, `draw`:** called through `C: BorrowMut<Cursive>` in `CursiveRunner<C>` (#238, since fixed).
+- **egui `PassState::begin_pass`:** the receiver goes through a one-argument map alias defined in another file (`ViewportIdMap<V>`, #241, since fixed).
+- **xilem `AnyPod::as_mut`:** the receiver is the generic return of `VecSplice<T>::mutate` (#242, since fixed).
 
 Strict mode has 20 (ratatui 7, egui 6, iced 0, xilem 3, cursive 4); iced's 6 strict reports are `cfg`-gated `examples/todos` items (policy, not judgeable). The other strict items were not read.
 
