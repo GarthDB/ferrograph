@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.1.0](https://github.com/GarthDB/ferrograph/compare/v8.0.2...v8.1.0) - 2026-11-20
+
+### Added
+
+- *(calls)* type closure parameters from a concrete callee Fn* parameter signature ([#273](https://github.com/GarthDB/ferrograph/pull/273)) ([#275](https://github.com/GarthDB/ferrograph/pull/275))
+
+### Other
+
+- README no longer lists fixed false-positive causes ([#276](https://github.com/GarthDB/ferrograph/pull/276))
+- #237 is a known won't-fix ([#272](https://github.com/GarthDB/ferrograph/pull/272))
+
 ## [8.0.2](https://github.com/GarthDB/ferrograph/compare/v8.0.1...v8.0.2) - 2026-11-19
 
 ### Other
